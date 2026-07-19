@@ -114,10 +114,25 @@ public:
     display.setColor(DisplayDriver::LIGHT);
 #if defined(MECK_TWATCH)
     display.setTextSize(1);  // 240x240: size 2 overflows the 120px virtual width and wraps
+    // If the version string is too wide, split at the last space so the
+    // version number lands cleanly on its own line instead of wrapping
+    // mid-token, e.g. "Meck TWatch S3 BLE" / "v0.3"
+    const char* sp = strrchr(_version_info, ' ');
+    if (sp && display.getTextWidth(_version_info) > display.width()) {
+      char name_part[24];
+      int name_len = sp - _version_info;
+      if (name_len >= (int)sizeof(name_part)) name_len = sizeof(name_part) - 1;
+      memcpy(name_part, _version_info, name_len);
+      name_part[name_len] = 0;
+      display.drawTextCentered(display.width()/2, 22, name_part);
+      display.drawTextCentered(display.width()/2, 32, sp + 1);
+    } else {
+      display.drawTextCentered(display.width()/2, 22, _version_info);
+    }
 #else
     display.setTextSize(2);
-#endif
     display.drawTextCentered(display.width()/2, 22, _version_info);
+#endif
 
     display.setTextSize(1);
     display.drawTextCentered(display.width()/2, 42, FIRMWARE_BUILD_DATE);
@@ -634,7 +649,7 @@ public:
       display.setTextSize(_node_prefs->smallTextSize());
 #if   defined(MECK_TWATCH)
       display.drawTextCentered(display.width() / 2, display.height() - 24,
-                               "Long Press:Full Last Heard List");
+                               "Long Press: Full Last Heard List");
 #else
       display.drawTextCentered(display.width() / 2, display.height() - 24,
                                "H: Full Last Heard list");
