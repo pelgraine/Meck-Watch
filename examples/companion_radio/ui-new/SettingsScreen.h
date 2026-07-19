@@ -302,6 +302,10 @@ private:
   // T5S3: signal UITask to open VKB when entering text edit mode
   bool _needsTextVKB;
   bool _wantsWatchChannels;   // Watch: hand off to WatchChannelConfigScreen (polled by UITask)
+  bool _wantsKb;              // Watch: open the touch keyboard for the selected text row (polled by UITask)
+#if defined(MECK_TWATCH)
+  char _kbInitText[40] = "";  // initial text handed to the touch keyboard for the row being edited
+#endif
 #if defined(MECK_TWATCH)
   // Selected-row ticker (marquee for rows wider than the screen), mirroring
   // TWatchChannelScreen: 20 ms/px, 24 px gap between the looping copies.
@@ -640,7 +644,7 @@ public:
       _editMode(EDIT_NONE), _editPos(0), _editPickerIdx(0),
       _editFloat(0), _editInt(0), _fontPickerOriginal(0), _confirmAction(0),
       _onboarding(false), _subScreen(SUB_NONE), _savedTopCursor(0),
-      _radioChanged(false), _needsTextVKB(false), _wantsWatchChannels(false) {
+      _radioChanged(false), _needsTextVKB(false), _wantsWatchChannels(false), _wantsKb(false) {
     memset(_editBuf, 0, sizeof(_editBuf));
     #ifdef HAS_SDCARD
     _savedExportCursor = 0;
@@ -816,6 +820,29 @@ public:
   void clearTextNeedsVKB() { _needsTextVKB = false; }
   bool wantsWatchChannels() const { return _wantsWatchChannels; }
   void clearWantsWatchChannels() { _wantsWatchChannels = false; }
+#if defined(MECK_TWATCH)
+  // Watch touch-keyboard bridge for text rows (Name, Default Region,
+  // Frequency, Add Channel).
+  bool wantsKeyboard() const { return _wantsKb; }
+  void clearWantKeyboard() { _wantsKb = false; }
+  const char* getKbInitialText() const { return _kbInitText; }
+  bool isOnDefaultRegionRow() const {
+    return _cursor >= 0 && _cursor < _numRows && _rows[_cursor].type == ROW_DEFAULT_SCOPE;
+  }
+  // Apply keyboard-composed text to the selected row through the normal
+  // startEditText + submitEditText commit path, so all side effects (bounds,
+  // savePrefs, scope key derivation, empty-region-clears, freq constrain,
+  // createChannel) match inline edits. The startEditText initial is
+  // irrelevant here -- submitEditText replaces the buffer before commit.
+  bool applyComposedField(const char* text) {
+    SettingsRowType t = _rows[_cursor].type;
+    if (t != ROW_NAME && t != ROW_DEFAULT_SCOPE &&
+        t != ROW_FREQ && t != ROW_ADD_CHANNEL) return false;  // row changed underneath
+    startEditText("");
+    submitEditText(text ? text : "");
+    return true;
+  }
+#endif
   const char* getEditBuf() const { return _editBuf; }
   SettingsRowType getCurrentRowType() const { return _rows[_cursor].type; }
   void submitEditText(const char* text) {
@@ -3140,16 +3167,27 @@ public:
       SettingsRowType type = _rows[_cursor].type;
       switch (type) {
         case ROW_NAME:
+#if defined(MECK_TWATCH)
+          strncpy(_kbInitText, _prefs->node_name, sizeof(_kbInitText) - 1);
+          _kbInitText[sizeof(_kbInitText) - 1] = '\0';
+          _wantsKb = true;   // UITask::loop() polls and opens the touch keyboard
+#else
           startEditText(_prefs->node_name);
+#endif
           break;
         case ROW_RADIO_PRESET:
           startEditPicker(max(0, detectCurrentPreset()));
           break;
         case ROW_FREQ: {
           // Use text input so user can type exact frequencies like 916.575
+#if defined(MECK_TWATCH)
+          snprintf(_kbInitText, sizeof(_kbInitText), "%.3f", _prefs->freq);
+          _wantsKb = true;   // UITask::loop() polls and opens the touch keyboard
+#else
           char freqStr[16];
           snprintf(freqStr, sizeof(freqStr), "%.3f", _prefs->freq);
           startEditText(freqStr);
+#endif
           break;
         }
         case ROW_BW:
@@ -3311,7 +3349,12 @@ public:
           break;
 
         case ROW_ADD_CHANNEL:
+#if defined(MECK_TWATCH)
+          _kbInitText[0] = '\0';
+          _wantsKb = true;   // UITask::loop() polls and opens the touch keyboard
+#else
           startEditText("");
+#endif
           break;
 
         #ifdef MECK_OTA_UPDATE
@@ -3390,7 +3433,13 @@ public:
           break;
         }
         case ROW_DEFAULT_SCOPE:
+#if defined(MECK_TWATCH)
+          strncpy(_kbInitText, _prefs->default_scope_name, sizeof(_kbInitText) - 1);
+          _kbInitText[sizeof(_kbInitText) - 1] = '\0';
+          _wantsKb = true;   // UITask::loop() polls and opens the touch keyboard
+#else
           startEditText(_prefs->default_scope_name);
+#endif
           break;
         case ROW_PUB_KEY:
         case ROW_FIRMWARE:

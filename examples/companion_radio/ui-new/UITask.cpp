@@ -1950,6 +1950,13 @@ if (curr) curr->poll();
         kb->clearOutBuf();
         if (trace_screen) setCurrScreen(trace_screen);
         else gotoHomeScreen();
+      } else if (purpose == TWatchKeyboardScreen::TWKB_SETTING) {
+        SettingsScreen* ss = (SettingsScreen*)settings_screen;
+        bool applied = ss ? ss->applyComposedField(sendText) : false;
+        kb->clearOutBuf();
+        if (settings_screen) setCurrScreen(settings_screen);
+        else gotoHomeScreen();
+        if (!applied) showAlert("Not applied", 1200);
       } else {  // TWKB_ADMIN_PASSWORD or TWKB_ADMIN_CLI
         RepeaterAdminScreen* admin = (RepeaterAdminScreen*)getRepeaterAdminScreen();
         if (admin) {
@@ -2000,6 +2007,11 @@ if (curr) curr->poll();
   }
   else if (curr == settings_screen && settings_screen != nullptr) {
     SettingsScreen* ss = (SettingsScreen*)settings_screen;
+    if (ss->wantsKeyboard()) {
+      ss->clearWantKeyboard();
+      openTWatchKeyboard(TWatchKeyboardScreen::TWKB_SETTING, 0);
+      ((TWatchKeyboardScreen*)tw_keyboard)->setInitialText(ss->getKbInitialText());
+    }
     if (ss->wantsWatchChannels()) {
       ss->clearWantsWatchChannels();
       if (watch_channel_cfg_screen) {

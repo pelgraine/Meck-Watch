@@ -651,7 +651,14 @@ static void lastHeardToggleContact() {
           ui_task.forceRefresh();
           return 0;  // Moved cursor — just refresh, don't activate
         }
-        if (result == 2) return KEY_ENTER;  // Tapped same row — activate
+        if (result == 2) {
+#if defined(MECK_TWATCH)
+          // Default Region is too easy to hit by accident -- require a long
+          // press to edit it. A tap just keeps the row selected.
+          if (ss->isOnDefaultRegionRow()) return 0;
+#endif
+          return KEY_ENTER;  // Tapped same row — activate
+        }
       }
       return KEY_ENTER;  // Editing mode or header/footer tap
     }
@@ -1800,11 +1807,3 @@ void loop() {
 #endif
 }
 
-// ============================================================================
-// T-DECK PRO KEYBOARD FUNCTIONS
-// ============================================================================
-
-
-// ============================================================================
-// CARDKB COMPOSE FUNCTIONS (T-Echo Lite)
-// ============================================================================

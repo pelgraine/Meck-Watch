@@ -62,6 +62,7 @@ class TWatchChannelPicker : public UIScreen {
   // touch edge state
   bool          _touchDown;
   int           _downX, _downY;
+  int           _lastY;          // updated while the finger is down, for swipe detection
   unsigned long _downAt;
 
   // cross-screen flags (UITask polls these)
@@ -107,7 +108,7 @@ public:
   TWatchChannelPicker(DisplayDriver* display)
     : _display(display), _numChannels(0), _highlighted(0), _scrollTop(0),
       _store(nullptr),
-      _touchDown(false), _downX(0), _downY(0), _downAt(0),
+      _touchDown(false), _downX(0), _downY(0), _lastY(0), _downAt(0),
       _confirmed(false), _wantsExit(false) {
     memset(_channels, 0, sizeof(_channels));
   }
@@ -143,9 +144,18 @@ public:
     int x, y;
     bool now = ((LGFXDisplay*)_display)->getTouch(&x, &y);
     if (now && !_touchDown) {
-      _touchDown = true; _downX = x; _downY = y; _downAt = millis();
+      _touchDown = true; _downX = x; _downY = y; _lastY = y; _downAt = millis();
+    } else if (now) {
+      _lastY = y;                                    // track the drag
     } else if (!now && _touchDown) {
       _touchDown = false;
+      // Vertical swipe scrolls the list (matches TOUCH_SWIPE_THRESHOLD=16 on
+      // the watch). Checked first so a slow drag never confirms or exits.
+      int dy = _lastY - _downY;
+      if (abs(dy) >= 16) {
+        if (dy > 0) moveDown(); else moveUp();       // swipe down = selection down
+        return;
+      }
       unsigned long held = millis() - _downAt;
       if (_downX < 20 && _downY < HEADER_H) { _wantsExit = true; return; }   // back arrow
       int row = rowAtY(_downY);
@@ -560,7 +570,7 @@ class TWatchKeyboardScreen : public UIScreen {
   uint8_t  _channelIdx;
 
 public:
-  enum Purpose { TWKB_CHANNEL, TWKB_DM, TWKB_ADMIN_PASSWORD, TWKB_ADMIN_CLI, TWKB_PATH, TWKB_NOTE, TWKB_SCOPE, TWKB_TRACE_PATH };
+  enum Purpose { TWKB_CHANNEL, TWKB_DM, TWKB_ADMIN_PASSWORD, TWKB_ADMIN_CLI, TWKB_PATH, TWKB_NOTE, TWKB_SCOPE, TWKB_TRACE_PATH, TWKB_SETTING };
 
 private:
   Purpose  _purpose;
