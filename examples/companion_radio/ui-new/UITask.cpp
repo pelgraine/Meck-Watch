@@ -634,7 +634,7 @@ public:
       display.setTextSize(_node_prefs->smallTextSize());
 #if   defined(MECK_TWATCH)
       display.drawTextCentered(display.width() / 2, display.height() - 24,
-                               "Long Press: Full Last Heard List");
+                               "Long Press:Full Last Heard List");
 #else
       display.drawTextCentered(display.width() / 2, display.height() - 24,
                                "H: Full Last Heard list");

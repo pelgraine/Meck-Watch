@@ -97,9 +97,16 @@ public:
 
     if (count == 0) {
       display.setColor(DisplayDriver::LIGHT);
-      display.setCursor(4, 28);
-      display.print(active ? "Listening for adverts..." : "No nodes found");
 #if defined(MECK_TWATCH)
+      if (active) {
+        display.setCursor(4, 28);
+        display.print("Listening for");
+        display.setCursor(4, 38);
+        display.print("adverts...");
+      } else {
+        display.setCursor(4, 28);
+        display.print("No nodes found");
+      }
       display.setCursor(4, 48);
       display.print("Hold: Rescan");
       display.setCursor(4, 58);
