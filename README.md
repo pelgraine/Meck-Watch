@@ -1,8 +1,13 @@
 ## Meshcore + Fork = Meck (T-Watch Edition)
 
-A MeshCore companion-radio firmware for the **LilyGo T-Watch S3** and **T-Watch S3 Plus** — wrist-worn, touch-first mesh nodes. This is the watch-only build of Meck; the multi-device Meck firmware (T-Deck Pro, T-Deck Max, T5S3 E-Paper Pro, Heltec repeaters) lives in the [main Meck repository](https://github.com/pelgraine/Meck). Created with Claude AI on MeshCore v1.11 code.
+A fork created specifically to focus on enabling BLE & standalone Meshcore companion firmware for the **LilyGo T-Watch S3** and **T-Watch S3 Plus**. This is the watch-only build of Meck; the multi-device Meck firmware (T-Deck Pro, T-Deck Max, T5S3 E-Paper Pro, Heltec repeaters) lives in the [main Meck repository](https://github.com/pelgraine/Meck). 100% vibecoded. Created with Claude AI on MeshCore v1.11 code.
 
 [Check out the Meck discussion channel on the MeshCore Discord](https://discord.com/channels/1495203904898728149/1496789639556501614)
+
+<img width="240" height="250" alt="IMG_3813" src="https://github.com/user-attachments/assets/291cc13c-b437-48ca-8f7b-26b488494c22" />
+<img width="250" height="250" alt="IMG_3814" src="https://github.com/user-attachments/assets/69ad1500-b7a6-4a2e-a13d-9e298f0d7a6a" />
+<img width="250" height="250" alt="IMG_3817" src="https://github.com/user-attachments/assets/9b802bce-959a-41e9-81b4-2845a979f6d6" />
+
 
 ### Contents
 - [Supported Devices](#supported-devices)
