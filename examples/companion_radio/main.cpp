@@ -709,8 +709,30 @@
 // =============================================================================
 
 // Define MECK_TOUCH_ENABLED for any platform with touch support
-#if defined(LilyGo_T5S3_EPaper_Pro) || (defined(LilyGo_TDeck_Pro) && defined(HAS_TOUCHSCREEN))
+#if defined(LilyGo_T5S3_EPaper_Pro) || (defined(LilyGo_TDeck_Pro) && defined(HAS_TOUCHSCREEN)) || defined(MECK_TWATCH)
   #define MECK_TOUCH_ENABLED 1
+#endif
+
+// --- T-Watch S3 Plus: screen headers for the touch UI ---
+// The watch needs the same concrete screen types as the gesture machine casts
+// to, but none of the T5S3/T-Deck hardware baggage (GT911, SD, TCA8418 keyboard).
+#if defined(MECK_TWATCH)
+  #include "TextReaderScreen.h"
+  #include "NotesScreen.h"
+  #include "ContactsScreen.h"
+  #include "ChannelScreen.h"
+  #include "ChannelPickerScreen.h"
+  #include "MeckExport.h"
+  #include "MeckImport.h"
+  #include "SettingsScreen.h"
+  #include "RepeaterAdminScreen.h"
+  #include "DiscoveryScreen.h"
+  #include "LastHeardScreen.h"
+  #include "PathEditorScreen.h"
+  #include "Tracescreen.h"
+  #include "GamesMenuScreen.h"
+  #include "SnakeScreen.h"
+  #include "MinesweeperScreen.h"
 #endif
 
 // --- T5S3: GT911 capacitive touch driver ---
@@ -879,6 +901,8 @@
   #define TOUCH_LONG_PRESS_MS  750
   #if defined(LilyGo_T5S3_EPaper_Pro)
     #define TOUCH_SWIPE_THRESHOLD 60   // T5S3: 960×540 — 60px ≈ 6% of width
+  #elif defined(MECK_TWATCH)
+    #define TOUCH_SWIPE_THRESHOLD 16   // Watch: getTouch() returns 0..119 (240px/UI_ZOOM); 16 is ~13% of width
   #else
     #define TOUCH_SWIPE_THRESHOLD 30   // T-Deck Pro: 240×320 — 30px ≈ 12.5% of width
   #endif
@@ -915,6 +939,18 @@
     }
   #elif defined(LilyGo_TDeck_Pro)
     return touchInput.getPoint(*outX, *outY);
+  #elif defined(MECK_TWATCH)
+    {
+      // FT6336U is read through the LovyanGFX panel backing the display.
+      // display.getTouch() returns coordinates already divided by UI_ZOOM.
+      int tx, ty;
+      if (display.getTouch(&tx, &ty)) {
+        *outX = (int16_t)tx;
+        *outY = (int16_t)ty;
+        return true;
+      }
+      return false;
+    }
   #else
     return false;
   #endif
@@ -928,6 +964,11 @@
   #elif defined(LilyGo_TDeck_Pro)
     float sx = (float)EINK_WIDTH / 128.0f;   // 240/128 = 1.875
     float sy = (float)EINK_HEIGHT / 128.0f;   // 320/128 = 2.5
+  #elif defined(MECK_TWATCH)
+    // display.getTouch() already divides by UI_ZOOM, so px/py span the
+    // 240/UI_ZOOM logical canvas (0..119 at UI_ZOOM=2). Scale to 128 virtual.
+    float sx = (240.0f / UI_ZOOM) / 128.0f;
+    float sy = (240.0f / UI_ZOOM) / 128.0f;
   #endif
     vx = (int)(px / sx);
   #if defined(LilyGo_TDeck_Pro)
@@ -1017,6 +1058,9 @@ static uint32_t _atoi(const char* sp) {
   DataStore store(LittleFS, rtc_clock);
 #elif defined(ESP32)
   #include <SPIFFS.h>
+  #if defined(MECK_TWATCH)
+    #include <LittleFS.h>   // watch: dedicated 'maps' tiles partition
+  #endif
   DataStore store(SPIFFS, rtc_clock);
 #endif
 
@@ -1081,7 +1125,13 @@ static uint32_t _atoi(const char* sp) {
 /* GLOBAL OBJECTS */
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
-  #if HAS_GPS && !defined(LILYGO_TECHO_CARD)
+  #if defined(MECK_TWATCH)
+    #include "WatchNotesScreen.h"  // After UITask.h -- needs NodePrefs
+    #include "WatchChannelConfigScreen.h"  // After UITask.h -- needs NodePrefs, the_mesh
+  #endif
+  #if defined(MECK_TWATCH) && HAS_GPS
+    #include "WatchMapScreen.h"  // After BLE -- PNGdec headers conflict with BLE if included earlier
+  #elif HAS_GPS && !defined(LILYGO_TECHO_CARD)
     #include "MapScreen.h"  // After BLE -- PNGdec headers conflict with BLE if included earlier
   #endif
   UITask ui_task(&board, &serial_interface);
@@ -1298,7 +1348,15 @@ static void lastHeardToggleContact() {
 
     // Snake screen: tap = Enter (start / restart)
     if (ui_task.isOnSnakeScreen()) {
+#if defined(MECK_TWATCH)
+      // Watch: tap starts/restarts, or steers by tapping the up/down/left/right
+      // zone relative to the board centre while playing.
+      SnakeScreen* sk = (SnakeScreen*)ui_task.getSnakeScreen();
+      if (sk) sk->handleTap(x, y);
+      return 0;
+#else
       return '\r';
+#endif
     }
 
     // Minesweeper screen: tap = Enter (reveal cell / start / restart)
@@ -1306,6 +1364,49 @@ static void lastHeardToggleContact() {
       return '\r';
     }
 
+#if defined(MECK_TWATCH) && HAS_GPS
+    // Map screen: footer +/- buttons zoom; a tap in the map area recenters on
+    // GPS. (A top-strip tap is already handled above -> home.)
+    if (ui_task.isOnMapScreen()) {
+      WatchMapScreen* wms = (WatchMapScreen*)ui_task.getMapScreen();
+      if (wms) wms->handleTap(x, y);
+      return 0;
+    }
+#endif
+#if defined(MECK_TWATCH)
+    // Notes screen: list rows, view scroll zones and the footer are all tap
+    // targets, in the same logical coords as the alarm screen.
+    if (ui_task.isOnWatchNotesScreen()) {
+      WatchNotesScreen* wn = (WatchNotesScreen*)ui_task.getWatchNotesScreen();
+      if (wn) wn->handleTap(x, y);
+      return 0;
+    }
+    // Channel config screen: list rows, detail action rows and the footer are
+    // all tap targets, in the same logical coords as the alarm/notes screens.
+    if (ui_task.isOnWatchChannelConfigScreen()) {
+      WatchChannelConfigScreen* wc = (WatchChannelConfigScreen*)ui_task.getWatchChannelConfigScreen();
+      if (wc) wc->handleTap(x, y);
+      return 0;
+    }
+#endif
+#ifdef TWATCH_COMPOSE_ENABLED
+    // TWatch channel screen: touch is handled entirely in the screen's own
+    // poll() (ticker select, hop-overlay dismiss, compose bar). Do not
+    // synthesise keys here -- the hop-path overlay must open only on the
+    // physical button (PWR on the S3 / boot on the Plus), whose KEY_ENTER /
+    // KEY_NEXT arrive via a separate inject path.
+    if (ui_task.isOnTWatchChannelScreen()) {
+      return 0;
+    }
+#endif
+#if defined(MECK_TWATCH)
+    // Watch: tiles open on long-press and pages change on swipe, so a plain tap
+    // on any home page does nothing -- skip the T5S3 tile hit-test below (wrong
+    // geometry for the 2-column watch grid) and the left/right page cycling.
+    if (ui_task.isOnHomeScreen()) {
+      return 0;
+    }
+#endif
     // Home screen FIRST page: tile taps (virtual coordinate hit test)
     if (ui_task.isOnHomeScreen() && ui_task.isHomeShowingTiles()) {
       const int tileW = 40, tileH = 22, gapX = 1, gapY = 1;
@@ -1475,6 +1576,81 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnContactsScreen()) {
       ContactsScreen* cs = (ContactsScreen*)ui_task.getContactsScreen();
       if (cs) {
+#if defined(MECK_TWATCH)
+        if (cs->isActionOverlayOpen()) {
+          int btn = cs->actionOverlayButtonAtVY(vy);
+          if (btn == 0) {
+            // Open -- route by contact type (mirrors the pre-overlay long-press open)
+            cs->closeActionOverlay();
+            int idx = cs->getSelectedContactIdx();
+            uint8_t ctype = cs->getSelectedContactType();
+            if (idx >= 0 && ctype == ADV_TYPE_CHAT) {
+              if (ui_task.hasDMUnread(idx)) {
+                char cname[32];
+                cs->getSelectedContactName(cname, sizeof(cname));
+                ui_task.clearDMUnread(idx);
+                ui_task.gotoDMConversation(cname);
+                return 0;
+              }
+              ui_task.openTWatchKeyboard(1, idx);   // TWKB_DM
+              return 0;
+            } else if (idx >= 0 && ctype == ADV_TYPE_REPEATER) {
+              ui_task.gotoRepeaterAdmin(idx);
+              return 0;
+            } else if (idx >= 0 && ctype == ADV_TYPE_ROOM) {
+              ui_task.gotoRepeaterAdmin(idx);
+              return 0;
+            } else if (idx >= 0 && ui_task.hasDMUnread(idx)) {
+              char cname[32];
+              cs->getSelectedContactName(cname, sizeof(cname));
+              ui_task.clearDMUnread(idx);
+              ui_task.gotoDMConversation(cname);
+              return 0;
+            }
+            ui_task.forceRefresh();
+            return 0;
+          } else if (btn == 1) {
+            // Favourite -- flip flags bit 0 on the selected contact and persist
+            int idx = cs->getSelectedContactIdx();
+            if (idx >= 0) {
+              ContactInfo tmp;
+              if (the_mesh.getContactByIdx(idx, tmp)) {
+                ContactInfo* cp = the_mesh.lookupContactByPubKey(tmp.id.pub_key, PUB_KEY_SIZE);
+                if (cp) {
+                  cp->flags ^= 0x01;
+                  the_mesh.saveContacts();
+                  ui_task.showAlert((cp->flags & 0x01) ? "Favourited" : "Unfavourited", 1500);
+                }
+              }
+            }
+            cs->closeActionOverlay();
+            cs->invalidateCache();
+            ui_task.forceRefresh();
+            return 0;
+          } else if (btn == 2) {
+            // Delete -- remove the selected contact and persist
+            int idx = cs->getSelectedContactIdx();
+            if (idx >= 0) {
+              ContactInfo c;
+              if (the_mesh.getContactByIdx(idx, c)) {
+                if (the_mesh.removeContact(c)) {
+                  the_mesh.saveContacts();
+                  ui_task.showAlert("Contact deleted", 1500);
+                }
+              }
+            }
+            cs->closeActionOverlay();
+            cs->invalidateCache();
+            ui_task.forceRefresh();
+            return 0;
+          } else {
+            // Tap outside the buttons -- dismiss
+            cs->closeActionOverlay();
+            ui_task.forceRefresh();
+            return 0;
+          }
+        }
+#endif
         int result = cs->selectRowAtVY(vy);
         if (result == 1) {
           ui_task.forceRefresh();
@@ -1505,6 +1681,28 @@ static void lastHeardToggleContact() {
       }
       return 0;
     }
+
+#if defined(MECK_TWATCH)
+    // Trace screen (watch): tap to select row, tap same to activate. Mode row
+    // toggles 1/2-byte; Type Path opens the keyboard (handleInput -> wantsKeyboard).
+    // Guarded to the watch: selectRowAtVY uses the watch's 128-space coords, and
+    // T5S3/T-Deck keep their existing boot-button/keyboard trace handling.
+    if (ui_task.isOnTraceScreen()) {
+      TraceScreen* ts = (TraceScreen*)ui_task.getTraceScreen();
+      if (ts) {
+        int result = ts->selectRowAtVY(vy);
+        if (result == 1) {
+          ui_task.forceRefresh();
+          return 0;
+        }
+        if (result == 2) {
+          if (ts->isOnModeRow()) return 'd';   // toggle 1-byte / 2-byte
+          return KEY_ENTER;                     // Type Path / Add / Remove / Run / Exit / hop
+        }
+      }
+      return 0;
+    }
+#endif
 
     // Discovery screen: tap to select, tap same to add
     if (ui_task.isOnDiscoveryScreen()) {
@@ -1540,6 +1738,16 @@ static void lastHeardToggleContact() {
     // Settings screen: tap to select row, tap same row to activate
     if (ui_task.isOnSettingsScreen()) {
       SettingsScreen* ss = (SettingsScreen*)ui_task.getSettingsScreen();
+#if defined(MECK_TWATCH)
+      // Watch: while editing UTC offset, path hash size, or TX power, tap the
+      // upper half to increment and the lower half to decrement. Long-press saves.
+      if (ss && ss->isEditing() &&
+          (ss->getCurrentRowType() == ROW_UTC_OFFSET ||
+           ss->getCurrentRowType() == ROW_PATH_HASH_SIZE ||
+           ss->getCurrentRowType() == ROW_TX_POWER)) {
+        return (vy < 64) ? 'w' : 's';
+      }
+#endif
       if (ss && !ss->isEditing()) {
         int result = ss->selectRowAtVY(vy);
         if (result == 1) {
@@ -1557,6 +1765,28 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnSMSScreen()) return 0;
     #endif
 
+#if defined(MECK_TWATCH)
+    // Repeater admin (watch): tap selects a menu row (tap again = activate);
+    // param entry opens the keyboard for the value.
+    if (ui_task.isOnRepeaterAdmin()) {
+      RepeaterAdminScreen* admin = (RepeaterAdminScreen*)ui_task.getRepeaterAdminScreen();
+      if (admin) {
+        RepeaterAdminScreen::AdminState astate = admin->getState();
+        if (astate == RepeaterAdminScreen::STATE_CATEGORY_MENU ||
+            astate == RepeaterAdminScreen::STATE_COMMAND_MENU) {
+          int result = admin->selectRowAtVY(vy);
+          if (result == 1) { ui_task.forceRefresh(); return 0; }
+          if (result == 2) return KEY_ENTER;   // tapped current row -- activate
+          return 0;
+        }
+        if (astate == RepeaterAdminScreen::STATE_PARAM_ENTRY) {
+          ui_task.openTWatchKeyboard(3, 0);     // tap opens keyboard for the value
+          return 0;
+        }
+      }
+    }
+#endif
+
     // All other screens: tap = select
     return KEY_ENTER;
   }
@@ -1569,6 +1799,15 @@ static void lastHeardToggleContact() {
     #ifdef HAS_4G_MODEM
     if (ui_task.isOnSMSScreen()) return 0;
     #endif
+
+#if defined(MECK_TWATCH) && HAS_GPS
+    // Map screen: swipe pans the viewport (logical-pixel delta)
+    if (ui_task.isOnMapScreen()) {
+      WatchMapScreen* wms = (WatchMapScreen*)ui_task.getMapScreen();
+      if (wms) wms->panByPixels(dx, dy);
+      return 0;
+    }
+#endif
 
     // Snake screen: swipes control direction
     if (ui_task.isOnSnakeScreen()) {
@@ -1668,6 +1907,12 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnSMSScreen()) return 0;
     #endif
 
+#ifdef TWATCH_COMPOSE_ENABLED
+    // TWatch channel screen: no synthesised keys (see mapTouchTap) -- a long
+    // press on the header/messages must not open the hop-path overlay.
+    if (ui_task.isOnTWatchChannelScreen()) return 0;
+#endif
+
     // Snake screen: long press exits to games menu
     if (ui_task.isOnSnakeScreen()) {
       return 'q';
@@ -1682,6 +1927,57 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnGamesMenu()) {
       return 'q';
     }
+
+#if defined(MECK_TWATCH)
+    // Watch FIRST page: long-press on a coloured tile opens its screen.
+    // The grid renders in the logical (display.width()) space; touchToVirtual
+    // yields 128-space coords, so scale them back to render space to hit-test.
+    if (ui_task.isOnHomeScreen() && ui_task.isHomeShowingTiles()) {
+      int vx, vy;
+      touchToVirtual(x, y, vx, vy);
+      const int W = display.width();                       // logical width (120)
+      int rvx = vx * W / 128;
+      int rvy = vy * W / 128;
+      const int cols = 2, rows = 4;
+      const int tileW = 56, tileH = 24, gapX = 4, gapY = 2;
+      const int gridW = tileW * cols + gapX * (cols - 1);  // 116
+      const int gridX = (W - gridW) / 2;                   // 2
+      int gridY = ui_task.getTileGridVY();
+      if (rvx >= gridX && rvx < gridX + gridW &&
+          rvy >= gridY && rvy < gridY + rows * (tileH + gapY)) {
+        int col = (rvx - gridX) / (tileW + gapX);  if (col > 1) col = 1;
+        int row = (rvy - gridY) / (tileH + gapY);  if (row > 3) row = 3;
+        if (row == 0 && col == 0) { ui_task.openTWatchPicker(); return 0; }
+        if (row == 0 && col == 1) { ui_task.gotoContactsScreen();      return 0; }
+        if (row == 1 && col == 0) { ui_task.gotoSettingsScreen();      return 0; }
+        if (row == 1 && col == 1) { ui_task.gotoDiscoveryScreen();     return 0; }
+        if (row == 2 && col == 0) { ui_task.gotoTraceScreen();         return 0; }
+#if defined(LILYGO_TWATCH_S3)
+        // No GNSS on the plain S3, so this slot is the games launcher.
+        if (row == 2 && col == 1) { ui_task.gotoGamesMenu(); return 0; }
+#elif HAS_GPS
+        if (row == 2 && col == 1) {
+          // Maps: mark the tile FS ready (detectZoomRange in enter() needs it)
+          // before opening; GPS centre + markers are populated in the main loop.
+          WatchMapScreen* wms = (WatchMapScreen*)ui_task.getMapScreen();
+          if (wms) wms->setMapsReady(LittleFS.exists("/tiles"));
+          ui_task.gotoMapScreen();
+          return 0;
+        }
+#endif
+        if (row == 3 && col == 0) { ui_task.gotoNotesScreen();         return 0; }
+        if (row == 3 && col == 1) { ui_task.gotoStepsScreen();         return 0; }
+      }
+      return 0;  // consume long-press on the tile page
+    }
+#endif
+#if defined(MECK_TWATCH)
+    // Steps screen: long press opens the 7-day history subscreen.
+    // (On the S3 the PWR key's short press also delivers KEY_ENTER here.)
+    if (ui_task.isOnStepsScreen()) {
+      return (char)KEY_ENTER;
+    }
+#endif
 
     // Home screen: long press = activate current page action
     // (BLE toggle, send advert, hibernate, GPS toggle, etc.)
@@ -1817,6 +2113,13 @@ static void lastHeardToggleContact() {
           }
         }
         return 0;
+#elif defined(MECK_TWATCH)
+        // Watch: long press raises the contact action overlay
+        // ([Open] [Favourite] [Delete]). The tap handler dispatches the choice;
+        // "Open" reproduces the type-aware DM/admin routing this branch used to do.
+        cs->openActionOverlay();
+        ui_task.forceRefresh();
+        return 0;
 #else
         // T-Deck Pro: long press enters select mode
         cs->enterSelectMode();
@@ -1862,10 +2165,22 @@ static void lastHeardToggleContact() {
 #if defined(LilyGo_T5S3_EPaper_Pro)
           ui_task.showVirtualKeyboard(VKB_ADMIN_PASSWORD, "Admin Password", "", 32);
           return 0;
+#elif defined(MECK_TWATCH)
+          ui_task.openTWatchKeyboard(2, 0);   // TWKB_ADMIN_PASSWORD
+          return 0;
 #else
           return KEY_ENTER;  // T-Deck Pro: keyboard handles password entry
 #endif
         }
+#if defined(MECK_TWATCH)
+        // Watch: keyboard only for param entry; menu/other states activate the
+        // highlighted item (no raw CLI keyboard).
+        if (astate == RepeaterAdminScreen::STATE_PARAM_ENTRY) {
+          ui_task.openTWatchKeyboard(3, 0);   // param value entry
+          return 0;
+        }
+        return KEY_ENTER;
+#endif
       }
     }
 
@@ -1882,9 +2197,24 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnSettingsScreen()) {
       SettingsScreen* ss = (SettingsScreen*)ui_task.getSettingsScreen();
       if (ss) {
+#if defined(MECK_TWATCH)
+        // Watch: long-press while editing UTC offset, path hash size, or TX
+        // power saves the value.
+        if (ss->isEditing() &&
+            (ss->getCurrentRowType() == ROW_UTC_OFFSET ||
+             ss->getCurrentRowType() == ROW_PATH_HASH_SIZE ||
+             ss->getCurrentRowType() == ROW_TX_POWER)) {
+          return '\r';
+        }
+#endif
         if (ss->isEditing()) {
           return 0;  // Consume — don't interfere with active edit mode
         }
+#if defined(MECK_TWATCH)
+        // Aim activation at the row under the finger, not just the current
+        // cursor, so a single long-press opens/edits the pressed row.
+        { int vx, vy; touchToVirtual(x, y, vx, vy); ss->selectRowAtVY(vy); }
+#endif
         if (ss->isOnDeletableChannel()) {
           return 'x';  // Long press on channel row → delete
         }
@@ -2115,6 +2445,20 @@ void setup() {
     }
   }
   MESH_DEBUG_PRINTLN("setup() - SPIFFS.begin() done");
+
+#if defined(MECK_TWATCH)
+  // Mount the dedicated 'maps' partition as LittleFS (map tiles live here,
+  // kept separate from the SPIFFS DataStore that holds identity/contacts).
+  // formatOnFail=true so a freshly flashed (raw) maps partition is formatted
+  // and immediately usable for ESPConnect tile uploads.
+  if (LittleFS.begin(true, "/maps", 10, "maps")) {
+    Serial.printf("maps: LittleFS mounted (%u KB total, %u KB used)\n",
+                  (unsigned)(LittleFS.totalBytes() / 1024),
+                  (unsigned)(LittleFS.usedBytes() / 1024));
+  } else {
+    Serial.println("maps: LittleFS mount FAILED");
+  }
+#endif
 
   // ---------------------------------------------------------------------------
   // Early SD card init -- needed BEFORE the_mesh.begin() so we can restore
@@ -2560,6 +2904,15 @@ void setup() {
     Serial.println("setup() - SD features initialized");
   }
   #endif
+#if defined(MECK_TWATCH)
+  // Watch: load persisted channel-message history from LittleFS (no SD).
+  {
+    ChannelScreen* chanScr = (ChannelScreen*)ui_task.getChannelScreen();
+    if (chanScr && chanScr->loadFromLittleFS()) {
+      MESH_DEBUG_PRINTLN("setup() - Message history loaded from LittleFS");
+    }
+  }
+#endif
   // Check if node name is still the default hex prefix (first 4 bytes of pub key)
   // If so, launch onboarding wizard to set name and radio preset
   // ---------------------------------------------------------------------------
@@ -2587,6 +2940,9 @@ void setup() {
       #ifdef PIN_GPS_EN
         digitalWrite(PIN_GPS_EN, GPS_EN_ACTIVE);
       #endif
+      #if defined(MECK_TWATCH)
+        board.gpsPowerOn();   // GPS power is the AXP2101 BLDO1 rail
+      #endif
 #if defined(LilyGo_TDeck_Pro_Max)
       // Speed up / improve the MAX GPS fix: enable multi-constellation
       // (GPS + GLONASS + BeiDou) and EASY predicted ephemeris (warm/hot starts
@@ -2603,6 +2959,9 @@ void setup() {
       #endif
       #if defined(LilyGo_TDeck_Pro_Max)
         board.gpsPowerOff();  // MAX: GPS power is XL9555-routed, not PIN_GPS_EN
+      #endif
+      #if defined(MECK_TWATCH)
+        board.gpsPowerOff();  // GPS power is the AXP2101 BLDO1 rail
       #endif
       sensors.setSettingValue("gps", "0");
     }
@@ -2675,6 +3034,14 @@ void otaResumeRadio() {
 #endif
 
 void loop() {
+#if defined(MECK_TWATCH)
+  // Watch: flush pending channel-message history to LittleFS on a 30s debounce
+  // (saveToSD marks it dirty on each message; at most one ~57 KB write / 30s).
+  {
+    ChannelScreen* chanScr = (ChannelScreen*)ui_task.getChannelScreen();
+    if (chanScr) chanScr->flushMessagesIfDue(30000UL);
+  }
+#endif
   // T-Echo Card: lazy Codec2 init from shallow stack context.
   // codec2_create needs ~3KB stack for FFT/trig init. The loop task
   // has only 4KB total. Calling from render() (deep call chain) overflows.
@@ -2779,7 +3146,7 @@ void loop() {
 
   // Map screen: periodically update own GPS position and contact markers
   #ifdef DISPLAY_CLASS
-  #if HAS_GPS && !defined(LILYGO_TECHO_CARD)
+  #if HAS_GPS && !defined(LILYGO_TECHO_CARD) && !defined(MECK_TWATCH)
   if (ui_task.isOnMapScreen()) {
     static unsigned long lastMapUpdate = 0;
     if (millis() - lastMapUpdate > 30000) {  // Every 30 seconds
@@ -2806,6 +3173,42 @@ void loop() {
   #endif
   #endif
 
+#if defined(MECK_TWATCH) && HAS_GPS
+  // Watch map screen: on open, centre on GPS and populate contact markers; then
+  // refresh own position + markers periodically while it stays open.
+  {
+    static bool mapWasOpen = false;
+    static unsigned long lastMapUpdate = 0;
+    if (ui_task.isOnMapScreen()) {
+      WatchMapScreen* wms = (WatchMapScreen*)ui_task.getMapScreen();
+      if (wms) {
+        bool justOpened = !mapWasOpen;
+        mapWasOpen = true;
+        if (justOpened || (millis() - lastMapUpdate > 30000)) {
+          lastMapUpdate = millis();
+          if (justOpened) {
+            wms->setGPSPosition(sensors.node_lat, sensors.node_lon);
+          } else {
+            wms->updateGPSPosition(sensors.node_lat, sensors.node_lon);
+          }
+          wms->clearMarkers();
+          ContactsIterator it = the_mesh.startContactsIterator();
+          ContactInfo ci;
+          while (it.hasNext(&the_mesh, ci)) {
+            if (ci.gps_lat != 0 || ci.gps_lon != 0) {
+              double lat = ((double)ci.gps_lat) / 1000000.0;
+              double lon = ((double)ci.gps_lon) / 1000000.0;
+              wms->addMarker(lat, lon, ci.name, ci.type);
+            }
+          }
+        }
+      }
+    } else {
+      mapWasOpen = false;
+    }
+  }
+#endif
+
   // CPU frequency auto-timeout back to idle
   cpuPower.loop();
 
@@ -2813,7 +3216,7 @@ void loop() {
   // is active.  The mesh radio has its own FIFO so packets are buffered;
   // 50 ms yield means the loop still runs 20×/sec which is more than enough
   // to drain the radio FIFO before overflow.
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
+#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro) || defined(MECK_TWATCH)
   {
     static bool wasLocked = false;
     bool nowLocked = ui_task.isLocked();
@@ -3628,6 +4031,12 @@ void loop() {
             // Channel screen: horizontal swipe opens picker instead of cycling
             if (ui_task.isOnChannelScreen() && (c == 'a' || c == 'd')) {
               ui_task.gotoChannelPickerScreen();
+#if defined(MECK_TWATCH)
+            } else if (ui_task.isOnChannelScreen() && (c == 'w' || c == 's')) {
+              // Watch: a vertical swipe pages the message view (one page/swipe).
+              ChannelScreen* cs = (ChannelScreen*)ui_task.getChannelScreen();
+              if (cs) { cs->pageScroll(c == 'w'); ui_task.forceRefresh(); }
+#endif
             } else {
               ui_task.injectKey(c);
             }
@@ -3700,6 +4109,7 @@ void loop() {
         touchDown = false;
         if (!longPressHandled && !swipeHandled) {
           char c = mapTouchTap(touchDownX, touchDownY);
+          ui_task.keepAlive();   // a tap keeps the display awake even if it produces no key
           if (c) {
             ui_task.injectKey(c);
             // Path editor: check if Save & Exit was triggered
@@ -3743,7 +4153,7 @@ void loop() {
                 }
               }
             }
-            // Channel picker: check if Enter/Q was handled (wantsExit)
+            // Channel picker: check if Enter/Shift+Del was handled (wantsExit)
             if (ui_task.isOnChannelPickerScreen()) {
               ChannelPickerScreen* pick = (ChannelPickerScreen*)ui_task.getChannelPickerScreen();
               if (pick && pick->wantsExit()) {
@@ -3914,7 +4324,7 @@ void loop() {
                 if (notesScr->isEditing()) {
                   notesScr->triggerSaveAndExit();
                 } else {
-                  ui_task.injectKey('q');
+                  ui_task.injectKey(KEY_CANCEL);
                 }
               } else if (notesScr->isEditing()) {
                 // Editing mode: arrows move cursor, everything else types directly
@@ -3935,16 +4345,16 @@ void loop() {
 #endif
 
           if (!handled) {
-            // ESC or Q → back navigation
-            if (ckb == 0x1B || ckb == 'q') {
+            // ESC -> back navigation
+            if (ckb == 0x1B) {
               if (ui_task.isOnSnakeScreen()) {
-                ui_task.injectKey('q');
+                ui_task.injectKey(KEY_CANCEL);
                 SnakeScreen* ss = (SnakeScreen*)ui_task.getSnakeScreen();
                 if (ss && ss->wantsExit()) {
                   ui_task.gotoGamesMenu();
                 }
               } else if (ui_task.isOnMinesweeperScreen()) {
-                ui_task.injectKey('q');
+                ui_task.injectKey(KEY_CANCEL);
                 MinesweeperScreen* ms = (MinesweeperScreen*)ui_task.getMinesweeperScreen();
                 if (ms && ms->wantsExit()) {
                   ui_task.gotoGamesMenu();
@@ -3956,9 +4366,9 @@ void loop() {
               } else if (ui_task.isOnChannelScreen()) {
                 ChannelScreen* chScr = (ChannelScreen*)ui_task.getChannelScreen();
                 if (chScr && (chScr->isReplySelectMode() || chScr->isShowingPathOverlay())) {
-                  ui_task.injectKey('q');  // dismiss overlay/reply first
+                  ui_task.injectKey(KEY_CANCEL);  // dismiss overlay/reply first
                 } else if (chScr && chScr->isDMConversation()) {
-                  ui_task.injectKey('q');  // DM conversation → inbox
+                  ui_task.injectKey(KEY_CANCEL);  // DM conversation -> inbox
                 } else {
                   ui_task.gotoChannelPickerScreen();
                 }
@@ -4156,19 +4566,19 @@ void loop() {
                     ui_task.gotoPathEditor(idx);
                   }
                 }
-              } else if ((ckb == 'q' || ckb == 'Q') && ui_task.isOnPathEditor()) {
-                // Q on path editor → back to contacts
+              } else if ((ckb == 0x1B) && ui_task.isOnPathEditor()) {
+                // ESC on path editor -> back to contacts
                 ui_task.gotoContactsScreen();
-              } else if ((ckb == 'q' || ckb == 'Q') && ui_task.isOnChannelPickerScreen()) {
-                // Q on picker → home
+              } else if ((ckb == 0x1B) && ui_task.isOnChannelPickerScreen()) {
+                // ESC on picker -> home
                 ui_task.gotoHomeScreen();
-              } else if ((ckb == 'q' || ckb == 'Q') && ui_task.isOnChannelScreen()) {
-                // Q on channel screen → picker (unless overlay/DM conversation)
+              } else if ((ckb == 0x1B) && ui_task.isOnChannelScreen()) {
+                // ESC on channel screen -> picker (unless overlay/DM conversation)
                 ChannelScreen* chScr = (ChannelScreen*)ui_task.getChannelScreen();
                 if (chScr && (chScr->isReplySelectMode() || chScr->isShowingPathOverlay())) {
-                  ui_task.injectKey('q');  // dismiss overlay/reply first
+                  ui_task.injectKey(KEY_CANCEL);  // dismiss overlay/reply first
                 } else if (chScr && chScr->isDMConversation()) {
-                  ui_task.injectKey('q');  // DM conversation → inbox (handled internally)
+                  ui_task.injectKey(KEY_CANCEL);  // DM conversation -> inbox (handled internally)
                 } else {
                   ui_task.gotoChannelPickerScreen();
                 }
@@ -4245,7 +4655,7 @@ void loop() {
   // The RTOS idle task executes WFI (wait-for-interrupt) during delay(),
   // dramatically reducing CPU power draw.  50 ms gives 20 loop cycles/sec
   // which is ample for LoRa packet reception (radio has hardware FIFO).
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
+#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro) || defined(MECK_TWATCH)
   if (ui_task.isLocked()) {
     delay(50);
   }
@@ -4278,6 +4688,13 @@ void handleKeyboardInput() {
   
   char key = keyboard.readKey();
   if (key == 0) return;
+
+  // Shift+Backspace is the universal back/cancel token. Convert it to
+  // KEY_CANCEL here at the source so every screen and dispatch path sees one
+  // unambiguous back code -- this leaves plain Backspace as text delete and
+  // frees physical Q as an ordinary letter. Contexts that bind Shift+Del to a
+  // non-back action (notes/contacts item delete) handle KEY_CANCEL explicitly.
+  if (key == '\b' && keyboard.wasShiftConsumed()) key = KEY_CANCEL;
 
   // Block all keyboard input while lock screen is active.
   // Still read the key above to clear the TCA8418 buffer.
@@ -4400,9 +4817,9 @@ void handleKeyboardInput() {
       return;
     }
     
-    if (key == '\b') {
+    if (key == '\b' || key == KEY_CANCEL) {
       // Backspace - check if shift was recently pressed for cancel combo
-      if (keyboard.wasShiftRecentlyPressed(500)) {
+      if (key == KEY_CANCEL) {
         // Shift+Backspace = Cancel (works anytime)
         Serial.println("Compose: Shift+Backspace, cancelling...");
         bool wasDM = composeDM;
@@ -4527,11 +4944,11 @@ void handleKeyboardInput() {
     AudiobookPlayerScreen* abPlayer =
       (AudiobookPlayerScreen*)ui_task.getAudiobookScreen();
 
-    // Q key: behavior depends on playback state
+    // Shift+Del: behavior depends on playback state
     //   - Playing: navigate home, audio continues in background
     //   - Paused/stopped: close book, return to file list
     //   - File list: exit player entirely
-    if (key == 'q') {
+    if (key == KEY_CANCEL || key == 'q') {
       if (abPlayer->isBookOpen()) {
         if (abPlayer->isAudioActive()) {
           // Audio is playing -- leave screen, audio continues via audioTick()
@@ -4575,8 +4992,10 @@ void handleKeyboardInput() {
         ui_task.forceRefresh();
         return;
       }
-      // Q from message list exits voice screen
-      if (key == 'q' && voiceScr->getMode() == VoiceMessageScreen::MESSAGE_LIST) {
+      // 'q' = back/cancel in every voice mode (no text entry here); treat as Shift+Del.
+      if (key == 'q') key = KEY_CANCEL;
+      // Shift+Del from message list exits voice screen
+      if (key == KEY_CANCEL && voiceScr->getMode() == VoiceMessageScreen::MESSAGE_LIST) {
         Serial.println("Exiting voice message screen");
         ui_task.gotoHomeScreen();
         return;
@@ -4593,12 +5012,12 @@ void handleKeyboardInput() {
   if (readerMode) {
     TextReaderScreen* reader = (TextReaderScreen*)ui_task.getTextReaderScreen();
     
-    // Q key: if reading, reader handles it (close book -> file list)
+    // Shift+Del: if reading, reader handles it (close book -> file list)
     //         if on file list, exit reader entirely
-    if (key == 'q') {
+    if (key == KEY_CANCEL || key == 'q') {
       if (reader->isReading()) {
-        // Let the reader handle Q (close book, go to file list)
-        ui_task.injectKey('q');
+        // Let the reader handle Shift+Del (close book, go to file list)
+        ui_task.injectKey(KEY_CANCEL);
       } else {
         // On file list - exit reader, go home
         reader->exitReader();
@@ -4619,15 +5038,15 @@ void handleKeyboardInput() {
 
     // ---- EDITING MODE ----
     if (notes->isEditing()) {
-      // Shift+Backspace = save and exit
+      // Shift+Del (KEY_CANCEL) = save and exit
+      if (key == KEY_CANCEL) {
+        Serial.println("Notes: Shift+Del, saving...");
+        notes->saveAndExit();
+        ui_task.forceRefresh();
+        return;
+      }
+      // Plain Backspace = delete before cursor
       if (key == '\b') {
-        if (keyboard.wasShiftConsumed()) {
-          Serial.println("Notes: Shift+Backspace, saving...");
-          notes->saveAndExit();
-          ui_task.forceRefresh();
-          return;
-        }
-        // Regular backspace - delete before cursor
         ui_task.injectKey(key);
         composeNeedsRefresh = true; lastComposeKeystroke = millis();
         return;
@@ -4686,8 +5105,8 @@ void handleKeyboardInput() {
         return;
       }
 
-      // Shift+Backspace on a file = delete with confirmation
-      if (key == '\b' && keyboard.wasShiftConsumed()) {
+      // Shift+Del on a file = delete with confirmation
+      if (key == KEY_CANCEL) {
         if (notes->startDeleteFromList()) {
           ui_task.forceRefresh();
         }
@@ -4720,8 +5139,8 @@ void handleKeyboardInput() {
         return;
       }
 
-      // Shift+Backspace = delete note
-      if (key == '\b' && keyboard.wasShiftConsumed()) {
+      // Shift+Del = delete note
+      if (key == KEY_CANCEL) {
         Serial.println("Notes: Deleting current note");
         notes->deleteCurrentNote();
         ui_task.forceRefresh();
@@ -4744,8 +5163,8 @@ void handleKeyboardInput() {
   if (ui_task.isOnSettingsScreen()) {
     SettingsScreen* settings = (SettingsScreen*)ui_task.getSettingsScreen();
 
-    // Q key: exit settings (when not editing)
-    if (!settings->isEditing() && (key == 'q')) {
+    // Shift+Del: exit settings (when not editing)
+    if (!settings->isEditing() && (key == KEY_CANCEL || key == 'q')) {
       if (settings->hasRadioChanges()) {
         // Let settings show "apply changes?" confirm dialog
         ui_task.injectKey(key);
@@ -4758,17 +5177,17 @@ void handleKeyboardInput() {
 
     // Shift+Backspace during WiFi password entry: back to SSID selection
     #ifdef MECK_WIFI_COMPANION
-    if (settings->isInWifiPasswordEntry() && key == '\b' && keyboard.wasShiftConsumed()) {
+    if (settings->isInWifiPasswordEntry() && key == KEY_CANCEL) {
       settings->wifiPasswordBack();
       ui_task.forceRefresh();
       return;
     }
     #endif
 
-    // Shift+Backspace on the WiFi network picker: exit (same as Q)
+    // Shift+Backspace on the WiFi network picker: exit
     #ifdef MECK_WIFI_COMPANION
-    if (settings->isInWifiNetworkSelect() && key == '\b' && keyboard.wasShiftConsumed()) {
-      ui_task.injectKey('q');
+    if (settings->isInWifiNetworkSelect() && key == KEY_CANCEL) {
+      ui_task.injectKey(KEY_CANCEL);
       return;
     }
     #endif
@@ -4834,11 +5253,14 @@ void handleKeyboardInput() {
         snprintf(shareMsg, sizeof(shareMsg), "%s%s|%s",
                  MECK_CH_PREFIX, ch.name, hexSecret);
 
-        if (the_mesh.uiSendDirectMessage((uint32_t)contactIdx, shareMsg)) {
+        uint32_t sendRef = 0;
+        uint8_t sendTotal = 0;
+        if (the_mesh.uiSendDirectMessage((uint32_t)contactIdx, shareMsg, &sendRef, &sendTotal)) {
           // Add sanitised version to DM conversation view
           char displayMsg[64];
           snprintf(displayMsg, sizeof(displayMsg), "Shared channel: %s", ch.name);
-          ui_task.addSentDM(contact.name, the_mesh.getNodePrefs()->node_name, displayMsg);
+          ui_task.addSentDM(contact.name, the_mesh.getNodePrefs()->node_name, displayMsg,
+                            sendRef, sendTotal);
 
           char alertBuf[48];
           snprintf(alertBuf, sizeof(alertBuf), "Shared with %s", contact.name);
@@ -4855,7 +5277,7 @@ void handleKeyboardInput() {
   if (ui_task.isOnRepeaterAdmin()) {
     RepeaterAdminScreen* admin = (RepeaterAdminScreen*)ui_task.getRepeaterAdminScreen();
     RepeaterAdminScreen::AdminState astate = admin->getState();
-    bool shiftDel = (key == '\b' && keyboard.wasShiftConsumed());
+    bool shiftDel = (key == KEY_CANCEL);
 
     // Helper: exit admin — room servers go to DM conversation if logged in, otherwise contacts
     auto exitAdmin = [&]() {
@@ -4883,7 +5305,7 @@ void handleKeyboardInput() {
 
     // In category menu (top level): Shift+Del exits, C opens compose
     if (astate == RepeaterAdminScreen::STATE_CATEGORY_MENU) {
-      if (shiftDel) {
+      if (shiftDel || key == 'q') {
         exitAdmin();
         return;
       }
@@ -4906,7 +5328,7 @@ void handleKeyboardInput() {
     // All other states (command menu, param entry, confirm, waiting,
     // response, error): convert Shift+Del to exit signal and let the
     // screen handle back-navigation internally
-    if (shiftDel) {
+    if (shiftDel || (key == 'q' && astate != RepeaterAdminScreen::STATE_PARAM_ENTRY)) {
       ui_task.injectKey(KEY_ADMIN_EXIT);
     } else {
       ui_task.injectKey(key);
@@ -4934,15 +5356,15 @@ void handleKeyboardInput() {
         return;
       }
 
-      // Q from app menu → go home; Q from inner views is handled by SMSScreen
-      if ((key == 'q' || key == '\b') && smsScr->getSubView() == SMSScreen::APP_MENU) {
+      // Shift+Del from app menu -> go home; Shift+Del from inner views is handled by SMSScreen
+      if ((key == KEY_CANCEL || key == 'q') && smsScr->getSubView() == SMSScreen::APP_MENU) {
         Serial.println("Nav: SMS -> Home");
         ui_task.gotoHomeScreen();
         return;
       }
 
       // Phone dialer: debounced refresh for digit entry, immediate render for
-      // view transitions (Enter=call, Q=back). This avoids the 686ms e-ink
+      // view transitions (Enter=call, Shift+Del=back). This avoids the 686ms e-ink
       // block per keypress while ensuring call/back screens render instantly.
       if (smsScr->getSubView() == SMSScreen::PHONE_DIALER) {
         smsScr->handleInput(key);
@@ -4951,7 +5373,7 @@ void handleKeyboardInput() {
           dialerNeedsRefresh = true;
           lastDialerRefresh = millis();
         } else {
-          // View changed (startCall or Q back) — render immediately
+          // View changed (startCall or Shift+Del back) -- render immediately
           dialerNeedsRefresh = false;
           ui_task.forceRefresh();
           ui_task.loop();
@@ -5013,8 +5435,8 @@ void handleKeyboardInput() {
       // Not in text entry — clear flag so ui_task.loop() resumes
       webReaderTextEntry = false;
 
-      // Q from HOME mode exits the web reader entirely (like text reader)
-      if ((key == 'q' || key == 'Q') && wr && wr->isHome() && !wr->isUrlEditing() && !wr->isSearchEditing()) {
+      // Shift+Del from HOME mode exits the web reader entirely (like text reader)
+      if ((key == KEY_CANCEL || key == 'q') && wr && wr->isHome() && !wr->isUrlEditing() && !wr->isSearchEditing()) {
         Serial.println("Exiting web reader");
         ui_task.gotoHomeScreen();
         return;
@@ -5064,18 +5486,11 @@ void handleKeyboardInput() {
     ContactsScreen* cs = (ContactsScreen*)ui_task.getContactsScreen();
     if (cs && cs->isInSelectMode()) {
       switch (key) {
-        case 'q':
-          // Exit select mode (don't go home)
-          cs->exitSelectMode();
-          ui_task.forceRefresh();
-          Serial.println("Contacts: exited select mode");
-          return;
-
-        case '\b': {
-          // Backspace in select mode:
-          //   Shift+Backspace = delete selected (with confirmation)
-          //   Plain backspace = exit select mode
-          if (keyboard.wasShiftConsumed()) {
+        case KEY_CANCEL: {
+          // Shift+Del = delete selected (with confirmation). Select mode is
+          // exited via touch long-press (UITask long-press handler); plain
+          // Backspace is text-only and does nothing here.
+          {
             static unsigned long lastDeleteAttempt = 0;
             int selCount = cs->getSelectedCount();
             if (selCount == 0) {
@@ -5101,11 +5516,6 @@ void handleKeyboardInput() {
               snprintf(msg, sizeof(msg), "Delete %d? Shift+Del again", selCount);
               ui_task.showAlert(msg, 2500);
             }
-          } else {
-            // Plain backspace = exit select mode
-            cs->exitSelectMode();
-            ui_task.forceRefresh();
-            Serial.println("Contacts: exited select mode (backspace)");
           }
           return;
         }
@@ -5734,20 +6144,20 @@ void handleKeyboardInput() {
       break;
 
     case 'q':
-    case '\b':
+    case KEY_CANCEL:
       // If channel screen reply select or path overlay is showing, dismiss it
       if (ui_task.isOnChannelScreen()) {
         ChannelScreen* chScr = (ChannelScreen*)ui_task.getChannelScreen();
         if (chScr && chScr->isReplySelectMode()) {
-          ui_task.injectKey('q');
+          ui_task.injectKey(KEY_CANCEL);
           break;
         }
         if (chScr && chScr->isShowingPathOverlay()) {
-          ui_task.injectKey('q');
+          ui_task.injectKey(KEY_CANCEL);
           break;
         }
-        // DM inbox Q is handled by ChannelScreen (returns false → falls here).
-        // DM conversation Q is handled internally (returns true → never reaches here).
+        // DM inbox back is handled by ChannelScreen (returns false -> falls here).
+        // DM conversation back is handled internally (returns true -> never reaches here).
         // Normal channel view or DM inbox: go back to picker.
         Serial.println("Nav: Channel -> Picker");
         ui_task.gotoChannelPickerScreen();
@@ -5759,12 +6169,12 @@ void handleKeyboardInput() {
       if (ui_task.isOnWebReader()) {
         WebReaderScreen* wr = (WebReaderScreen*)ui_task.getWebReaderScreen();
         if (wr && !wr->isHome()) {
-          ui_task.injectKey('q');
+          ui_task.injectKey(KEY_CANCEL);
           break;
         }
       }
 #endif
-      // Contacts select mode: Q/backspace exits select mode (doesn't go home)
+      // Contacts: select mode handled earlier (Shift+Del = delete); normal -> home
       if (ui_task.isOnContactsScreen()) {
         ContactsScreen* csq = (ContactsScreen*)ui_task.getContactsScreen();
         if (csq && csq->isInSelectMode()) {
@@ -5775,27 +6185,27 @@ void handleKeyboardInput() {
         }
         // Normal mode: fall through to go home
       }
-      // Discovery screen: Q goes back to contacts (not home)
+      // Discovery screen: Shift+Del goes back to contacts (not home)
       if (ui_task.isOnDiscoveryScreen()) {
         the_mesh.stopDiscovery();
         Serial.println("Nav: Discovery -> Contacts");
         ui_task.gotoContactsScreen();
         break;
       }
-      // Rx Log screen: Q goes back to settings (screen handles it)
+      // Rx Log screen: Shift+Del goes back to settings (screen handles it)
       if (ui_task.isOnRxLogScreen()) {
-        ui_task.injectKey('q');
+        ui_task.injectKey(KEY_CANCEL);
         break;
       }
-      // Path editor: Q goes back to contacts (discards unsaved changes)
+      // Path editor: Shift+Del goes back to contacts (discards unsaved changes)
       if (ui_task.isOnPathEditor()) {
         Serial.println("Nav: PathEditor -> Contacts");
         ui_task.gotoContactsScreen();
         break;
       }
-      // Trace screen: Q/wantsExit goes home
+      // Trace screen: Shift+Del/wantsExit goes home
       if (ui_task.isOnTraceScreen()) {
-        ui_task.injectKey('q');
+        ui_task.injectKey(KEY_CANCEL);
         TraceScreen* ts = (TraceScreen*)ui_task.getTraceScreen();
         if (ts && ts->wantsExit()) {
           Serial.println("Nav: Trace -> Home");
@@ -5803,9 +6213,9 @@ void handleKeyboardInput() {
         }
         break;
       }
-      // Snake screen: Q goes back to games menu
+      // Snake screen: Shift+Del goes back to games menu
       if (ui_task.isOnSnakeScreen()) {
-        ui_task.injectKey('q');
+        ui_task.injectKey(KEY_CANCEL);
         SnakeScreen* ss = (SnakeScreen*)ui_task.getSnakeScreen();
         if (ss && ss->wantsExit()) {
           Serial.println("Nav: Snake -> Games Menu");
@@ -5813,9 +6223,9 @@ void handleKeyboardInput() {
         }
         break;
       }
-      // Minesweeper screen: Q goes back to games menu
+      // Minesweeper screen: Shift+Del goes back to games menu
       if (ui_task.isOnMinesweeperScreen()) {
-        ui_task.injectKey('q');
+        ui_task.injectKey(KEY_CANCEL);
         MinesweeperScreen* ms = (MinesweeperScreen*)ui_task.getMinesweeperScreen();
         if (ms && ms->wantsExit()) {
           Serial.println("Nav: Minesweeper -> Games Menu");
@@ -5823,13 +6233,13 @@ void handleKeyboardInput() {
         }
         break;
       }
-      // Games menu: Q goes back to home
+      // Games menu: Shift+Del goes back to home
       if (ui_task.isOnGamesMenu()) {
         Serial.println("Nav: Games Menu -> Home");
         ui_task.gotoHomeScreen();
         break;
       }
-      // Alarm screen: Q/backspace routing depends on sub-mode
+      // Alarm screen: Shift+Del/backspace routing depends on sub-mode
 #ifdef MECK_AUDIO_VARIANT
       if (ui_task.isOnAlarmScreen()) {
         AlarmScreen* alarmScr = (AlarmScreen*)ui_task.getAlarmScreen();
@@ -5837,7 +6247,7 @@ void handleKeyboardInput() {
           alarmScr->dismiss();
           ui_task.gotoHomeScreen();
         } else if (alarmScr && alarmScr->getMode() != AlarmScreen::ALARM_LIST) {
-          // In edit/picker/digit mode — pass to screen (Q = back to list, backspace = delete)
+          // In edit/picker/digit mode -- pass to screen (Shift+Del = back to list, backspace = delete)
           ui_task.injectKey(key);
         } else {
           // On alarm list — go home
@@ -5847,13 +6257,13 @@ void handleKeyboardInput() {
         break;
       }
 #endif
-      // Last Heard: Q goes back to home
+      // Last Heard: Shift+Del goes back to home
       if (ui_task.isOnLastHeardScreen()) {
         Serial.println("Nav: Last Heard -> Home");
         ui_task.gotoHomeScreen();
         break;
       }
-      // Channel picker: Q goes back to home
+      // Channel picker: Shift+Del goes back to home
       if (ui_task.isOnChannelPickerScreen()) {
         Serial.println("Nav: ChannelPicker -> Home");
         ui_task.gotoHomeScreen();
@@ -6063,9 +6473,12 @@ void sendComposedMessage() {
   if (composeDM) {
     // Direct message to a specific contact
     if (composeDMContactIdx >= 0) {
-      if (the_mesh.uiSendDirectMessage((uint32_t)composeDMContactIdx, utf8Buf)) {
+      uint32_t sendRef = 0;
+      uint8_t sendTotal = 0;
+      if (the_mesh.uiSendDirectMessage((uint32_t)composeDMContactIdx, utf8Buf, &sendRef, &sendTotal)) {
         // Add to channel screen so sent DM appears in conversation view
-        ui_task.addSentDM(composeDMName, the_mesh.getNodePrefs()->node_name, utf8Buf);
+        ui_task.addSentDM(composeDMName, the_mesh.getNodePrefs()->node_name, utf8Buf,
+                          sendRef, sendTotal);
         ui_task.showAlert("DM sent!", 1500);
       } else {
         ui_task.showAlert("DM failed!", 1500);
@@ -6247,8 +6660,11 @@ void sendCardKBMessage() {
   if (ckbComposeDM) {
     // Direct message
     if (ckbComposeDMIdx >= 0) {
-      if (the_mesh.uiSendDirectMessage((uint32_t)ckbComposeDMIdx, ckbComposeBuf)) {
-        ui_task.addSentDM(ckbComposeDMName, the_mesh.getNodePrefs()->node_name, ckbComposeBuf);
+      uint32_t sendRef = 0;
+      uint8_t sendTotal = 0;
+      if (the_mesh.uiSendDirectMessage((uint32_t)ckbComposeDMIdx, ckbComposeBuf, &sendRef, &sendTotal)) {
+        ui_task.addSentDM(ckbComposeDMName, the_mesh.getNodePrefs()->node_name, ckbComposeBuf,
+                          sendRef, sendTotal);
         ui_task.showAlert("DM sent!", 1500);
       } else {
         ui_task.showAlert("DM failed!", 1500);

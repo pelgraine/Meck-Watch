@@ -13,7 +13,7 @@ extern MyMesh the_mesh;
 // each received packet as an app-style block: route + payload type, time,
 // size, hash, path, channel hash/name or From/To, the decoded line (for
 // decryptable channels), and SNR. Entries are shown newest-first; W/S scroll
-// by entry, Q returns to Settings (where the screen is opened from).
+// by entry, Shift+Del returns to Settings (where the screen is opened from).
 // ==========================================================================
 
 class RxLogScreen : public UIScreen {
@@ -140,6 +140,10 @@ public:
 
   int render(DisplayDriver& display) override {
     int count = the_mesh.getRxLogCount();
+#if defined(MECK_TWATCH)
+    // Watch: no keyboard or touch scroll, so cycle through entries automatically.
+    if (count > 1) { _scrollPos++; if (_scrollPos >= count) _scrollPos = 0; }
+#endif
     if (_scrollPos < 0) _scrollPos = 0;
     if (_scrollPos > count - 1) _scrollPos = (count > 0) ? count - 1 : 0;
 
@@ -153,7 +157,11 @@ public:
     display.drawRect(0, 11, display.width(), 1);
 
     int headerHeight = 14;
+#if defined(MECK_TWATCH)
+    int footerHeight = 2;    // no footer on the watch
+#else
     int footerHeight = 14;
+#endif
     int maxY = display.height() - footerHeight;
     int y = headerHeight;
 
@@ -180,6 +188,7 @@ public:
     display.setTextSize(1);
 
     // === Footer ===
+#if !defined(MECK_TWATCH)
     int footerY = display.height() - 12;
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::YELLOW);
@@ -189,8 +198,13 @@ public:
 #else
     display.print("Q:Bk  W/S:Scroll");
 #endif
+#endif
 
+#if defined(MECK_TWATCH)
+    return 3000;  // watch: advance to the next packet every 3s
+#else
     return 5000;  // refresh every 5s to pick up newly received packets
+#endif
   }
 
   bool handleInput(char c) override {
@@ -207,7 +221,7 @@ public:
       return false;
     }
     // Back to Settings
-    if (c == 'q' || c == 'Q' || c == 0x1B) {
+    if (c == KEY_CANCEL) {
       if (_task) _task->gotoSettingsScreen();
       return true;
     }

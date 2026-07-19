@@ -2,6 +2,11 @@
 
 #include <helpers/ui/UIScreen.h>
 #include <helpers/ui/DisplayDriver.h>
+#if defined(MECK_TWATCH)
+#include <helpers/ui/LGFXDisplay.h>   // setTextWrap/getCursorX for the row ticker
+// Row ticker scroll speed -- matches TW_TICKER_MS_PER_PX in TWatchComposeScreens.h.
+#define SETTINGS_TICKER_MS_PER_PX 20
+#endif
 #include <helpers/ChannelDetails.h>
 #include <helpers/TransportKeyStore.h>
 #include <MeshCore.h>
@@ -241,7 +246,7 @@ enum SubScreen : uint8_t {
 #ifdef MECK_OTA_UPDATE
 // OTA update phases
 enum OtaPhase : uint8_t {
-  OTA_PHASE_CONFIRM,    // "Start firmware update? Enter:Yes Q:No"
+  OTA_PHASE_CONFIRM,    // "Start firmware update? Enter:Yes Sh+Del:No"
   OTA_PHASE_AP_START,   // Starting WiFi AP + web server
   OTA_PHASE_WAITING,    // AP up, waiting for device to upload
   OTA_PHASE_RECEIVING,  // File upload in progress
@@ -253,7 +258,7 @@ enum OtaPhase : uint8_t {
 
 // File manager phases
 enum FmPhase : uint8_t {
-  FM_PHASE_CONFIRM,     // "Start SD file manager? Enter:Yes Q:No"
+  FM_PHASE_CONFIRM,     // "Start SD file manager? Enter:Yes Sh+Del:No"
   FM_PHASE_WAITING,     // AP up, file browser active
   FM_PHASE_ERROR,       // Error with message
 };
@@ -341,6 +346,15 @@ private:
 
   // T5S3: signal UITask to open VKB when entering text edit mode
   bool _needsTextVKB;
+  bool _wantsWatchChannels;   // Watch: hand off to WatchChannelConfigScreen (polled by UITask)
+#if defined(MECK_TWATCH)
+  // Selected-row ticker (marquee for rows wider than the screen), mirroring
+  // TWatchChannelScreen: 20 ms/px, 24 px gap between the looping copies.
+  int           _tickerRow = -1;      // row index currently anchored
+  unsigned long _tickerStartMs = 0;   // animation anchor
+  int           _tickerTextW = 0;     // measured on pass 0 of the previous frame
+  bool          _tickerActive = false;
+#endif
 
   // 4G modem state (runtime cache of config)
   #ifdef HAS_4G_MODEM
@@ -440,6 +454,9 @@ private:
 
   void rebuildRows() {
     _numRows = 0;
+#if defined(MECK_TWATCH)
+    _tickerRow = -1;   // row indices are about to change; re-anchor the ticker
+#endif
 
     if (_subScreen == SUB_CONTACTS) {
       // --- Contacts sub-screen: only contact-related rows ---
@@ -499,14 +516,18 @@ private:
       addRow(ROW_BACKLIGHT_BRIGHTNESS);
       addRow(ROW_KB_BACKLIGHT);
 #endif
+#if !defined(MECK_TWATCH)
       addRow(ROW_MSG_NOTIFY);
+#endif
 #if HAS_GPS
       addRow(ROW_GPS_BAUD);
 #endif
       addRow(ROW_PATH_HASH_SIZE);
       addRow(ROW_DEFAULT_SCOPE);
+#if !defined(MECK_TWATCH)
       addRow(ROW_DARK_MODE);
-#if !defined(LILYGO_TECHO_LITE)
+#endif
+#if !defined(LILYGO_TECHO_LITE) && !defined(MECK_TWATCH)
       addRow(ROW_LARGE_FONT);
       addRow(ROW_FONT_STYLE);
 #endif
@@ -694,7 +715,7 @@ public:
       _editMode(EDIT_NONE), _editPos(0), _editPickerIdx(0),
       _editFloat(0), _editInt(0), _fontPickerOriginal(0), _confirmAction(0),
       _onboarding(false), _subScreen(SUB_NONE), _savedTopCursor(0),
-      _radioChanged(false), _needsTextVKB(false) {
+      _radioChanged(false), _needsTextVKB(false), _wantsWatchChannels(false) {
     memset(_editBuf, 0, sizeof(_editBuf));
     #ifdef HAS_SDCARD
     _savedExportCursor = 0;
@@ -872,7 +893,7 @@ public:
   void wifiPasswordBack() { _wifiPhase = WIFI_PHASE_SELECT; }
 
   // True while the WiFi network picker is showing; UITask uses this so
-  // Shift+Backspace can exit the picker (same as Q).
+  // Shift+Backspace can exit the picker.
   bool isInWifiNetworkSelect() const {
     return _editMode == EDIT_WIFI && _wifiPhase == WIFI_PHASE_SELECT;
   }
@@ -935,6 +956,8 @@ public:
   // T5S3 VKB integration for text editing (channel name, device name, freq, APN)
   bool needsTextVKB() const { return _needsTextVKB; }
   void clearTextNeedsVKB() { _needsTextVKB = false; }
+  bool wantsWatchChannels() const { return _wantsWatchChannels; }
+  void clearWantsWatchChannels() { _wantsWatchChannels = false; }
   const char* getEditBuf() const { return _editBuf; }
   SettingsRowType getCurrentRowType() const { return _rows[_cursor].type; }
   void submitEditText(const char* text) {
@@ -1807,6 +1830,14 @@ public:
 
     int y = headerH;
 
+#if defined(MECK_TWATCH)
+    // Watch: rows longer than the 120px line (e.g. "GPS Baud: Default (9600)")
+    // must clip at the screen edge, not wrap onto the row below and overprint
+    // it. Restored after the loop -- other screens rely on wrap being on.
+    ((LGFXDisplay*)&display)->setTextWrap(false);
+    _tickerActive = false;
+#endif
+
     for (int i = _scrollTop; i < endIdx && y + lineHeight <= maxY; i++) {
       bool selected = (i == _cursor);
       bool editing = selected && (_editMode != EDIT_NONE);
@@ -1826,7 +1857,31 @@ public:
         display.setColor(DisplayDriver::LIGHT);
       }
 
+#if defined(MECK_TWATCH)
+      // Selected-row ticker, mirroring TWatchChannelScreen::drawTicker. The
+      // row text is only known inside the switch below, so the marquee's
+      // seamless second copy is drawn by running the row's case twice, one
+      // period apart. Width is measured on pass 0 via getCursorX, so a newly
+      // selected row shows its first frame unscrolled and scrolls from the
+      // next frame on.
+      int rowStartX = 0;
+      int passes = 1;
+      if (selected) {
+        if (_tickerRow != i) { _tickerRow = i; _tickerStartMs = millis(); _tickerTextW = 0; }
+        if (_tickerTextW > display.width() - sbW - 4) {
+          int period = _tickerTextW + 24;
+          int off = (int)(((millis() - _tickerStartMs) / SETTINGS_TICKER_MS_PER_PX) % (unsigned long)period);
+          rowStartX = 2 - off;
+          passes = 2;
+          _tickerActive = true;
+        }
+      }
+      int rowTextW = 0;
+      for (int tickerPass = 0; tickerPass < passes; tickerPass++) {
+      display.setCursor(rowStartX + tickerPass * (_tickerTextW + 24), y);
+#else
       display.setCursor(0, y);
+#endif
 
       switch (_rows[i].type) {
         case ROW_NAME:
@@ -2314,8 +2369,22 @@ public:
         #endif
       }
 
+#if defined(MECK_TWATCH)
+      if (selected && tickerPass == 0) {
+        // getCursorX() is unusable here: LGFXDisplay::print() calls buffer.println(),
+        // whose newline resets the cursor X to 0. Measure the string directly.
+        rowTextW = display.getTextWidth(tmp);
+      }
+      }  // ticker pass loop
+      if (selected) _tickerTextW = rowTextW;
+#endif
+
       y += lineHeight;
     }
+
+#if defined(MECK_TWATCH)
+    ((LGFXDisplay*)&display)->setTextWrap(true);
+#endif
 
     // Scrollbar (track + proportional thumb), mirroring the notif-sound picker.
     if (showScrollbar) {
@@ -2872,7 +2941,7 @@ public:
     }
 #elif defined(LILYGO_TECHO_LITE)
     if (_editMode == EDIT_TEXT) {
-      display.print("Ent:Ok Q:Cancel");
+      display.print("Ent:Ok Sh+Del:Cancel");
     } else if (_editMode == EDIT_PICKER) {
       display.print("A/D:Pick Ent:Ok");
     } else if (_editMode == EDIT_NUMBER) {
@@ -2887,7 +2956,7 @@ public:
     }
 #else
     if (_editMode == EDIT_TEXT) {
-      display.print("Type, Enter:Ok Q:Cancel");
+      display.print("Type, Enter:Ok Sh+Del:Cancel");
     #ifdef MECK_WIFI_COMPANION
     } else if (_editMode == EDIT_WIFI) {
       if (_wifiPhase == WIFI_PHASE_SELECT) {
@@ -2936,9 +3005,17 @@ public:
       } else if (_subScreen != SUB_NONE) {
         display.print("Q:Back");
       } else {
+#if defined(MECK_TWATCH)
+        display.print("Hold:Edit");
+#else
         display.print("Q:Bk");
+#endif
       }
+#if defined(MECK_TWATCH)
+      const char* r = (_subScreen == SUB_NONE) ? "Tap:Cycle" : "Tap/Ent:Edit";
+#else
       const char* r = "Tap/Ent:Edit";
+#endif
       display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
       display.print(r);
     }
@@ -2952,6 +3029,13 @@ public:
       return 200;  // 200ms — fast enough for web server responsiveness
     }
     #endif
+#if defined(MECK_TWATCH)
+    // Marquee running, or a wide row was just selected (its width was measured
+    // this frame): refresh fast so scrolling starts promptly instead of after
+    // the 1s idle interval.
+    if (_tickerActive ||
+        (_tickerRow == _cursor && _tickerTextW > display.width() - 10)) return 60;
+#endif
     return _editMode != EDIT_NONE ? 700 : 1000;
   }
 
@@ -2982,7 +3066,7 @@ public:
         _confirmAction = 0;
         return true;
       }
-      if (c == 'q' || c == 'Q') {
+      if (c == KEY_CANCEL || c == 'q') {
         if (_confirmAction == 3) {
           // Region nudge cancelled — scroll to Default Region row
           _editMode = EDIT_NONE;
@@ -3036,7 +3120,7 @@ public:
         _editMode = EDIT_NONE;
         return true;
       }
-      if (c == 'q' || c == 'Q' || c == '\b') {
+      if (c == KEY_CANCEL || c == 'q') {
         _editMode = EDIT_NONE;
         return true;
       }
@@ -3064,7 +3148,7 @@ public:
         _editMode = EDIT_NONE;
         return true;
       }
-      if (c == 'q' || c == 'Q' || c == '\b') {
+      if (c == KEY_CANCEL || c == 'q') {
         _editMode = EDIT_NONE;
         return true;
       }
@@ -3080,7 +3164,7 @@ public:
           startOTAServer();
           return true;
         }
-        if (c == 'q' || c == 'Q') {
+        if (c == KEY_CANCEL || c == 'q') {
           _editMode = EDIT_NONE;
           return true;
         }
@@ -3089,12 +3173,12 @@ public:
         if (_otaUploadOk) {
           return true;
         }
-        if (c == 'q' || c == 'Q') {
+        if (c == KEY_CANCEL || c == 'q') {
           stopOTA();
           return true;
         }
       } else if (_otaPhase == OTA_PHASE_ERROR) {
-        if (c == 'q' || c == 'Q') {
+        if (c == KEY_CANCEL || c == 'q') {
           stopOTA();
           return true;
         }
@@ -3110,17 +3194,17 @@ public:
           startFileMgrServer();
           return true;
         }
-        if (c == 'q' || c == 'Q') {
+        if (c == KEY_CANCEL || c == 'q') {
           _editMode = EDIT_NONE;
           return true;
         }
       } else if (_fmPhase == FM_PHASE_WAITING) {
-        if (c == 'q' || c == 'Q') {
+        if (c == KEY_CANCEL || c == 'q') {
           stopFileMgr();
           return true;
         }
       } else if (_fmPhase == FM_PHASE_ERROR) {
-        if (c == 'q' || c == 'Q') {
+        if (c == KEY_CANCEL || c == 'q') {
           stopFileMgr();
           return true;
         }
@@ -3163,7 +3247,7 @@ public:
 #endif
           return true;
         }
-        if (c == 'q' || c == 'Q') {
+        if (c == KEY_CANCEL || c == 'q') {
           _editMode = EDIT_NONE;
           _wifiPhase = WIFI_PHASE_IDLE;
           if (_onboarding) _onboarding = false;  // Skip WiFi, finish onboarding
@@ -3313,7 +3397,7 @@ public:
         #endif
         return true;
       }
-      if (c == 'q' || c == 'Q' || c == 27) {
+      if (c == KEY_CANCEL) {
         _editMode = EDIT_NONE;
         return true;
       }
@@ -3440,7 +3524,7 @@ public:
         }
         return true;
       }
-      if (c == 'q' || c == 'Q') {
+      if (c == KEY_CANCEL || c == 'q') {
         // Revert live preview if font style picker was active
         if (type == ROW_FONT_STYLE) {
           _prefs->ui_font_style = _fontPickerOriginal;
@@ -3535,7 +3619,7 @@ public:
         _editMode = EDIT_NONE;
         return true;
       }
-      if (c == 'q' || c == 'Q') {
+      if (c == KEY_CANCEL || c == 'q') {
         _editMode = EDIT_NONE;
         return true;
       }
@@ -3786,12 +3870,18 @@ public:
           Serial.println("Settings: entered Contacts sub-screen");
           break;
         case ROW_CHANNELS_SUBMENU:
+#if defined(MECK_TWATCH)
+          // Watch: the desktop sub-screen's per-channel actions are keyboard
+          // hotkeys; hand off to the standalone WatchChannelConfigScreen.
+          _wantsWatchChannels = true;   // UITask::loop() polls and opens it
+#else
           _savedTopCursor = _cursor;
           _subScreen = SUB_CHANNELS;
           _cursor = 0;
           _scrollTop = 0;
           rebuildRows();
           Serial.println("Settings: entered Channels sub-screen");
+#endif
           break;
 
         case ROW_RXLOG:
@@ -4000,8 +4090,8 @@ public:
     }
     #endif
 
-    // Q: back -- if in sub-screen, return to top level; else exit settings
-    if (c == 'q' || c == 'Q') {
+    // Shift+Del: back -- if in sub-screen, return to top level; else exit settings
+    if (c == KEY_CANCEL || c == 'q') {
       #ifdef HAS_SDCARD
       if (_subScreen == SUB_EXPORT_FLAGS) {
         // Return to Export/Import sub-screen

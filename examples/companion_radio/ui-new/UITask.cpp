@@ -16,14 +16,16 @@
 #ifdef MECK_WEB_READER
   #include "WebReaderScreen.h"
 #endif
-#if HAS_GPS && !defined(LILYGO_TECHO_CARD)
+#if defined(MECK_TWATCH) && HAS_GPS
+  #include "WatchMapScreen.h"
+#elif HAS_GPS && !defined(LILYGO_TECHO_CARD)
   #include "MapScreen.h"
 #endif
 #include "target.h"
 #if defined(LilyGo_TDeck_Pro_Max)
   #include "DRV2605Haptic.h"   // haptic motor for "Buzzer (vibrate)" channels
 #endif
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_AUDIO_VARIANT)
+#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_AUDIO_VARIANT) || defined(MECK_TWATCH)
   #include "HomeIcons.h"
 #endif
 #if defined(WIFI_SSID) || defined(MECK_WIFI_COMPANION)
@@ -73,6 +75,16 @@
 #ifdef MECK_AUDIO_VARIANT
 #include "AudiobookPlayerScreen.h"
 #include "VoiceMessageScreen.h"
+#endif
+#if defined(MECK_TWATCH)
+#include <LittleFS.h>          // step history persistence (the "maps" partition)
+#endif
+#if defined(MECK_TWATCH)
+#include "WatchNotesScreen.h"   // After UITask.h -- needs NodePrefs
+#include "WatchChannelConfigScreen.h"   // After UITask.h -- needs NodePrefs, the_mesh
+#endif
+#ifdef TWATCH_COMPOSE_ENABLED
+#include "TWatchComposeScreens.h"
 #endif
 #ifdef HAS_4G_MODEM
   #include "SMSScreen.h"
@@ -131,7 +143,11 @@ public:
 
     // version info
     display.setColor(DisplayDriver::LIGHT);
+#if defined(MECK_TWATCH)
+    display.setTextSize(1);  // 240x240: size 2 overflows the 120px virtual width and wraps
+#else
     display.setTextSize(2);
+#endif
     display.drawTextCentered(display.width()/2, 22, _version_info);
 
     display.setTextSize(1);
@@ -168,7 +184,9 @@ class HomeScreen : public UIScreen {
 #if HAS_BQ27220
     BATTERY,
 #endif
+#if !defined(MECK_TWATCH)
     SHUTDOWN,
+#endif
     Count    // keep as last
   };
 
@@ -349,8 +367,13 @@ public:
        _poweroff_msg_shown(false), _editing_utc(false), _saved_utc_offset(0), sensors_lpp(200) {  }
 
   bool isEditingUTC() const { return _editing_utc; }
+  bool isFirstPage() const { return _page == HomePage::FIRST; }
   bool isOnRecentPage() const { return _page == HomePage::RECENT; }
+#if defined(MECK_TWATCH)
+  bool isOnShutdownPage() const { return false; }
+#else
   bool isOnShutdownPage() const { return _page == HomePage::SHUTDOWN; }
+#endif
   void cancelEditing() { 
     if (_editing_utc) {
       _node_prefs->utc_offset_hours = _saved_utc_offset;
@@ -367,7 +390,7 @@ public:
 
   int render(DisplayDriver& display) override {
     char tmp[80];
-#if defined(LilyGo_T5S3_EPaper_Pro)
+#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
     _task->setHomeShowingTiles(false);  // Reset — only set true on FIRST page
 #endif
 
@@ -402,12 +425,19 @@ public:
     #define HOME_HDR_Y 1
 #elif defined(LILYGO_TECHO_LITE)
     #define HOME_HDR_Y 0
+#elif defined(MECK_TWATCH)
+    #define HOME_HDR_Y 1
 #else
     #define HOME_HDR_Y -3
 #endif
     display.setCursor(0, HOME_HDR_Y);
+#if defined(MECK_TWATCH)
+    // Watch: render the name in a very small font so long names fit beside the
+    // centred clock instead of overrunning it. Colour was set above (GREEN).
+    ((LGFXDisplay*)&display)->printSmallFont(0, HOME_HDR_Y, filtered_name);
+#else
     display.print(filtered_name);
-
+#endif
     // battery voltage + status icons
 #ifdef MECK_AUDIO_VARIANT
     int battLeftX = display.width(); // default if battery doesn't render
@@ -418,11 +448,62 @@ public:
 
     // alarm enabled indicator (AL icon, left of audio or battery)
     renderAlarmIndicator(display, battLeftX);
-#else
+#elif !defined(MECK_TWATCH)
     renderBatteryIndicator(display, _task->getBattMilliVolts());
 #endif
 
     // centered clock — only show when time is valid
+#if defined(MECK_TWATCH)
+    // Watch: right-aligned header cluster, right to left -- battery %, unread
+    // count, then clock, all in the tiny node-name font. Battery % is
+    // colour-coded by charge level.
+    {
+      LGFXDisplay* lcd = (LGFXDisplay*)&display;
+
+      // Battery % from the AXP2101 fuel gauge, rightmost.
+      int pct = (int)_task->getBatteryPercent();
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+      char battbuf[6];
+      sprintf(battbuf, "%d%%", pct);
+      int battX = display.width() - lcd->smallTextWidth(battbuf) - 2;
+      uint16_t battColor = (pct >= 50) ? 0x07E0     // green  50-100%
+                         : (pct >= 25) ? 0xFFE0     // yellow 25-50%
+                         : (pct >= 10) ? 0xFD20     // orange 10-25%
+                                       : 0xF800;    // red    0-10%
+      lcd->setRawColor(battColor);
+      lcd->printSmallFont(battX, HOME_HDR_Y, battbuf);
+
+      // Unread count (blue), to the left of the battery %.
+      char numbuf[6];
+      sprintf(numbuf, "%d", _task->getUnreadMsgCount());
+      int numX = battX - lcd->smallTextWidth(numbuf) - 3;
+      display.setColor(DisplayDriver::BLUE);
+      lcd->printSmallFont(numX, HOME_HDR_Y, numbuf);
+
+      // Clock (white), to the left of the unread count, when time is valid.
+      uint32_t now = _rtc->getCurrentTime();
+      if (now > 1700000000) {  // valid timestamp (after ~Nov 2023)
+        int32_t local = (int32_t)now + ((int32_t)_node_prefs->utc_offset_hours * 3600);
+        int hrs = (local / 3600) % 24;
+        if (hrs < 0) hrs += 24;
+        int mins = (local / 60) % 60;
+        if (mins < 0) mins += 60;
+        char timeBuf[6];
+        sprintf(timeBuf, "%02d:%02d", hrs, mins);
+        int clockX = (display.width() - lcd->smallTextWidth(timeBuf)) / 2;
+        // Long node names: keep the clock centred when there is room,
+        // otherwise push it right so it starts just past the name. When even
+        // that would run into the unread count, hide the clock instead.
+        int nameEndX = lcd->smallTextWidth(filtered_name) + 3;
+        if (clockX < nameEndX) clockX = nameEndX;
+        if (clockX + lcd->smallTextWidth(timeBuf) + 3 <= numX) {
+          display.setColor(DisplayDriver::LIGHT);
+          lcd->printSmallFont(clockX, HOME_HDR_Y, timeBuf);
+        }
+      }
+    }
+#else
     {
       uint32_t now = _rtc->getCurrentTime();
       if (now > 1700000000) {  // valid timestamp (after ~Nov 2023)
@@ -448,11 +529,14 @@ public:
         display.setTextSize(1);  // restore
       }
     }
+#endif
     // curr page indicator
 #if defined(LILYGO_TECHO_LITE)
     int y = 13;   // Below header
 #elif defined(LilyGo_T5S3_EPaper_Pro)
     int y = 14;  // Closer to header
+#elif defined(MECK_TWATCH)
+    int y = (_page == HomePage::FIRST) ? 9 : 18;  // first page: tuck up under the header
 #else
     int y = 14;
 #endif
@@ -466,7 +550,7 @@ public:
     }
 
     if (_page == HomePage::FIRST) {
-#if defined(LilyGo_T5S3_EPaper_Pro)
+#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
       _task->setHomeShowingTiles(true);
 #endif
 #if defined(LilyGo_T5S3_EPaper_Pro)
@@ -477,17 +561,23 @@ public:
   #endif
 #elif defined(LILYGO_TECHO_LITE)
       int y = 18;  // Below page dots
+#elif defined(MECK_TWATCH)
+      int y = 12;  // 4-row grid starts just below the dots
 #else
       int y = 20;
 #endif
+#if !defined(MECK_TWATCH)
       display.setColor(DisplayDriver::YELLOW);
       display.setTextSize(2);
       sprintf(tmp, "MSG: %d", _task->getUnreadMsgCount());
       display.drawTextCentered(display.width() / 2, y, tmp);
+#endif
 #if defined(LILYGO_TECHO_LITE)
       y += 12;  // Compact
 #elif defined(LilyGo_TDeck_Pro_Max)
       y += 10;  // MAX: pull < Connected > up under MSG to make room for [T] Phone
+#elif defined(MECK_TWATCH)
+      // watch: no MSG banner gap -- the 4-row grid sits just under the dots
 #else
       y += 14;  // Reduced from 18
 #endif
@@ -599,6 +689,52 @@ public:
         display.drawTextCentered(display.width() / 2, display.height() - 8, "Tap tile to open");
       }
       display.setTextSize(1);
+
+#elif defined(MECK_TWATCH)
+      // ----- T-Watch S3 Plus: P4-style coloured tile grid (3x2) -----
+      // Border colours approximate the Meck P4 home palette (RGB565): a white
+      // icon + label on a dark navy fill, each tile a distinct bright border.
+      // setRawColor() pushes exact RGB565 past the Color enum + watch grey remap.
+      {
+        struct Tile { const uint8_t* icon; const char* label; uint16_t color; };
+        const Tile tiles[4][2] = {
+          { {icon_envelope, "Messages", 0x0CB1}, {icon_people,  "Contacts", 0xCAA0} },
+          { {icon_gear,     "Settings", 0x0560}, {icon_search,  "Discover", 0xF81F} },
+#if defined(LILYGO_TWATCH_S3)
+          { {icon_trace,    "Trace",    0xF800}, {icon_gamepad, "Games",    0x231D} },
+#else
+          { {icon_trace,    "Trace",    0xF800}, {icon_map,     "Maps",     0x231D} },
+#endif
+          { {icon_notepad,  "Notes",    0x07FF}, {icon_star,    "Steps",    0xFFE0} },
+        };
+        const uint16_t TILE_FILL = 0x18C5;   // dark navy
+
+        const int cols = 2, rows = 4;
+        const int tileW = 56, tileH = 24, gapX = 4, gapY = 2;
+        const int gridW = tileW * cols + gapX * (cols - 1);
+        const int gridX = (display.width() - gridW) / 2;
+        const int gridY = y + 2;
+        _task->setTileGridVY(gridY);
+
+        LGFXDisplay* lcd = (LGFXDisplay*)&display;  // watch display is always LGFXDisplay
+        for (int row = 0; row < rows; row++) {
+          for (int col = 0; col < cols; col++) {
+            int tx = gridX + col * (tileW + gapX);
+            int ty = gridY + row * (tileH + gapY);
+            lcd->setRawColor(TILE_FILL);
+            lcd->fillRoundRect(tx, ty, tileW, tileH, 4);
+            lcd->setRawColor(tiles[row][col].color);
+            lcd->drawRoundRect(tx, ty, tileW, tileH, 4);
+            display.setColor(DisplayDriver::LIGHT);
+            int iconX = tx + (tileW - HOME_ICON_W) / 2;
+            int iconY = ty + 3;
+            display.drawXbm(iconX, iconY, tiles[row][col].icon, HOME_ICON_W, HOME_ICON_H);
+            display.setTextSize(_node_prefs->smallTextSize());
+            display.drawTextCentered(tx + tileW / 2, ty + 16, tiles[row][col].label);
+          }
+        }
+        display.setTextSize(1);
+      }
 
 #else
       // Non-T5S3: keyboard shortcut menu
@@ -786,6 +922,9 @@ public:
 #if defined(LilyGo_T5S3_EPaper_Pro)
       display.drawTextCentered(display.width() / 2, display.height() - 24,
                                "Tap here for full Last Heard list");
+#elif defined(MECK_TWATCH)
+      display.drawTextCentered(display.width() / 2, display.height() - 24,
+                               "Long Press: Full Last Heard List");
 #else
       display.drawTextCentered(display.width() / 2, display.height() - 24,
                                "H: Full Last Heard list");
@@ -844,6 +983,8 @@ public:
       display.setTextSize(1);
 #if defined(LilyGo_T5S3_EPaper_Pro)
       display.drawTextCentered(display.width() / 2, 80, "toggle: " PRESS_LABEL);
+#elif defined(MECK_TWATCH)
+      display.drawTextCentered(display.width() / 2, 68, "toggle: " PRESS_LABEL);
 #else
       display.drawTextCentered(display.width() / 2, 68, "toggle: " PRESS_LABEL);
       display.drawTextCentered(display.width() / 2, 78, "or press Enter key");
@@ -897,6 +1038,8 @@ public:
 #endif
 #if defined(LilyGo_T5S3_EPaper_Pro)
       display.drawTextCentered(display.width() / 2, 64, "advert: " PRESS_LABEL);
+#elif defined(MECK_TWATCH)
+      display.drawTextCentered(display.width() / 2, 57, "advert: " PRESS_LABEL);
 #else
       display.drawTextCentered(display.width() / 2, 57, "advert: " PRESS_LABEL);
       display.drawTextCentered(display.width() / 2, 67, "or press Enter key");
@@ -1124,7 +1267,9 @@ public:
       sprintf(buf, "%d.%d C", battTemp / 10, abs(battTemp % 10));
       display.drawTextRightAlign(display.width()-1-EINK_X_OFFSET, y, buf);
 #endif
-    } else if (_page == HomePage::SHUTDOWN) {
+    }
+#if !defined(MECK_TWATCH)
+    else if (_page == HomePage::SHUTDOWN) {
       display.setColor(DisplayDriver::GREEN);
       display.setTextSize(1);
       if (_shutdown_init) {
@@ -1168,6 +1313,7 @@ public:
         display.drawTextCentered(display.width() / 2, y2, line2);
       }
     }
+#endif
     return _editing_utc ? 700 : 5000;
   }
 
@@ -1206,6 +1352,7 @@ public:
       return true;  // Consume all other keys while editing
     }
 
+#if !defined(MECK_TWATCH)
     // SHUTDOWN page -- intercept up/down and Enter before page cycling
     if (_page == HomePage::SHUTDOWN) {
       if (_poweroff_confirm) {
@@ -1240,6 +1387,7 @@ public:
       }
       // Left/right fall through to page cycling below
     }
+#endif
 
     if (c == KEY_LEFT || c == KEY_PREV || c == 'a') {
       _page = (_page + HomePage::Count - 1) % HomePage::Count;
@@ -1301,6 +1449,169 @@ public:
 // T5S3: Long press boot button to lock/unlock. Touch disabled while locked.
 // T-Deck Pro: Double-press boot button to lock/unlock. Touch+keyboard disabled.
 // ==========================================================================
+#if defined(MECK_TWATCH)
+// Watch lock/clock screen: big HH:MM plus a day+date line, shown when the
+// display is woken (by raise-to-wake or a tap) after the idle timeout.
+class ClockScreen : public UIScreen {
+  UITask* _task;
+  mesh::RTCClock* _rtc;
+  NodePrefs* _node_prefs;
+public:
+  ClockScreen(UITask* task, mesh::RTCClock* rtc, NodePrefs* node_prefs)
+    : _task(task), _rtc(rtc), _node_prefs(node_prefs) { }
+
+  int render(DisplayDriver& display) override {
+    uint32_t now = _rtc->getCurrentTime();
+    char buf[24];
+    display.setColor(DisplayDriver::LIGHT);
+
+    // tiny daily step count, above the clock
+    {
+      char sbuf[20];
+      snprintf(sbuf, sizeof(sbuf), "%u steps", (unsigned)_task->getTodaySteps());
+      display.setColor(DisplayDriver::GREEN);   // muted grey on the watch palette
+      display.setTextSize(1);
+      display.drawTextCentered(display.width() / 2, 6, sbuf);
+      display.setColor(DisplayDriver::LIGHT);   // restore for the clock
+    }
+
+    // big clock
+    if (now > 1700000000) {  // valid timestamp (after ~Nov 2023)
+      int32_t local = (int32_t)now + ((int32_t)_node_prefs->utc_offset_hours * 3600);
+      int hrs = (local / 3600) % 24;
+      if (hrs < 0) hrs += 24;
+      int mins = (local / 60) % 60;
+      if (mins < 0) mins += 60;
+      sprintf(buf, "%02d:%02d", hrs, mins);
+    } else {
+      strcpy(buf, "--:--");
+    }
+    ((LGFXDisplay*)&display)->printClockFont(display.width() / 2, display.height() / 2 - 30, buf);
+
+    // day + date line below the clock
+    if (now > 1700000000) {
+      time_t local = (time_t)now + (time_t)_node_prefs->utc_offset_hours * 3600;
+      struct tm tmv;
+      gmtime_r(&local, &tmv);
+      static const char* const days[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+      static const char* const mons[] = {"Jan","Feb","Mar","Apr","May","Jun",
+                                         "Jul","Aug","Sep","Oct","Nov","Dec"};
+      sprintf(buf, "%s %d %s", days[tmv.tm_wday], tmv.tm_mday, mons[tmv.tm_mon]);
+      display.setTextSize(2);
+      display.setColor(DisplayDriver::GREEN);  // light grey on the watch palette
+      display.drawTextCentered(display.width() / 2, display.height() / 2 + 12, buf);
+      display.setColor(DisplayDriver::LIGHT);  // restore for the battery line
+    }
+
+    // battery % and unread count
+    int pct = (int)_task->getBatteryPercent();
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    sprintf(buf, "%d%% | %d unread", pct, _task->getUnreadMsgCount());
+    display.setTextSize(1);
+    display.drawTextCentered(display.width() / 2, display.height() / 2 + 38, buf);
+
+    return 1000;  // refresh about once a second
+  }
+
+  bool handleInput(char c) override {
+    _task->gotoHomeScreen();  // any input dismisses the clock screen back to the tiles
+    return true;
+  }
+};
+
+// Steps screen: big daily step count in the clock font. Opened by long-pressing
+// the Steps home tile; any tap dismisses back to the tiles.
+class StepsScreen : public UIScreen {
+  UITask* _task;
+public:
+  StepsScreen(UITask* task) : _task(task) { }
+
+  int render(DisplayDriver& display) override {
+    display.setColor(DisplayDriver::LIGHT);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%u", (unsigned)_task->getTodaySteps());
+    ((LGFXDisplay*)&display)->printClockFont(display.width() / 2, display.height() / 2 - 18, buf);
+    return 1000;
+  }
+
+  bool handleInput(char c) override {
+    if (c == KEY_ENTER) {              // touch long-press, or the S3's PWR key
+      _task->gotoStepsHistoryScreen();
+      return true;
+    }
+    _task->gotoHomeScreen();
+    return true;
+  }
+};
+
+// Steps history: today plus the previous six days, as labelled bars. Reached by
+// long-pressing the steps screen. Any input returns to the steps screen.
+class StepsHistoryScreen : public UIScreen {
+  UITask* _task;
+  mesh::RTCClock* _rtc;
+  NodePrefs* _node_prefs;
+
+  static const char* dowShort(int dow) {
+    static const char* names[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+    return (dow >= 0 && dow < 7) ? names[dow] : "??";
+  }
+
+public:
+  StepsHistoryScreen(UITask* task, mesh::RTCClock* rtc, NodePrefs* node_prefs)
+    : _task(task), _rtc(rtc), _node_prefs(node_prefs) {}
+
+  int render(DisplayDriver& display) override {
+    LGFXDisplay* d = (LGFXDisplay*)&display;
+    const int W = display.width();
+
+    display.setColor(DisplayDriver::LIGHT);
+    display.setTextSize(1);
+    display.drawTextCentered(W / 2, 3, "Last 7 days");
+
+    uint32_t vals[7];
+    uint32_t maxv = 1;
+    for (int i = 0; i < 7; i++) {
+      vals[i] = _task->getStepHistory(i);
+      if (vals[i] > maxv) maxv = vals[i];
+    }
+
+    // Weekday of today, from the local day-of-epoch (1970-01-01 was a Thursday).
+    int todayDow = -1;
+    uint32_t now = _rtc->getCurrentTime();
+    if (now > 1700000000) {
+      int32_t localDay = ((int32_t)now + ((int32_t)_node_prefs->utc_offset_hours * 3600)) / 86400;
+      todayDow = (int)((localDay + 4) % 7);
+    }
+
+    char buf[12];
+    for (int i = 0; i < 7; i++) {
+      int y = 16 + i * 14;
+      int barW = (int)(((uint64_t)(W - 6) * vals[i]) / maxv);
+      if (barW < 2) barW = 2;
+
+      d->setRawColor(i == 0 ? 0x231D : 0x18C5);   // today in the tile blue
+      d->fillRoundRect(3, y, barW, 12, 2);
+
+      const char* label = "-";
+      if (i == 0) label = "Today";
+      else if (todayDow >= 0) label = dowShort((todayDow - i + 14) % 7);
+
+      d->setRawColor(0xFFFF);
+      d->printSmallFont(6, y + 8, label);
+      snprintf(buf, sizeof(buf), "%lu", (unsigned long)vals[i]);
+      d->printSmallFont(W - 4 - d->smallTextWidth(buf), y + 8, buf);
+    }
+    return 1000;
+  }
+
+  bool handleInput(char c) override {
+    _task->gotoStepsScreen();
+    return true;
+  }
+};
+#endif
+
 #if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
 class LockScreen : public UIScreen {
   UITask* _task;
@@ -1380,7 +1691,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   _sensors = sensors;
   _auto_off = millis() + AUTO_OFF_MILLIS;
 
-#if defined(PIN_USER_BTN)
+#if (defined(PIN_USER_BTN) || defined(MECK_PMU_BUTTON))
   user_btn.begin();
 #endif
 #if defined(PIN_USER_BTN_ANA)
@@ -1470,6 +1781,25 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 #if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
   lock_screen = new LockScreen(this, &rtc_clock, node_prefs);
 #endif
+#if defined(MECK_TWATCH)
+  lock_screen = new ClockScreen(this, &rtc_clock, node_prefs);
+  steps_screen = new StepsScreen(this);
+  steps_history_screen = new StepsHistoryScreen(this, &rtc_clock, node_prefs);
+  // LittleFS ("/maps" partition) is mounted in setup() before UITask::begin().
+  loadSteps();
+#endif
+#if defined(MECK_TWATCH)
+  // LittleFS ("/maps" partition) is mounted in setup() before UITask::begin().
+  watch_notes_screen = new WatchNotesScreen(this, &rtc_clock, node_prefs);
+  watch_channel_cfg_screen = new WatchChannelConfigScreen(this, node_prefs);
+#endif
+#ifdef TWATCH_COMPOSE_ENABLED
+  tw_picker   = new TWatchChannelPicker(_display);
+  tw_channel  = new TWatchChannelScreen(_display);
+  tw_keyboard = new TWatchKeyboardScreen(_display);
+  ((TWatchChannelPicker*)tw_picker)->setStore((ChannelScreen*)channel_screen);
+  ((TWatchChannelScreen*)tw_channel)->setStore((ChannelScreen*)channel_screen);
+#endif
   audiobook_screen = nullptr;  // Created and assigned from main.cpp if audio hardware present
 #ifdef MECK_AUDIO_VARIANT
   alarm_screen = nullptr;      // Created and assigned from main.cpp if audio hardware present
@@ -1478,7 +1808,9 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 #ifdef HAS_4G_MODEM
   sms_screen = new SMSScreen(this, node_prefs);
 #endif
-#if HAS_GPS && !defined(LILYGO_TECHO_CARD)
+#if defined(MECK_TWATCH) && HAS_GPS
+  map_screen = new WatchMapScreen(this);
+#elif HAS_GPS && !defined(LILYGO_TECHO_CARD)
   map_screen = new MapScreen(this);
 #else
   map_screen = nullptr;
@@ -1739,6 +2071,10 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
   // app is connected (they'll see it there), mark as read immediately
   if ((isOnChannelScreen() && 
       ((ChannelScreen *) channel_screen)->getViewChannelIdx() == channel_idx) ||
+#ifdef TWATCH_COMPOSE_ENABLED
+      (curr == tw_channel &&
+      ((TWatchChannelScreen*)tw_channel)->getChannelIdx() == channel_idx) ||
+#endif
       hasConnection()) {
     ((ChannelScreen *) channel_screen)->markChannelRead(channel_idx);
   }
@@ -1770,6 +2106,21 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
   }
 
   if (_display != NULL && !suppressNotif) {
+#if defined(MECK_TWATCH)
+    // Watch: a new message must not wake the screen. The unread counter has
+    // already been incremented above; leave the display asleep so the count
+    // is only seen on the next tilt-wake to the clock screen. Only refresh
+    // when the display is already on.
+    if (_display->isOn()) {
+      _auto_off = millis() + AUTO_OFF_MILLIS;  // extend the auto-off timer
+      if (isRoomMsg) {
+        unsigned long earliest = millis() + 3000;  // At most one refresh per 3s during sync
+        if (_next_refresh < earliest) _next_refresh = earliest;
+      } else {
+        _next_refresh = 100;  // trigger refresh
+      }
+    }
+#else
     if (!_display->isOn() && !hasConnection()) {
       _display->turnOn();
     }
@@ -1783,6 +2134,7 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
       _next_refresh = 100;  // trigger refresh
     }
     }
+#endif
   }
 
   // Keyboard flash notification (suppress for room sync and muted channels)
@@ -1931,7 +2283,7 @@ void UITask::shutdown(bool restart){
 }
 
 bool UITask::isButtonPressed() const {
-#ifdef PIN_USER_BTN
+#if (defined(PIN_USER_BTN) || defined(MECK_PMU_BUTTON))
   return user_btn.isPressed();
 #else
   return false;
@@ -1940,7 +2292,21 @@ bool UITask::isButtonPressed() const {
 
 void UITask::loop() {
   char c = 0;
-#if defined(PIN_USER_BTN)
+#if defined(MECK_TWATCH)
+  // TEMP power-debug probe: every 60s, log display state + board power stats.
+  {
+    static unsigned long _pwr_dbg_next = 0;
+    if (millis() >= _pwr_dbg_next) {
+      _pwr_dbg_next = millis() + 60000;
+      Serial.printf("[PWR] uptime=%lus display=%s auto_off_in=%ldms\n",
+                    millis() / 1000,
+                    (_display && _display->isOn()) ? "ON" : "off",
+                    (long)(_auto_off - millis()));
+      board.printPowerDebug();
+    }
+  }
+#endif
+#if (defined(PIN_USER_BTN) || defined(MECK_PMU_BUTTON))
   int ev = user_btn.check();
   if (ev == BUTTON_EVENT_CLICK) {
 #if defined(LilyGo_T5S3_EPaper_Pro)
@@ -1992,6 +2358,32 @@ void UITask::loop() {
       c = 0;
     } else {
       c = checkDisplayOn(KEY_NEXT);
+    }
+#elif defined(MECK_PMU_BUTTON)
+    // T-Watch S3: the only key is the AXP2101 PWRON, so a short press is the
+    // sole button gesture available. It acts as enter/select/confirm (in the
+    // contacts screen, that opens the path editor). A >=6s hold is a hardware
+    // power-off and never reaches here.
+    c = checkDisplayOn(KEY_ENTER);
+    if (c && isOnContactsScreen()) {
+      ContactsScreen* cs = (ContactsScreen*)getContactsScreen();
+      if (cs) {
+        int idx = cs->getSelectedContactIdx();
+        if (idx >= 0) gotoPathEditor(idx);
+      }
+      c = 0;   // handled here; do not also pass Enter through
+    }
+#elif defined(LILYGO_TWATCH_S3_PLUS)
+    // T-Watch S3 Plus: on the contacts screen the boot button opens the path
+    // editor for the selected contact; elsewhere it wakes the display / KEY_NEXT.
+    c = checkDisplayOn(KEY_NEXT);
+    if (c && isOnContactsScreen()) {
+      ContactsScreen* cs = (ContactsScreen*)getContactsScreen();
+      if (cs) {
+        int idx = cs->getSelectedContactIdx();
+        if (idx >= 0) gotoPathEditor(idx);
+      }
+      c = 0;
     }
 #else
     c = checkDisplayOn(KEY_NEXT);
@@ -2111,7 +2503,174 @@ void UITask::loop() {
   if (buzzer.isPlaying())  buzzer.loop();
 #endif
 
+
 if (curr) curr->poll();
+
+#ifdef TWATCH_COMPOSE_ENABLED
+  // Channel picker -> channel screen (long-press select) / exit
+  if (curr == tw_picker) {
+    TWatchChannelPicker* picker = (TWatchChannelPicker*)tw_picker;
+    if (picker->isConfirmed()) {
+      ((TWatchChannelScreen*)tw_channel)->setSelfName(the_mesh.getNodePrefs()->node_name);
+      ((TWatchChannelScreen*)tw_channel)->activate(picker->getSelectedChannelIdx(),
+                                                   picker->getSelectedChannelName());
+      setCurrScreen(tw_channel);
+      picker->acknowledgeConfirm();
+    }
+    if (picker->wantsExit()) {
+      picker->acknowledgeExit();
+      gotoHomeScreen();
+    }
+  }
+  // Channel screen -> keyboard (compose bar tap) / exit
+  else if (curr == tw_channel) {
+    TWatchChannelScreen* cs = (TWatchChannelScreen*)tw_channel;
+    if (cs->wantsCompose()) {
+      cs->acknowledgeCompose();
+      ((TWatchKeyboardScreen*)tw_keyboard)->activate(cs->getChannelIdx(), cs->getChannelName());
+      setCurrScreen(tw_keyboard);
+    }
+    if (cs->wantsExit()) {
+      cs->acknowledgeExit();
+      gotoHomeScreen();
+    }
+  }
+  // Keyboard -> send on channel (returns to channel screen) / exit
+  else if (curr == tw_keyboard) {
+    TWatchKeyboardScreen* kb = (TWatchKeyboardScreen*)tw_keyboard;
+    if (kb->wantsExit()) {
+      kb->acknowledgeExit();
+      gotoHomeScreen();
+    }
+    const char* sendText = nullptr;
+    if (kb->consumeSendRequest(&sendText) && sendText) {
+      TWatchKeyboardScreen::Purpose purpose = kb->getPurpose();
+      int ctxIdx = kb->getContextIdx();
+      if (purpose == TWatchKeyboardScreen::TWKB_CHANNEL) {
+        ChannelDetails ch;
+        if (the_mesh.getChannel(kb->getChannelIdx(), ch)) {
+          uint32_t ts = rtc_clock.getCurrentTime();
+          the_mesh.sendGroupMessage(ts, ch.channel, the_mesh.getNodeName(),
+                                    sendText, strlen(sendText));
+          showAlert("Sent!", 800);
+          addSentChannelMessage(kb->getChannelIdx(), the_mesh.getNodePrefs()->node_name, sendText);
+        }
+        kb->clearOutBuf();
+        setCurrScreen(tw_channel);
+      } else if (purpose == TWatchKeyboardScreen::TWKB_DM) {
+        bool dmSuccess = false;
+        uint32_t sendRef = 0;
+        uint8_t sendTotal = 0;
+        if (strlen(sendText) > 0 &&
+            the_mesh.uiSendDirectMessage((uint32_t)ctxIdx, sendText, &sendRef, &sendTotal)) {
+          ContactInfo dmRecipient;
+          if (the_mesh.getContactByIdx(ctxIdx, dmRecipient)) {
+            addSentDM(dmRecipient.name, the_mesh.getNodePrefs()->node_name, sendText,
+                      sendRef, sendTotal);
+          }
+          dmSuccess = true;
+        }
+        kb->clearOutBuf();
+        ContactInfo dmContact;
+        if (the_mesh.getContactByIdx(ctxIdx, dmContact)) {
+          gotoDMConversation(dmContact.name, ctxIdx, 0);
+        } else {
+          gotoHomeScreen();
+        }
+        showAlert(dmSuccess ? "DM sent!" : "DM failed!", 1500);
+      } else if (purpose == TWatchKeyboardScreen::TWKB_PATH) {
+        PathEditorScreen* pe = (PathEditorScreen*)getPathEditorScreen();
+        const char* perr = pe ? pe->applyComposedPath(sendText) : "No editor";
+        kb->clearOutBuf();
+        if (path_editor) setCurrScreen(path_editor);
+        else gotoHomeScreen();
+        if (perr) showAlert(perr, 1500);
+      } else if (purpose == TWatchKeyboardScreen::TWKB_NOTE) {
+        WatchNotesScreen* wn = (WatchNotesScreen*)watch_notes_screen;
+        const char* nerr = wn ? wn->applyComposedNote(sendText) : "No notes";
+        kb->clearOutBuf();
+        if (watch_notes_screen) setCurrScreen(watch_notes_screen);
+        else gotoHomeScreen();
+        if (nerr) showAlert(nerr, 1200);
+      } else if (purpose == TWatchKeyboardScreen::TWKB_SCOPE) {
+        WatchChannelConfigScreen* wc = (WatchChannelConfigScreen*)watch_channel_cfg_screen;
+        const char* serr = wc ? wc->applyComposedScope(sendText) : "No channel cfg";
+        kb->clearOutBuf();
+        if (watch_channel_cfg_screen) setCurrScreen(watch_channel_cfg_screen);
+        else gotoHomeScreen();
+        if (serr) showAlert(serr, 1200);
+      } else if (purpose == TWatchKeyboardScreen::TWKB_TRACE_PATH) {
+        TraceScreen* ts = (TraceScreen*)getTraceScreen();
+        if (ts) ts->setTypedPath(sendText);
+        kb->clearOutBuf();
+        if (trace_screen) setCurrScreen(trace_screen);
+        else gotoHomeScreen();
+      } else {  // TWKB_ADMIN_PASSWORD or TWKB_ADMIN_CLI
+        RepeaterAdminScreen* admin = (RepeaterAdminScreen*)getRepeaterAdminScreen();
+        if (admin) {
+          for (int i = 0; sendText[i]; i++) admin->handleInput(sendText[i]);
+          admin->handleInput('\r');
+        }
+        kb->clearOutBuf();
+        if (repeater_admin) setCurrScreen(repeater_admin);
+        else gotoHomeScreen();
+      }
+    }
+  }
+  else if (curr == path_editor && path_editor != nullptr) {
+    PathEditorScreen* pe = (PathEditorScreen*)path_editor;
+    if (pe->wantsKeyboard()) {
+      pe->clearWantKeyboard();
+      openTWatchKeyboard(TWatchKeyboardScreen::TWKB_PATH, pe->getContactIdx());
+    }
+  }
+  else if (curr == watch_notes_screen && watch_notes_screen != nullptr) {
+    WatchNotesScreen* wn = (WatchNotesScreen*)watch_notes_screen;
+    if (wn->wantsKeyboard()) {
+      wn->clearWantKeyboard();
+      openTWatchKeyboard(TWatchKeyboardScreen::TWKB_NOTE, 0);
+      if (wn->editPending()) {
+        ((TWatchKeyboardScreen*)tw_keyboard)->setInitialText(wn->getEditText());
+      }
+    }
+  }
+  else if (curr == watch_channel_cfg_screen && watch_channel_cfg_screen != nullptr) {
+    WatchChannelConfigScreen* wc = (WatchChannelConfigScreen*)watch_channel_cfg_screen;
+    if (wc->wantsKeyboard()) {
+      wc->clearWantKeyboard();
+      openTWatchKeyboard(TWatchKeyboardScreen::TWKB_SCOPE, 0);
+      ((TWatchKeyboardScreen*)tw_keyboard)->setInitialText(wc->getEditText());
+    } else if (wc->wantsExit()) {
+      wc->clearWantExit();
+      gotoSettingsScreen();
+    }
+  }
+  else if (curr == trace_screen && trace_screen != nullptr) {
+    TraceScreen* ts = (TraceScreen*)trace_screen;
+    if (ts->wantsKeyboard()) {
+      ts->clearWantKeyboard();
+      openTWatchKeyboard(TWatchKeyboardScreen::TWKB_TRACE_PATH, 0);
+      ((TWatchKeyboardScreen*)tw_keyboard)->setInitialText(ts->getCurrentPathAsText());
+    }
+  }
+  else if (curr == settings_screen && settings_screen != nullptr) {
+    SettingsScreen* ss = (SettingsScreen*)settings_screen;
+    if (ss->wantsWatchChannels()) {
+      ss->clearWantsWatchChannels();
+      if (watch_channel_cfg_screen) {
+        ((WatchChannelConfigScreen*)watch_channel_cfg_screen)->enter();
+        setCurrScreen(watch_channel_cfg_screen);
+      }
+    }
+    // Touch activates rows via injectKey->handleInput, which bypasses the
+    // main.cpp key handler that consumes this flag. Consume it here too so a
+    // watch long-press opens the Rx Log (mirrors wantsWatchChannels above).
+    if (ss->isRxLogRequested()) {
+      ss->clearRxLogRequest();
+      gotoRxLogScreen();
+    }
+  }
+#endif
 
   if (_display != NULL && _display->isOn()) {
     if (millis() >= _next_refresh && curr) {
@@ -2293,6 +2852,16 @@ if (curr) curr->poll();
       unsigned long minNext = millis() + 800;   // Partial refresh: 800ms floor
 #endif
       if (_next_refresh < minNext) _next_refresh = minNext;
+
+      // Toast dismissal must not be starved by the e-ink render throttle:
+      // any render inside the alert window (e.g. a DM status push) re-draws
+      // the overlay and the floor above can push the scheduled clearing
+      // render well past _alert_expiry, leaving the toast on screen. If an
+      // alert is still active and due to lapse before the next scheduled
+      // render, wake at expiry so the clearing frame lands on time.
+      if (_alert_expiry != 0 && millis() < _alert_expiry && _next_refresh > _alert_expiry) {
+        _next_refresh = _alert_expiry;
+      }
       }  // end else (not bulk syncing)
     }
 #if AUTO_OFF_MILLIS > 0
@@ -2301,6 +2870,18 @@ if (curr) curr->poll();
     }
 #endif
   }
+#if defined(MECK_TWATCH)
+  // Raise-to-wake: a wrist-raise (BMA423 tilt) while the display is off turns
+  // it back on showing the clock screen and restarts the idle timer.
+  if (_display != NULL && !_display->isOn() && board.tiltFired()) {
+    _display->turnOn();
+    setCurrScreen(lock_screen);
+    _auto_off = millis() + AUTO_OFF_MILLIS;
+  }
+
+  // Accumulate steps, roll the day over at local midnight, persist periodically.
+  updateSteps();
+#endif
 
   // Auto-lock idle timer — runs regardless of display on/off state
 #if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
@@ -2419,6 +3000,10 @@ if (curr) curr->poll();
         _display->endFrame();
       }
       #endif
+
+      // Flush contacts before the battery dies -- the chunked lazy save may not
+      // have run for hours. Blocking save (tmp-then-rename, brownout-safe).
+      the_mesh.saveContacts();
 
       shutdown();
       }
@@ -2595,11 +3180,14 @@ void UITask::onVKBSubmit() {
       if (strlen(text) == 0) break;
 
       bool dmSuccess = false;
-      if (the_mesh.uiSendDirectMessage((uint32_t)idx, text)) {
+      uint32_t sendRef = 0;
+      uint8_t sendTotal = 0;
+      if (the_mesh.uiSendDirectMessage((uint32_t)idx, text, &sendRef, &sendTotal)) {
         // Add to channel screen so sent DM appears in conversation view
         ContactInfo dmRecipient;
         if (the_mesh.getContactByIdx(idx, dmRecipient)) {
-          addSentDM(dmRecipient.name, the_mesh.getNodePrefs()->node_name, text);
+          addSentDM(dmRecipient.name, the_mesh.getNodePrefs()->node_name, text,
+                    sendRef, sendTotal);
         }
         dmSuccess = true;
       }
@@ -2815,6 +3403,9 @@ void UITask::toggleGPS() {
         #if defined(LilyGo_TDeck_Pro_Max)
           board.gpsPowerOff();  // MAX: GPS power is XL9555-routed, not PIN_GPS_EN
         #endif
+        #if defined(MECK_TWATCH)
+          board.gpsPowerOff();  // Watch: GPS power is the AXP2101 BLDO1 rail
+        #endif
         notify(UIEventType::ack);
       } else {
         // Enable GPS — power on hardware
@@ -2825,6 +3416,9 @@ void UITask::toggleGPS() {
         #endif
         #if defined(LilyGo_TDeck_Pro_Max)
           board.gpsPowerOn();  // MAX: GPS power is XL9555-routed, not PIN_GPS_EN
+        #endif
+        #if defined(MECK_TWATCH)
+          board.gpsPowerOn();  // Watch: GPS power is the AXP2101 BLDO1 rail
         #endif
         notify(UIEventType::ack);
       }
@@ -2951,6 +3545,31 @@ void UITask::gotoChannelPickerScreen() {
   _next_refresh = 100;
 }
 
+#ifdef TWATCH_COMPOSE_ENABLED
+void UITask::openTWatchPicker() {
+  TWatchChannelPicker* picker = (TWatchChannelPicker*)tw_picker;
+  picker->beginChannelSelect();
+  ChannelDetails ch;
+  for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
+    if (the_mesh.getChannel(i, ch) && ch.name[0] != 0) {
+      picker->addChannel(i, ch.name);
+    }
+  }
+  setCurrScreen(tw_picker);
+}
+
+void UITask::openTWatchKeyboard(int purpose, int contextIdx) {
+  ((TWatchKeyboardScreen*)tw_keyboard)->activateFor(
+      (TWatchKeyboardScreen::Purpose)purpose, contextIdx);
+  setCurrScreen(tw_keyboard);
+  if (_display != NULL && !_display->isOn()) {
+    _display->turnOn();
+  }
+  _auto_off = millis() + AUTO_OFF_MILLIS;
+  _next_refresh = 100;
+}
+#endif
+
 void UITask::gotoDMTab() {
   ((ChannelScreen *) channel_screen)->setViewChannelIdx(0xFF);  // switches + marks read
   ((ChannelScreen *) channel_screen)->resetScroll();
@@ -3002,6 +3621,17 @@ void UITask::gotoTextReader() {
 }
 
 void UITask::gotoNotesScreen() {
+#if defined(MECK_TWATCH)
+  // Watch: the shared NotesScreen is SD-bound; use the LittleFS note pad.
+  if (watch_notes_screen) {
+    ((WatchNotesScreen*)watch_notes_screen)->enter();
+    setCurrScreen(watch_notes_screen);
+    if (_display != NULL && !_display->isOn()) _display->turnOn();
+    _auto_off = millis() + AUTO_OFF_MILLIS;
+    _next_refresh = 100;
+    return;
+  }
+#endif
   if (!notes_screen) return;  // Not available on this platform
 #if !defined(LILYGO_TECHO_LITE) && !defined(LILYGO_TECHO_CARD)
   NotesScreen* notes = (NotesScreen*)notes_screen;
@@ -3112,17 +3742,33 @@ void UITask::addSentChannelMessage(uint8_t channel_idx, const char* sender, cons
   // Format the message as "Sender: message"
   char formattedMsg[CHANNEL_MSG_TEXT_LEN];
   snprintf(formattedMsg, sizeof(formattedMsg), "%s: %s", sender, text);
-  
+
+  // Tag the bubble with this send's fingerprint so the "Heard by" overlay can
+  // later match it to the repeat track (MyMesh::getHeardBy).
+  uint8_t fp[12];  // SENT_FINGERPRINT_SIZE
+  bool haveFp = the_mesh.getLastSentFingerprint(fp);
+
   // Add to channel history with path_len=0 (local message)
-  ((ChannelScreen *) channel_screen)->addMessage(channel_idx, 0, sender, formattedMsg);
+  ((ChannelScreen *) channel_screen)->addMessage(channel_idx, 0, sender, formattedMsg,
+                                                  nullptr, 0, nullptr, false, 0xFF, 0, 0,
+                                                  haveFp ? fp : nullptr);
 }
 
-void UITask::addSentDM(const char* recipientName, const char* sender, const char* text) {
+void UITask::addSentDM(const char* recipientName, const char* sender, const char* text,
+                       uint32_t send_ref, uint8_t send_total) {
   // Format as "Sender: message" and tag with recipient's peer hash
   char formattedMsg[CHANNEL_MSG_TEXT_LEN];
   snprintf(formattedMsg, sizeof(formattedMsg), "%s: %s", sender, text);
   ((ChannelScreen *) channel_screen)->addMessage(0xFF, 0, sender, formattedMsg,
-                                                  nullptr, 0, recipientName);
+                                                  nullptr, 0, recipientName,
+                                                  false, 0xFF, send_ref, send_total);
+}
+
+void UITask::dmSendStatus(uint32_t send_ref, uint8_t status, uint8_t attempt, uint8_t total) {
+  if (((ChannelScreen *) channel_screen)->setSendStatus(send_ref, status, attempt, total)) {
+    // Repaint promptly if the user is looking at the conversation
+    if (isOnChannelScreen()) forceRefresh();
+  }
 }
 
 void UITask::markChannelReadFromBLE(uint8_t channel_idx) {
@@ -3257,6 +3903,137 @@ void UITask::gotoTraceScreen() {
   _next_refresh = 100;
 }
 
+#if defined(MECK_TWATCH)
+
+// Persisted step state. Lives on the LittleFS "maps" partition; the watches have
+// no SD card. There is no clean-shutdown hook to save from -- a >=6s hold on the
+// PWR key is a hardware power cut by the AXP2101 -- so saving is periodic.
+#define STEPS_FILE           "/steps.dat"
+#define STEPS_MAGIC          0x31505453UL   // "STP1"
+#define STEPS_VERSION        1
+#define STEPS_SAVE_INTERVAL_MS  300000UL    // flush at most every 5 minutes
+
+struct StepStoreV1 {
+  uint32_t magic;
+  uint8_t  version;
+  uint8_t  _pad[3];
+  int32_t  lastStepDay;
+  uint32_t todaySteps;
+  uint32_t history[6];
+};
+
+void UITask::loadSteps() {
+  File f = LittleFS.open(STEPS_FILE, "r");
+  if (!f) return;
+  StepStoreV1 st;
+  size_t n = f.read((uint8_t*)&st, sizeof(st));
+  f.close();
+  if (n != sizeof(st) || st.magic != STEPS_MAGIC || st.version != STEPS_VERSION) return;
+
+  _lastStepDay = st.lastStepDay;
+  _todaySteps  = st.todaySteps;
+  memcpy(_stepHistory, st.history, sizeof(_stepHistory));
+}
+
+void UITask::saveSteps() {
+  StepStoreV1 st;
+  memset(&st, 0, sizeof(st));
+  st.magic       = STEPS_MAGIC;
+  st.version     = STEPS_VERSION;
+  st.lastStepDay = _lastStepDay;
+  st.todaySteps  = _todaySteps;
+  memcpy(st.history, _stepHistory, sizeof(_stepHistory));
+
+  File f = LittleFS.open(STEPS_FILE, "w");
+  if (!f) {
+    Serial.println("steps: save FAILED (LittleFS)");
+    return;
+  }
+  f.write((const uint8_t*)&st, sizeof(st));
+  f.close();
+  _stepsDirtySince = 0;
+}
+
+void UITask::shiftStepHistory(uint32_t completedDay) {
+  for (int i = 5; i > 0; i--) _stepHistory[i] = _stepHistory[i - 1];
+  _stepHistory[0] = completedDay;
+}
+
+void UITask::rollStepDays(int32_t newDay) {
+  int32_t gap = newDay - _lastStepDay;
+  if (gap <= 0) {          // clock corrected backwards: re-anchor, keep history
+    _lastStepDay = newDay;
+    return;
+  }
+  shiftStepHistory(_todaySteps);                    // the day that just ended
+  for (int32_t d = 1; d < gap && d < 6; d++) {
+    shiftStepHistory(0);                            // days the watch was switched off
+  }
+  _todaySteps  = 0;
+  _lastStepDay = newDay;
+  saveSteps();
+}
+
+void UITask::updateSteps() {
+  uint32_t raw = board.getStepCount();
+
+  // Seed from the chip, not from the file: SensorBMA423::begin() re-flashes the
+  // feature engine (bma423_write_config_file) on every boot, zeroing the step
+  // register. Seeding here is correct whether or not the count survived.
+  if (!_stepsSeeded) { _lastRaw = raw; _stepsSeeded = true; }
+
+  uint32_t delta = (raw >= _lastRaw) ? (raw - _lastRaw) : raw;   // raw < last => counter reset
+  _lastRaw = raw;
+
+  uint32_t now = rtc_clock.getCurrentTime();
+  if (now <= 1700000000) return;   // clock not set: nothing to attribute steps to
+
+  int32_t localDay = ((int32_t)now + ((int32_t)the_mesh.getNodePrefs()->utc_offset_hours * 3600)) / 86400;
+  if (_lastStepDay == 0) {
+    _lastStepDay = localDay;       // first valid read on a fresh install
+  } else if (localDay != _lastStepDay) {
+    rollStepDays(localDay);
+  }
+
+  if (delta) {
+    _todaySteps += delta;
+    if (_stepsDirtySince == 0) _stepsDirtySince = millis();
+  }
+  if (_stepsDirtySince && millis() - _stepsDirtySince >= STEPS_SAVE_INTERVAL_MS) {
+    saveSteps();
+  }
+}
+
+uint32_t UITask::getTodaySteps() {
+  return _todaySteps;
+}
+
+uint32_t UITask::getStepHistory(int daysAgo) {
+  if (daysAgo <= 0) return _todaySteps;
+  if (daysAgo > 6)  return 0;
+  return _stepHistory[daysAgo - 1];
+}
+
+void UITask::gotoStepsScreen() {
+  setCurrScreen(steps_screen);
+  if (_display != NULL && !_display->isOn()) {
+    _display->turnOn();
+  }
+  _auto_off = millis() + AUTO_OFF_MILLIS;
+  _next_refresh = 100;
+}
+
+void UITask::gotoStepsHistoryScreen() {
+  setCurrScreen(steps_history_screen);
+  if (_display != NULL && !_display->isOn()) {
+    _display->turnOn();
+  }
+  _auto_off = millis() + AUTO_OFF_MILLIS;
+  _next_refresh = 100;
+}
+#endif
+
+
 void UITask::gotoGamesMenu() {
   GamesMenuScreen* gm = (GamesMenuScreen*)games_menu_screen;
   gm->enter();
@@ -3327,7 +4104,18 @@ void UITask::gotoWebReader() {
 #if HAS_GPS
 void UITask::gotoMapScreen() {
   if (!map_screen) return;  // Not available on this platform (T-Echo Card)
-#if !defined(LILYGO_TECHO_CARD)
+#if defined(MECK_TWATCH)
+  WatchMapScreen* map = (WatchMapScreen*)map_screen;
+  if (_display != NULL) {
+    map->enter(*_display);
+  }
+  setCurrScreen(map_screen);
+  if (_display != NULL && !_display->isOn()) {
+    _display->turnOn();
+  }
+  _auto_off = millis() + AUTO_OFF_MILLIS;
+  _next_refresh = 100;
+#elif !defined(LILYGO_TECHO_CARD)
   MapScreen* map = (MapScreen*)map_screen;
   if (_display != NULL) {
     map->enter(*_display);

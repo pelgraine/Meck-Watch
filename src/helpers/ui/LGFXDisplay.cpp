@@ -4,7 +4,7 @@ bool LGFXDisplay::begin() {
   turnOn();
   display->init();
   display->setRotation(1);
-  display->setBrightness(64);
+  display->setBrightness(25);
   display->setColorDepth(8);
   display->setTextColor(TFT_WHITE);
 
@@ -56,16 +56,28 @@ void LGFXDisplay::setColor(Color c) {
       _color = TFT_WHITE;
       break;
     case RED:
+#if defined(MECK_TWATCH)
+      _color = 0x7BEF;   // dark grey -- the watch UI uses a grey/white/black palette
+#else
       _color = TFT_RED;
+#endif
       break;
     case GREEN:
+#if defined(MECK_TWATCH)
+      _color = 0xC618;   // light grey
+#else
       _color = TFT_GREEN;
+#endif
       break;
     case BLUE:
       _color = TFT_BLUE;
       break;
     case YELLOW:
+#if defined(MECK_TWATCH)
+      _color = TFT_WHITE;
+#else
       _color = TFT_YELLOW;
+#endif
       break;
     case ORANGE:
       _color = TFT_ORANGE;
@@ -113,7 +125,7 @@ void LGFXDisplay::endFrame() {
 
 bool LGFXDisplay::getTouch(int *x, int *y) {
   lgfx::v1::touch_point_t point;
-  display->getTouch(&point);
+  if (!display->getTouch(&point)) return false;
   if (UI_ZOOM != 1) {
     *x = point.x / UI_ZOOM;
     *y = point.y / UI_ZOOM;
@@ -121,5 +133,5 @@ bool LGFXDisplay::getTouch(int *x, int *y) {
     *x = point.x;
     *y = point.y;
   }
-  return (*x >= 0) && (*y >= 0);
+  return true;
 }

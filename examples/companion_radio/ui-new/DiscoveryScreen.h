@@ -103,6 +103,14 @@ public:
       display.setColor(DisplayDriver::LIGHT);
       display.setCursor(4, 28);
       display.print(active ? "Listening for adverts..." : "No nodes found");
+#if defined(MECK_TWATCH)
+      display.setCursor(4, 48);
+      display.print("Hold: Rescan");
+      display.setCursor(4, 58);
+      display.print("Tap: Select");
+      display.setCursor(4, 68);
+      display.print("Tap Again: Add");
+#else
       if (!active) {
         display.setCursor(4, 38);
 #if defined(LilyGo_T5S3_EPaper_Pro)
@@ -111,6 +119,7 @@ public:
         display.print("F: Scan again  Q: Back");
 #endif
       }
+#endif
     } else {
       // Center visible window around selected item
       int maxVisible = (maxY - headerHeight) / lineHeight;
@@ -202,8 +211,14 @@ public:
     const char* right = "Hold:Rescan";
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
+#elif defined(MECK_TWATCH)
+    display.print("Tap:Slct");
+
+    const char* right = "Hold:Rescan";
+    display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
+    display.print(right);
 #else
-    display.print("Q:Bk F:Rescan");
+    display.print("Q:X F:Scan");
 
     const char* right = "Tap/Ent:Add";
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);

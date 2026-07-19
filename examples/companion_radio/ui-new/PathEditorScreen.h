@@ -57,6 +57,9 @@ private:
 
   bool _dirty;                 // Path has been modified
   bool _wantExit;              // Set by Save & Exit — caller should navigate back
+#if defined(MECK_TWATCH)
+  bool _wantKeyboard = false;  // Set by Add hop -- caller opens the path keyboard
+#endif
   bool _directLocked;          // True = path is explicitly set to direct (0 hops, locked)
 
   // --- helpers ---
@@ -189,6 +192,9 @@ public:
     _repScroll = 0;
     _dirty = false;
     _wantExit = false;
+#if defined(MECK_TWATCH)
+    _wantKeyboard = false;
+#endif
     _directLocked = false;
 
     // Load contact info
@@ -281,7 +287,7 @@ public:
 
       if (selected) {
         display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
+#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
         display.fillRect(0, y, display.width(), lineH);
 #else
         display.fillRect(0, y + 5, display.width(), lineH);
@@ -381,6 +387,12 @@ public:
     display.setCursor(0, footerY);
     display.print("Swipe:Nav");
     const char* right = "Hold:Select";
+    display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
+    display.print(right);
+#elif defined(MECK_TWATCH)
+    display.setCursor(0, footerY);
+    display.print("Tap:Slct");
+    const char* right = "Hold:Entr";
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
 #else
@@ -483,6 +495,61 @@ public:
     return 5000;
   }
 
+#if defined(MECK_TWATCH)
+  // Watch: replace the whole path from a typed string of comma-separated hex
+  // hops. Each hop is _bytesPerHop bytes (2*_bytesPerHop hex chars), matching
+  // the current mode toggle -- e.g. 1B "36,21,dd", 2B "3601,2198,dddd", 3B
+  // "360184,2198a7,dddddd". Returns NULL on success, or an error message (the
+  // existing path is left unchanged on any error). UITask is only forward
+  // declared here, so the caller shows the alert rather than this method.
+  const char* applyComposedPath(const char* str) {
+    if (str == nullptr) return "Empty path";
+    const int expectChars = _bytesPerHop * 2;
+    uint8_t tmp[MAX_PATH_SIZE];
+    int nbytes = 0, hops = 0;
+    const char* p = str;
+    while (*p) {
+      char tok[16];
+      int tlen = 0;
+      while (*p && *p != ',') {
+        if (*p != ' ') {
+          if (tlen >= (int)sizeof(tok) - 1) return "Hop too long";
+          tok[tlen++] = *p;
+        }
+        p++;
+      }
+      if (*p == ',') p++;
+      if (tlen == 0) continue;                       // tolerate stray/trailing commas
+      if (tlen != expectChars) return "Wrong hop length";
+      if (hops >= 8) return "Max 8 hops";
+      for (int b = 0; b < _bytesPerHop; b++) {
+        int hi = hexNibble(tok[b * 2]);
+        int lo = hexNibble(tok[b * 2 + 1]);
+        if (hi < 0 || lo < 0) return "Bad hex";
+        if (nbytes >= MAX_PATH_SIZE) return "Path too long";
+        tmp[nbytes++] = (uint8_t)((hi << 4) | lo);
+      }
+      hops++;
+    }
+    if (hops == 0) return "Empty path";
+    memset(_pathBuf, 0, sizeof(_pathBuf));
+    memcpy(_pathBuf, tmp, nbytes);
+    _hopCount = hops;
+    _pathLen = encodePath();
+    _directLocked = false;
+    _dirty = true;
+    _menuCount = buildMenuCount();
+    _menuSel = 0;
+    return nullptr;
+  }
+  static int hexNibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  }
+#endif
+
   bool handleInput(char c) override {
     if (_state == STATE_PICK_HOP) {
       return handlePickerInput(c);
@@ -545,12 +612,19 @@ public:
           return true;
 
         case MENU_ADD_HOP:
-          // Enter picker mode — adding a hop clears direct lock
           _directLocked = false;
+#if defined(MECK_TWATCH)
+          // Watch: request the on-screen keyboard to type the whole path as
+          // comma-separated hex hops. main loop polls wantsKeyboard() and opens
+          // it (UITask is only forward declared here, so we can't call it).
+          _wantKeyboard = true;
+#else
+          // Enter picker mode -- adding a hop clears direct lock
           buildRepeaterList();
           _repSel = 0;
           _repScroll = 0;
           _state = STATE_PICK_HOP;
+#endif
           return true;
 
         case MENU_SET_DIRECT:
@@ -596,9 +670,9 @@ public:
       return true;
     }
 
-    // Q - back (discard changes or prompt?)
+    // Shift+Del - back (discard changes or prompt?)
     // For simplicity, just go back without saving
-    if (c == 'q' || c == 'Q') {
+    if (c == KEY_CANCEL) {
       // Return to contacts screen without saving
       // The UITask will handle this via the key falling through
       return false;  // Let UITask handle Q as back
@@ -636,8 +710,8 @@ public:
       return true;
     }
 
-    // Q - cancel picker, return to main
-    if (c == 'q' || c == 'Q') {
+    // Shift+Del - cancel picker, return to main
+    if (c == KEY_CANCEL) {
       _state = STATE_MAIN;
       return true;
     }
@@ -700,6 +774,11 @@ public:
   EditorState getState() const { return _state; }
   bool isDirty() const { return _dirty; }
   bool wantsExit() const { return _wantExit; }
+#if defined(MECK_TWATCH)
+  bool wantsKeyboard() const { return _wantKeyboard; }
+  void clearWantKeyboard() { _wantKeyboard = false; }
+  int getContactIdx() const { return _contactIdx; }
+#endif
 
 private:
   void switchMode(int newBytesPerHop) {

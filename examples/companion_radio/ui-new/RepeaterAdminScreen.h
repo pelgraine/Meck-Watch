@@ -479,6 +479,39 @@ public:
   AdminState getState() const { return _state; }
   uint8_t getPermissions() const { return _permissions; }
 
+  // Map a touch Y (128-virtual space) to a menu row and select it.
+  // Returns 0 = miss/no-op, 1 = selection moved, 2 = tapped current selection.
+  // Mirrors the row layout in renderCategoryMenu / renderCommandMenu.
+  int selectRowAtVY(int vy) {
+    const int headerH = 14, footerH = 14;
+    int lineH = the_mesh.getNodePrefs()->smallLineH();
+
+    if (_state == STATE_CATEGORY_MENU) {
+      int bodyTop = headerH;
+      if (_serverTime > 0) bodyTop += lineH + 2;                                  // clock drift line
+      if (_telemHasVoltage || _telemHasTemp || _telemRequested) bodyTop += lineH + 2;  // telemetry line
+      if (vy < bodyTop || vy >= 128 - footerH) return 0;
+      int row = (vy - bodyTop) / lineH;
+      if (row < 0 || row >= CAT_COUNT) return 0;
+      if (row == _catSel) return 2;
+      _catSel = row;
+      return 1;
+    }
+
+    if (_state == STATE_COMMAND_MENU) {
+      int bodyTop = headerH + lineH + 2;   // category title line
+      if (vy < bodyTop || vy >= 128 - footerH) return 0;
+      int idx = _scrollOffset + (vy - bodyTop) / lineH;
+      int count = CATEGORIES[_catSel].count;
+      if (idx < 0 || idx >= count) return 0;
+      if (idx == _cmdSel) return 2;
+      _cmdSel = idx;
+      return 1;
+    }
+
+    return 0;
+  }
+
   void onLoginResult(bool success, uint8_t permissions, uint32_t server_time) {
     _waitingForLogin = false;
     if (success) {
@@ -562,6 +595,11 @@ public:
 
     // --- Header ---
     display.setTextSize(1);
+#if defined(MECK_TWATCH)
+    // Clip long lines at the screen edge instead of wrapping them onto the row
+    // below (restored before returning so other screens are unaffected).
+    ((LGFXDisplay*)&display)->setTextWrap(false);
+#endif
     display.setColor(DisplayDriver::GREEN);
     display.setCursor(0, 0);
     const char* hdrPrefix = (_state == STATE_PASSWORD_ENTRY || _state == STATE_LOGGING_IN)
@@ -606,6 +644,8 @@ public:
 #if defined(LilyGo_T5S3_EPaper_Pro)
         display.print("Boot:Exit");
         renderFooterRight(display, footerY, "Hold:Type");
+#elif defined(MECK_TWATCH)
+        display.print("Long Press: login");
 #else
         display.print("Sh+Del:Exit");
         renderFooterRight(display, footerY, "Ent:Login");
@@ -617,7 +657,7 @@ public:
 #if defined(LilyGo_T5S3_EPaper_Pro)
         display.print("Boot:Cancel");
 #else
-        display.print("Sh+Del:Cancel");
+        display.print("Q:Cancel");
 #endif
         break;
 
@@ -625,9 +665,11 @@ public:
 #if defined(LilyGo_T5S3_EPaper_Pro)
         display.print("Boot:Exit");
         renderFooterMidRight(display, footerY, "Back:Exit", "Tap:Open", "Swipe:Sel");
+#elif defined(MECK_TWATCH)
+        display.print("Long Press: Select");
 #else
-        display.print("Sh+Del:Exit");
-        renderFooterMidRight(display, footerY, "Sh+Del:Exit", "Ent:Open", "W/S:Sel");
+        display.print("Q:Exit");
+        renderFooterMidRight(display, footerY, "Q:Exit", "Ent:Open", "W/S:Sel");
 #endif
         break;
 
@@ -635,9 +677,11 @@ public:
 #if defined(LilyGo_T5S3_EPaper_Pro)
         display.print("Boot:Back");
         renderFooterMidRight(display, footerY, "Back:Back", "Tap:Run", "Swipe:Sel");
+#elif defined(MECK_TWATCH)
+        display.print("Long Press: Run");
 #else
-        display.print("Sh+Del:Back");
-        renderFooterMidRight(display, footerY, "Sh+Del:Back", "Ent:Run", "W/S:Sel");
+        display.print("Q:Back");
+        renderFooterMidRight(display, footerY, "Q:Back", "Ent:Run", "W/S:Sel");
 #endif
         break;
 
@@ -645,6 +689,8 @@ public:
 #if defined(LilyGo_T5S3_EPaper_Pro)
         display.print("Boot:Cancel");
         renderFooterRight(display, footerY, "Tap:Send");
+#elif defined(MECK_TWATCH)
+        display.print("Tap: Enter value");
 #else
         display.print("Sh+Del:Cancel");
         renderFooterRight(display, footerY, "Ent:Send");
@@ -656,7 +702,7 @@ public:
         display.print("Boot:No");
         renderFooterRight(display, footerY, "Tap:Yes");
 #else
-        display.print("Sh+Del:No");
+        display.print("Q:No");
         renderFooterRight(display, footerY, "Ent:Yes");
 #endif
         break;
@@ -669,13 +715,17 @@ public:
           renderFooterRight(display, footerY, "Swipe:Scroll");
         }
 #else
-        display.print("Sh+Del:Back");
+        display.print("Q:Back");
         if (_responseTotalLines > bodyHeight / 9) {
           renderFooterRight(display, footerY, "W/S:Scrll");
         }
 #endif
         break;
     }
+
+#if defined(MECK_TWATCH)
+    ((LGFXDisplay*)&display)->setTextWrap(true);   // restore default before returning
+#endif
 
     if (_state == STATE_LOGGING_IN || _state == STATE_COMMAND_PENDING) return 30000;  // static text; poll()/callbacks force refresh on state change
     if (_state == STATE_PASSWORD_ENTRY && _lastCharAt > 0 && (millis() - _lastCharAt) < 800) {
@@ -1045,7 +1095,7 @@ private:
 #if defined(LilyGo_T5S3_EPaper_Pro)
       display.print("Tap=Yes  Back=No");
 #else
-      display.print("Enter=Yes  Sh+Del=No");
+      display.print("Enter=Yes  Q=No");
 #endif
     }
 
@@ -1075,6 +1125,11 @@ private:
   void renderResponse(DisplayDriver& display, int y, int bodyHeight) {
     display.setTextSize(the_mesh.getNodePrefs()->smallTextSize());
     int lineHeight = the_mesh.getNodePrefs()->smallLineH();
+#if defined(MECK_TWATCH)
+    // Watch: clip long response lines at the screen edge instead of wrapping
+    // them onto the row below.
+    ((LGFXDisplay*)&display)->setTextWrap(false);
+#endif
 
     display.setColor((_state == STATE_ERROR) ? DisplayDriver::YELLOW : DisplayDriver::LIGHT);
 
@@ -1112,6 +1167,9 @@ private:
     }
 
     display.setTextSize(1);
+#if defined(MECK_TWATCH)
+    ((LGFXDisplay*)&display)->setTextWrap(true);   // restore default
+#endif
   }
 
   bool handleResponseInput(char c) {
