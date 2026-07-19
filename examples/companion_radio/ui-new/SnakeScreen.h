@@ -21,15 +21,9 @@
 class UITask;
 
 // -- Grid sizing per platform --
-#if defined(LilyGo_T5S3_EPaper_Pro)
-  #define SNAKE_CELL    4
-  #define SNAKE_HDR    14
-  #define SNAKE_FTR    10
-#else
   #define SNAKE_CELL    8
   #define SNAKE_HDR    14
   #define SNAKE_FTR    14
-#endif
 
 #define SNAKE_MAX_LEN    512
 #define SNAKE_HI_COUNT   10
@@ -382,9 +376,6 @@ public:
     display.startFrame();
     display.setTextSize(1);
     display.setColor(DisplayDriver::GREEN);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.drawTextCentered(display.width() / 2, 2, "Snake");
-#else
     display.setCursor(2, 2);
     display.print("Snake");
     char scoreBuf[16];
@@ -392,7 +383,6 @@ public:
     int sw = display.getTextWidth(scoreBuf);
     display.setCursor(display.width() - sw - 2, 2);
     display.print(scoreBuf);
-#endif
     display.setColor(DisplayDriver::LIGHT);
     display.drawRect(0, SNAKE_HDR - 2, display.width(), 1);
 
@@ -405,8 +395,6 @@ public:
       display.setColor(DisplayDriver::GREEN);
 #if defined(MECK_TWATCH)
       display.drawTextCentered(cx, y, "Tap to steer");
-#elif defined(LilyGo_T5S3_EPaper_Pro)
-      display.drawTextCentered(cx, y, "Swipe to steer");
 #else
       display.drawTextCentered(cx, y, "W/S/A/D to steer");
 #endif
@@ -421,11 +409,7 @@ public:
         display.drawTextCentered(cx, y, "-- High Scores --");
         y += 12;
         display.setColor(DisplayDriver::GREEN);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        int showCount = (_hiCount < 5) ? _hiCount : 5;
-#else
         int showCount = (_hiCount < 10) ? _hiCount : 10;
-#endif
         for (int i = 0; i < showCount; i++) {
           char dateBuf[16];
           formatDate(_hiScores[i].timestamp, dateBuf, sizeof(dateBuf));
@@ -440,7 +424,7 @@ public:
       }
 
       display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
       display.drawTextCentered(cx, y, "Tap to start");
 #else
       display.drawTextCentered(cx, y, "Press Enter to start");
@@ -502,7 +486,7 @@ public:
     }
 
     display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
     char footBuf[32];
     snprintf(footBuf, sizeof(footBuf), "Score: %d", _score);
     display.setTextSize(0);

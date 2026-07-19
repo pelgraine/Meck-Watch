@@ -32,10 +32,6 @@ protected:
   void start_gps();
   void stop_gps();
   void initBasicGPS();
-  #ifdef RAK_BOARD
-  void rakGPSInit();
-  bool gpsIsAwake(uint8_t ioPin);
-  #endif
   #endif
 
 

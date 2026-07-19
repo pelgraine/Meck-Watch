@@ -516,9 +516,7 @@ private:
             snprintf(tmp, sizeof(tmp), "%c Path: %s", prefix, pathStr);
             display.print(tmp);
           } else {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-            snprintf(tmp, sizeof(tmp), "%c Type Path: [Long press]", prefix);
-#elif defined(MECK_TWATCH)
+#if   defined(MECK_TWATCH)
             snprintf(tmp, sizeof(tmp), "%c Type Path: [Tap]", prefix);
 #else
             snprintf(tmp, sizeof(tmp), "%c Type Path: [Press Enter]", prefix);
@@ -583,15 +581,9 @@ private:
     display.setColor(DisplayDriver::LIGHT);
     display.setCursor(0, footerY);
     if (_editing) {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      display.print("Boot:Cancel  Tap:Apply");
-#else
       display.print("Q:Cancel Enter:Apply");
-#endif
     } else {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      display.print("Boot:Exit  Tap:Sel");
-#elif defined(MECK_TWATCH)
+#if   defined(MECK_TWATCH)
       display.print("Tap:Sel  Hold:Go");
 #else
       display.print("Q:Exit W/S:Nav Ent:Sel");
@@ -654,9 +646,7 @@ private:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::LIGHT);
     display.setCursor(0, footerY);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.print("Boot:Back  Tap:Add");
-#elif defined(MECK_TWATCH)
+#if   defined(MECK_TWATCH)
     display.print("Tap:Sel  Hold:Add");
 #else
     display.print("Q:Back W/S:Scroll Ent:Add");
@@ -712,11 +702,7 @@ private:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::LIGHT);
     display.setCursor(0, footerY);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.print("Boot:Cancel");
-#else
     display.print("Q:Cancel");
-#endif
 
     return 500;  // Fast refresh for elapsed timer
   }
@@ -808,9 +794,7 @@ private:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::LIGHT);
     display.setCursor(0, footerY);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.print("Boot:Back  Tap:New Trace");
-#elif defined(MECK_TWATCH)
+#if   defined(MECK_TWATCH)
     display.print("Hold: New Trace");
 #else
     display.print("Q:Back  Ent:New Trace");

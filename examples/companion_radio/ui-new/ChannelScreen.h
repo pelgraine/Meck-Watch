@@ -933,11 +933,7 @@ public:
         display.setCursor(0, y);
         display.print("No direct messages");
         display.setCursor(0, y + lineH);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        display.print("DMs from contacts appear here");
-#else
         display.print("A/D: Switch channel");
-#endif
       } else {
         int startIdx = max(0, min(_dmInboxScroll - maxVisible / 2,
                                   inboxCount - maxVisible));
@@ -948,11 +944,7 @@ public:
 
           if (selected) {
             display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-            display.fillRect(0, y, display.width(), lineH);
-#else
             display.fillRect(0, y + the_mesh.getNodePrefs()->smallHighlightOff(), display.width(), lineH);
-#endif
             display.setColor(DisplayDriver::DARK);
           } else {
             display.setColor(DisplayDriver::LIGHT);
@@ -1001,31 +993,13 @@ public:
       int footerY = display.height() - 12;
       display.drawRect(0, footerY - 2, display.width(), 1);
       display.setColor(DisplayDriver::YELLOW);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      display.setCursor(0, footerY);
-      display.print("Swipe:Nav");
-      const char* rtInbox = "Hold:Open";
-      display.setCursor(display.width() - display.getTextWidth(rtInbox) - 2, footerY);
-      display.print(rtInbox);
-#elif defined(LILYGO_TECHO_LITE)
-      display.setCursor(0, footerY);
-      display.print("Q:Bk");
-      const char* rtInbox = "Ent:Open";
-      display.setCursor(display.width() - display.getTextWidth(rtInbox) - 2, footerY);
-      display.print(rtInbox);
-#else
       display.setCursor(0, footerY);
       display.print("Q:Bck");
       const char* rtInbox = "Ent:Open";
       display.setCursor(display.width() - display.getTextWidth(rtInbox) - 2, footerY);
       display.print(rtInbox);
-#endif
 
-#ifdef USE_EINK
-      return 5000;
-#else
       return 1000;
-#endif
     }
     
     // --- Path detail overlay ---
@@ -1212,10 +1186,6 @@ public:
       display.drawRect(0, footerY - 2, display.width(), 1);
       display.setCursor(0, footerY);
       display.setColor(DisplayDriver::YELLOW);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      display.print("Back");
-      const char* copyHint = "Tap:Dismiss";
-#else
       display.print("Q:Back");
       // Show scroll hint if path is scrollable
       if (msg && (msg->path_len & 63) > _pathHopsVisible && msg->path_len != 0xFF) {
@@ -1225,15 +1195,10 @@ public:
         display.print(scrollHint);
       }
       const char* copyHint = "Ent:Copy";
-#endif
       display.setCursor(display.width() - display.getTextWidth(copyHint) - 2, footerY);
       display.print(copyHint);
 
-#ifdef USE_EINK
-      return 5000;
-#else
       return 1000;
-#endif
     }
     
     if (channelMsgCount == 0) {
@@ -1245,29 +1210,15 @@ public:
         snprintf(noMsg, sizeof(noMsg), "No messages from %s", _dmFilterName);
         display.print(noMsg);
         display.setCursor(0, 30);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        display.print("Hold: Compose reply");
-#else
         display.print("Q: Back to inbox");
         display.setCursor(0, 40);
         display.print("Ent: Compose reply");
-#endif
       } else {
         display.print("No messages yet");
         display.setCursor(0, 30);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        display.print("Swipe: Switch channel");
-        display.setCursor(0, 40);
-        display.print("Long press: Compose");
-#elif defined(LILYGO_TECHO_LITE)
-        display.print("Arrows: Switch channel");
-        display.setCursor(0, 40);
-        display.print("Ent: Compose message");
-#else
         display.print("A/D: Switch channel");
         display.setCursor(0, 40);
         display.print("C: Compose message");
-#endif
       }
       display.setTextSize(1);  // Restore for footer
     } else if (_viewChannelIdx == 0xFF && _dmInboxMode) {
@@ -1352,11 +1303,7 @@ public:
 
           if (selected) {
             display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-            display.fillRect(0, y, display.width(), lineHeight);
-#else
             display.fillRect(0, y + the_mesh.getNodePrefs()->smallHighlightOff(), display.width(), lineHeight);
-#endif
             display.setColor(DisplayDriver::DARK);
           } else {
             display.setColor(DisplayDriver::LIGHT);
@@ -1459,11 +1406,7 @@ public:
           int availH = maxY - y;
           if (maxFillH > availH) maxFillH = availH;
           display.setColor(DisplayDriver::LIGHT);
-          #if defined(LilyGo_T5S3_EPaper_Pro)
-          display.fillRect(0, y, contentW, maxFillH);
-#else
           display.fillRect(0, y + the_mesh.getNodePrefs()->smallHighlightOff(), contentW, maxFillH);
-#endif
         }
         
         // Time indicator with hop count - inline on same line as message start
@@ -1677,11 +1620,7 @@ public:
           if (maxFillH > availH) maxFillH = availH;
           if (usedH < maxFillH) {
             display.setColor(DisplayDriver::DARK);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-            display.fillRect(0, y, contentW, maxFillH - usedH);
-#else
             display.fillRect(0, y + the_mesh.getNodePrefs()->smallHighlightOff(), contentW, maxFillH - usedH);
-#endif
           }
         }
         
@@ -1736,36 +1675,6 @@ public:
     display.setCursor(0, footerY);
     display.setColor(DisplayDriver::YELLOW);
     
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.setCursor(0, footerY);
-    if (_viewChannelIdx == 0xFF) {
-      display.print("Swipe:Scroll");
-      const char* rtCh = "Hold:Reply";
-      display.setCursor(display.width() - display.getTextWidth(rtCh) - 2, footerY);
-      display.print(rtCh);
-    } else {
-      display.print("Swipe:Ch/Scroll");
-      const char* midCh = "Tap:Path";
-      display.setCursor((display.width() - display.getTextWidth(midCh)) / 2, footerY);
-      display.print(midCh);
-      const char* rtCh = "Hold:Compose";
-      display.setCursor(display.width() - display.getTextWidth(rtCh) - 2, footerY);
-      display.print(rtCh);
-    }
-#elif defined(LILYGO_TECHO_LITE)
-    // T-Echo Lite: minimal footer for narrow display
-    if (_viewChannelIdx == 0xFF) {
-      display.print("Q:Bk");
-      const char* rightText = "Ent:Reply";
-      display.setCursor(display.width() - display.getTextWidth(rightText) - 2, footerY);
-      display.print(rightText);
-    } else {
-      display.print("Q:Bk");
-      const char* rightText = "Ent:New";
-      display.setCursor(display.width() - display.getTextWidth(rightText) - 2, footerY);
-      display.print(rightText);
-    }
-#else
     // Left side: abbreviated controls
     if (_replySelectMode) {
       display.print("W/S:Sel V:Pth Q:X");
@@ -1787,13 +1696,8 @@ public:
       display.setCursor(display.width() - display.getTextWidth(rightText) - 2, footerY);
       display.print(rightText);
     }
-#endif
 
-#ifdef USE_EINK
-    return 5000;
-#else
     return 1000;
-#endif
   }
 
   // Vertical-swipe scroll (watch). Pages the normal message view a screenful at

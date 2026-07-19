@@ -59,23 +59,12 @@ static const char* skip_hash(const char* name) {
 }
 
 static File openWrite(FILESYSTEM* _fs, const char* filename) {
-  #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-    _fs->remove(filename);
-    return _fs->open(filename, FILE_O_WRITE);
-  #elif defined(RP2040_PLATFORM)
-    return _fs->open(filename, "w");
-  #else
     return _fs->open(filename, "w", true);
-  #endif
 }
 
 bool RegionMap::load(FILESYSTEM* _fs, const char* path) {
   if (_fs->exists(path ? path : "/regions2")) {
-  #if defined(RP2040_PLATFORM)
-    File file = _fs->open(path ? path : "/regions2", "r");
-  #else
     File file = _fs->open(path ? path : "/regions2");
-  #endif
 
     if (file) {
       uint8_t pad[128];

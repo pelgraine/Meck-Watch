@@ -503,11 +503,7 @@ private:
     int rightX = display.width() - display.getTextWidth(tmp) - 2;
 
     if (_selectedFile >= 1 && _selectedFile <= (int)_fileList.size()) {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      const char* hint = "[Hold:Rename]";
-#else
       const char* hint = "[R:Rename]";
-#endif
       int hintX = rightX - display.getTextWidth(hint) - 4;
       display.setCursor(hintX, 0);
       display.setColor(DisplayDriver::YELLOW);
@@ -539,11 +535,7 @@ private:
 
       if (selected) {
         display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        display.fillRect(0, y, display.width(), listLineH);
-#else
         display.fillRect(0, y + _prefs->smallHighlightOff(), display.width(), listLineH);
-#endif
         display.setColor(DisplayDriver::DARK);
       } else {
         display.setColor(DisplayDriver::LIGHT);
@@ -567,13 +559,8 @@ private:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setCursor(0, footerY);
     display.setColor(DisplayDriver::YELLOW);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.print("Swipe:Nav");
-    const char* right = "Tap:Open";
-#else
     display.print("Q:Bk");
     const char* right = "Tap/Ent:Open";
-#endif
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
   }
@@ -589,13 +576,8 @@ private:
       display.drawRect(0, footerY - 2, display.width(), 1);
       display.setColor(DisplayDriver::YELLOW);
       display.setCursor(0, footerY);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      display.print("Tap:Edit");
-      const char* right = "Hold:Delete";
-#else
       display.print("Q:Bk Ent:Edit");
       const char* right = "X:Delete";
-#endif
       display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
       display.print(right);
       return;
@@ -680,15 +662,9 @@ private:
     display.setColor(DisplayDriver::YELLOW);
 
     display.setCursor(0, footerY);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.print("Swipe:Page");
-
-    const char* right = "Tap:Edit";
-#else
     display.print("Q:Bk Ent:Edit");
 
     const char* right = "X:Delete";
-#endif
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
   }
@@ -789,25 +765,12 @@ private:
     snprintf(status, sizeof(status), "Pg %d/%d", curPage, totalPg);
     display.print(status);
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    const char* mid = "Tap:Type";
-    display.setCursor((display.width() - display.getTextWidth(mid)) / 2, footerY);
-    display.print(mid);
-#endif
 
     const char* right;
     if (_bufLen == 0 || !_dirty) {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      right = "Back";
-#else
       right = "Q:Back";
-#endif
     } else {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      right = "Hold:Save";
-#else
       right = "Sh+Del:Save";
-#endif
     }
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
@@ -854,13 +817,8 @@ private:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::YELLOW);
     display.setCursor(0, footerY);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.print("Boot:Cancel");
-    const char* right = "Tap:Confirm";
-#else
     display.print("Q:Cancel");
     const char* right = "Ent:Confirm";
-#endif
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
   }
@@ -893,13 +851,8 @@ private:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::YELLOW);
     display.setCursor(0, footerY);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.print("Boot:Cancel");
-    const char* right = "Tap:Delete";
-#else
     display.print("Q:Cancel");
     const char* right = "Ent:Delete";
-#endif
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
   }
@@ -1240,11 +1193,7 @@ public:
     if (_mode != FILE_LIST) return 0;
     const int startY = 14, footerH = 14;
     const int listLineH = _prefs ? _prefs->smallLineH() : 9;
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    const int bodyTop = startY;
-#else
     const int bodyTop = startY + (_prefs ? _prefs->smallHighlightOff() : 5);
-#endif
     if (vy < bodyTop || vy >= 128 - footerH) return 0;
 
     int totalItems = 1 + (int)_fileList.size();

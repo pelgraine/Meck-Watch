@@ -1,91 +1,40 @@
-## Meshcore + Fork = Meck
+## Meshcore + Fork = Meck (T-Watch Edition)
 
-A fork created specifically to focus on enabling BLE & WiFi companion firmware for the LilyGo T-Deck Pro, LilyGo T-Deck Max & LilyGo T5 E-Paper S3 Pro. Created wholly with Claude AI using Meshcore v1.11 code. 100% vibecoded.
+A MeshCore companion-radio firmware for the **LilyGo T-Watch S3** and **T-Watch S3 Plus** — wrist-worn, touch-first mesh nodes. This is the watch-only build of Meck; the multi-device Meck firmware (T-Deck Pro, T-Deck Max, T5S3 E-Paper Pro, Heltec repeaters) lives in the [main Meck repository](https://github.com/pelgraine/Meck). Created with Claude AI on MeshCore v1.11 code.
 
 [Check out the Meck discussion channel on the MeshCore Discord](https://discord.com/channels/1495203904898728149/1496789639556501614)
 
-<img src="https://github.com/user-attachments/assets/b30ce6bd-79af-44d3-93c4-f5e7e21e5621" alt="IMG_1453" width="300" height="650">
-
 ### Contents
 - [Supported Devices](#supported-devices)
-- [SD Card Requirements](#sd-card-requirements)
+- [S3 vs S3 Plus at a Glance](#s3-vs-s3-plus-at-a-glance)
+- [No SD Card](#no-sd-card)
+- [Build Variants](#build-variants)
 - [Flashing Firmware](#flashing-firmware)
-  - [First-Time Flash (Merged Firmware)](#first-time-flash-merged-firmware)
-  - [Upgrading Firmware](#upgrading-firmware)
-  - [Launcher](#launcher)
-  - [OTA Firmware Update](#ota-firmware-update-v13)
-- [Path Hash Mode (v0.9.9+)](#path-hash-mode-v099)
-- [Region Scope (v1.7+)](#region-scope-v17)
-- [T-Deck Pro](#t-deck-pro)
-  - [Build Variants](#t-deck-pro-build-variants)
-  - [Keyboard Controls](#t-deck-pro-keyboard-controls)
-  - [Navigation (Home Screen)](#navigation-home-screen)
-  - [Bluetooth (BLE)](#bluetooth-ble)
-  - [WiFi Companion](#wifi-companion)
-  - [Clock & Timezone](#clock--timezone)
-  - [Channel Message Screen](#channel-message-screen)
-  - [Channel Picker](#channel-picker)
-  - [Contacts Screen](#contacts-screen)
-  - [Sending a Direct Message](#sending-a-direct-message)
-  - [Roomservers](#roomservers)
-  - [Repeater Admin Screen](#repeater-admin-screen)
-  - [Trace Route Screen (v1.9+)](#trace-route-screen-v19)
-  - [Rx Log](#rx-log)
-  - [Delete Message History (v1.10+)](#delete-message-history-v110)
-  - [Per-Channel Notification Preferences (v1.10+)](#per-channel-notification-preferences-v110)
-  - [Custom Notification Tones (v1.10+)](#custom-notification-tones-v110)
-  - [Games (v1.10+)](#games-v110)
-  - [Private Channels (v1.11+)](#private-channels-v111)
-  - [Channel Sharing via DM (v1.11+)](#channel-sharing-via-dm-v111)
-  - [Config Export/Import (v1.11+)](#config-exportimport-v111)
-  - [Settings Screen](#settings-screen)
-  - [Font Styles](#font-styles)
-  - [Compose Mode](#compose-mode)
-  - [Symbol Entry (Sym Key)](#symbol-entry-sym-key)
-  - [Emoji Picker](#emoji-picker)
-  - [SMS & Phone App (4G only)](#sms--phone-app-4g-only)
-  - [Web Browser & IRC](#web-browser--irc)
-  - [Alarm Clock (Audio only)](#alarm-clock-audio-only)
-  - [Voice Notes Over LoRa (Audio only)](#voice-notes-over-lora-audio-only)
-  - [Lock Screen (T-Deck Pro)](#lock-screen-t-deck-pro)
-  - [Shutdown (T-Deck Pro)](#shutdown-t-deck-pro)
-- [T-Deck Max](#t-deck-pro-max)
-  - [Build Variants](#t-deck-pro-max-build-variants)
-  - [4G and Audio at the Same Time](#4g-and-audio-at-the-same-time)
-  - [Antenna (Internal / External)](#antenna-internal--external)
-  - [Buzzer (Vibrate) Notifications](#buzzer-vibrate-notifications)
-  - [Capacitive Touch & Buttons](#capacitive-touch--buttons)
-  - [Frontlight & Backlight Brightness](#frontlight--backlight-brightness)
-  - [Keyboard Backlight](#keyboard-backlight)
-  - [Multi-Constellation GPS](#multi-constellation-gps)
-- [Remote Repeater (T-Deck Pro 4G)](#remote-repeater-t-deck-pro-4g)
-- [WiFi Repeater](#wifi-repeater)
-- [T5S3 E-Paper Pro](#t5s3-e-paper-pro)
-  - [Build Variants](#t5s3-build-variants)
-  - [Touch Navigation](#touch-navigation)
-  - [Home Screen](#t5s3-home-screen)
-  - [Boot Button Controls](#boot-button-controls)
-  - [Backlight](#backlight)
-  - [Lock Screen](#lock-screen)
-  - [Virtual Keyboard](#virtual-keyboard)
-  - [Display Settings](#display-settings)
-  - [Clock & RTC](#clock--rtc)
-  - [Touch Gestures by Screen](#touch-gestures-by-screen)
-- [Serial Settings (USB)](Serial_Settings_Guide.md)
-- [Text & EPUB Reader](TXT___EPUB_Reader_Guide.md)
-- [Web Browser & IRC Guide](Web_App_Guide.md)
-- [SMS & Phone App Guide](SMS___Phone_App_Guide.md)
-- [Audiobook Player Guide](Audiobook_Player_Guide.md)
-- [Meck-Mycelium Web App](#meck-mycelium-web-app)
+- [Home Screen & Navigation](#home-screen--navigation)
+- [The Buttons — S3 vs S3 Plus](#the-buttons--s3-vs-s3-plus)
+- [Touch Gestures](#touch-gestures)
+- [Tilt-to-Wake & Lock Screen](#tilt-to-wake--lock-screen)
+- [Step Counter](#step-counter)
+- [Clock & Timezone](#clock--timezone)
+- [Channel Messages & the Channel Picker](#channel-messages--the-channel-picker)
+- [Contacts & Direct Messages](#contacts--direct-messages)
+- ["Heard By" on Sent Messages](#heard-by-on-sent-messages)
+- [Notes](#notes)
+- [Discovery & Last Heard](#discovery--last-heard)
+- [Rx Log](#rx-log)
+- [Repeater Admin & Path Editor](#repeater-admin--path-editor)
+- [Trace Route](#trace-route)
+- [Games](#games)
+- [Maps (S3 Plus only)](#maps-s3-plus-only)
+- [Settings](#settings)
+- [Path Hash Mode](#path-hash-mode)
+- [Region Scope](#region-scope)
+- [Channels: Public, Private & Sharing](#channels-public-private--sharing)
+- [Bluetooth (BLE)](#bluetooth-ble)
+- [Battery & Charging](#battery--charging)
 - [About MeshCore](#about-meshcore)
-- [What is MeshCore?](#what-is-meshcore)
-- [Key Features](#key-features)
-- [What Can You Use MeshCore For?](#what-can-you-use-meshcore-for)
-- [How to Get Started](#how-to-get-started)
 - [MeshCore Clients](#meshcore-clients)
-- [Hardware Compatibility](#-hardware-compatibility)
 - [Contributing](#contributing)
-- [Road-Map / To-Do](#road-map--to-do)
 - [Get Support](#-get-support)
 - [License](#-license)
   - [Third-Party Libraries](#third-party-libraries)
@@ -94,102 +43,304 @@ A fork created specifically to focus on enabling BLE & WiFi companion firmware f
 
 ## Supported Devices
 
-Meck currently targets three LilyGo devices and also supports the Heltec V3 and V4 as remote repeaters:
+Meck (T-Watch Edition) targets two LilyGo watches, both built on the ESP32-S3 (16 MB flash, 8 MB PSRAM) with an ST7789 1.54" 240×240 IPS panel, FT6336U capacitive touch, AXP2101 PMU, BMA423 accelerometer, DRV2605 haptic motor, PCF8563 hardware RTC, and an SX1262 LoRa radio.
 
 | Device | Display | Input | LoRa | Battery | GPS | RTC |
 |--------|---------|-------|------|---------|-----|-----|
-| **T-Deck Pro** | 240×320 e-ink (GxEPD2) | TCA8418 keyboard + optional touch | SX1262 | BQ27220 fuel gauge, 1400 mAh | Yes | No (uses GPS time) |
-| **T-Deck Max** | 240×320 e-ink (GxEPD2) + frontlight | TCA8418 keyboard + CST328 capacitive touch + 3 capacitive buttons | SX1262 | BQ27220 fuel gauge, 1500 mAh | Yes (multi-constellation) | No (uses GPS time) |
-| **T5S3 E-Paper Pro** (V2, H752-B) | 960×540 e-ink (FastEPD, parallel) | GT911 capacitive touch (no keyboard) | SX1262 | BQ27220 fuel gauge, 1500 mAh | No (non-GPS variant) | Yes (PCF8563 hardware RTC) |
-| **Heltec V3** (remote repeater only) | 0.96" OLED (SSD1306) | — | SX1262 | — | No | No |
-| **Heltec V4** (remote repeater only) | 0.96" OLED (SSD1306) | — | SX1262 | — | No | No |
+| **T-Watch S3** | 240×240 IPS (ST7789, LovyanGFX) | FT6336U touch + PWR key (single button) | SX1262 | AXP2101 + BMA423, 470 mAh LiHV | No | Yes (PCF8563) |
+| **T-Watch S3 Plus** | 240×240 IPS (ST7789, LovyanGFX) | FT6336U touch + PWR key + BOOT + RESET buttons | SX1262 | AXP2101 + BMA423, LiHV | Yes (MIA-M10Q) | Yes (PCF8563) |
 
-The T-Deck Pro, T-Deck Max, and T5S3 use the ESP32-S3 with 16 MB flash and 8 MB PSRAM. The Heltec V3 and V4 use the ESP32-S3 with 8 MB flash and 8 MB PSRAM.
+The two boards are wired identically at the ESP32-S3 — they differ only in what is *populated*, not in how the chip is connected.
 
 ---
 
-## SD Card Requirements
+## S3 vs S3 Plus at a Glance
 
-**An SD card is essential for Meck to function properly.** Many features — including the e-book reader, notes, bookmarks, web reader cache, audiobook playback, firmware updates, contact import/export, and WiFi credential storage — rely on files stored on the SD card. Without an SD card inserted, the device will boot and handle mesh messaging, but most extended features will be unavailable or will fail silently.
+| | T-Watch S3 | T-Watch S3 Plus |
+|---|---|---|
+| GPS | None (no map screen) | Onboard MIA-M10Q GNSS — map screen available |
+| Physical buttons | **One: the side PWR key only** | **Three: PWR key, plus BOOT (GPIO0) and RESET** on the back shell |
+| Button Meck reads | PWR key (via the PMU) | The GPIO0 boot button |
+| Home tile (row 3, right) | **Games** (Trace + Games) | **Maps** (Trace + Maps) |
+| Battery cell | 470 mAh LiHV (Tewaycell 552530, 3.8 V nom / 4.35 V max) | LiHV (Tewaycell 112530-2P, 3.8 V nom / 4.35 V max) |
+| Estimated runtime | ~7.5–9.5 hours | ~14–16 hours |
+| Firmware version string | `Meck TWatch S3 v0.3` / `Meck TWatch S3 BLE v0.3` | `Meck TWatch v0.3` / `Meck TWatch BLE v0.3` |
 
-**Recommended:** A **32 GB or larger** microSD card formatted as **FAT32**. Meck's extensive feature set — audiobooks, e-books, voice recordings, contact exports, alarm sounds, web reader cache, notes, and firmware images — can accumulate significant storage over time, so a larger card is worthwhile. MeshCore users have found that **SanDisk** microSD cards are the most reliable across both the T-Deck Pro and T5S3.
+Everything else — the UI, the touch keyboard, step counting, tilt-to-wake, the lock/clock screen, notes, and the whole channel/DM/contacts system — is shared between the two.
+
+---
+
+## No SD Card
+
+Unlike the other Meck devices, the watches have **no SD card slot**. All watch-local data — notes, step history, and configuration — is stored on an internal LittleFS partition instead. There is nothing to insert, format, or manage.
+
+Two consequences worth knowing:
+
+- Features that are inherently SD-dependent on other Meck devices — the e-book/EPUB reader, audiobooks, and the web reader — are **not part of the watch build** at all.
+- The **config export/import** menu items compile in but write to an SD card, so they are non-functional on the watch. Move config between devices using the companion app or the main-repo devices instead.
+
+---
+
+## Build Variants
+
+| Variant | Environment | BLE | GPS | Max Contacts |
+|---------|------------|-----|-----|-------------|
+| S3 Standalone | `meck_twatch_s3_standalone` | — | No | 2,000 |
+| S3 BLE | `meck_twatch_s3_ble` | Yes | No | 2,000 |
+| S3 Plus Standalone | `meck_twatch_s3_plus_standalone` | — | Yes | 2,000 |
+| S3 Plus BLE | `meck_twatch_s3_plus_ble` | Yes | Yes | 2,000 |
+
+**Standalone** builds run the full touch UI with no phone connection — you can send and receive messages, browse contacts, and manage the mesh entirely from the watch. **BLE** builds add the MeshCore companion serial interface so a phone app can connect when you want it. There is no WiFi variant for the watches.
+
+All four builds allocate their 2,000-contact arrays in PSRAM, and boot the CPU at 80 MHz (`ESP32_CPU_FREQ=80`) to conserve battery.
 
 ---
 
 ## Flashing Firmware
 
-Download the latest firmware from the [Releases](https://github.com/pelgraine/Meck/releases) page. Each release includes two types of `.bin` files per build variant:
+Download the latest firmware from the [Releases](https://github.com/pelgraine/Meck-Watch/releases) page. Each release includes two `.bin` types per variant:
 
 | File Type | When to Use |
 |-----------|-------------|
-| `*-merged.bin` | **First-time flash** — includes bootloader, partition table, and firmware in a single file. Flash at address `0x0`. |
-| `*.bin` (non-merged) | **Upgrading existing firmware** — firmware image only. Also used when loading firmware from an SD card via the Launcher. |
+| `*-merged.bin` | **First-time flash** — bootloader, partition table, and firmware in one file. Flash at address `0x0`. |
+| `*.bin` (non-merged) | **Upgrading existing firmware** — application image only. Flash at `0x10000`. |
 
-### First-Time Flash (Merged Firmware)
+The watches are ESP32-S3 devices and use the standard `esptool.py` workflow.
 
-If the device has never had Meck firmware (or you want a clean start), use the **merged** `.bin` file. This contains the bootloader, partition table, and application firmware combined into a single image.
-
-**Using esptool.py:**
+**First-time flash (merged):**
 
 ```
 esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 \
-  write_flash 0x0 meck_t5s3_standalone-merged.bin
+  write_flash 0x0 meck_twatch_s3_standalone-merged.bin
 ```
 
-On macOS the port is typically `/dev/cu.usbmodem*`. On Windows it will be a COM port like `COM3`.
-
-**Using the MeshCore Flasher (web-based, T-Deck Pro only):**
-
-1. Go to https://flasher.meshcore.io
-2. Select **Custom Firmware**
-3. Select the **merged** `.bin` file you downloaded
-4. Click **Flash**, select your device in the popup, and click **Connect**
-
-> **Note:** The MeshCore Flasher detects merged firmware by the `-merged.bin` suffix in the filename and automatically flashes at address `0x0`. If the filename doesn't end with `-merged.bin`, the flasher writes at `0x10000` instead, which will fail on a clean device.
-
-### Upgrading Firmware
-
-If the device is already running Meck (or any MeshCore-based firmware with a valid bootloader), use the **non-merged** `.bin` file. This is smaller and faster to flash since it only contains the application firmware.
-
-**Using esptool.py:**
+**Upgrading (non-merged):**
 
 ```
 esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 \
-  write_flash 0x10000 meck_t5s3_standalone.bin
+  write_flash 0x10000 meck_twatch_s3_standalone.bin
 ```
 
-> **Tip:** If you're unsure whether the device already has a bootloader, it's always safe to use the merged file and flash at `0x0` — it will overwrite everything cleanly.
+On macOS the port is typically `/dev/cu.usbmodem*`; on Windows it will be a COM port like `COM3`.
 
-> **First boot:** On a fresh flash, the device will format its internal storage partition. The display shows "Formatting storage... First boot - please wait" — this takes 1-2 minutes and only happens once. If the device was previously running different firmware (e.g. stock LilyGo or Meshtastic), the partition is automatically erased and reformatted to ensure a clean start.
+> **Tip:** If you're unsure whether the device already has a bootloader, use the merged file at `0x0` — it overwrites everything cleanly.
 
-### Launcher
+> **First boot:** On a fresh flash the device formats its internal LittleFS partition. This takes a minute or two and only happens once.
 
-If you're loading firmware from an SD card via the LilyGo Launcher firmware, use the **non-merged** `.bin` file. The Launcher provides its own bootloader and only needs the application image.
-
-### OTA Firmware Update (v1.3+)
-
-Once Meck is installed, you can update firmware directly from your phone — no computer or serial cable required. The device creates a temporary WiFi access point and you upload the new `.bin` via your phone's browser.
-
-1. Download the new **non-merged** `.bin` to your phone (from GitHub Releases, Discord, etc.)
-2. On the device: **Settings → OTA Tools → Firmware Update → Enter** (T-Deck Pro) or **tap** (T5S3)
-3. The device starts a WiFi network called `Meck-Update-XXXX` and displays connection details
-4. On your phone: connect to the `Meck-Update` WiFi network, open a browser, go to `192.168.4.1`
-5. Tap **Choose File**, select the `.bin`, tap **Upload**
-6. The device receives the file, saves to SD, verifies, flashes, and reboots
-
-The partition layout supports dual OTA slots — the old firmware remains on the inactive partition as an automatic rollback target. If the new firmware fails to boot, the ESP32 bootloader reverts to the previous working version automatically.
-
-> **Note:** Use the **non-merged** `.bin` for OTA updates. The merged binary is only needed for first-time USB flashing.
-
-**OTA Tools (v1.5+):** The firmware update has moved into **Settings → OTA Tools**, a submenu that also contains the new **SD File Manager**. The file manager creates the same WiFi access point and serves a browser-based interface where you can browse, upload, download, and delete files on the SD card from your phone — useful for managing audiobooks, alarm sounds, e-books, and notes without ejecting the SD card. Both OTA tools work on all variants including standalone builds.
+> **No OTA on the watches.** Because there is no SD card to stage the image, firmware updates are done over USB. There is no over-the-air update path.
 
 ---
 
-## Path Hash Mode (v0.9.9+)
+## Home Screen & Navigation
 
-Meck supports multibyte path hash, bringing it in line with MeshCore firmware v1.14. The path hash controls how many bytes each repeater uses to identify itself in forwarded flood packets. Larger hashes reduce the chance of identity collisions at the cost of fewer maximum hops per packet.
+The home screen is a 4×2 grid of tappable tiles. Because the display is rendered in a 120×120 virtual coordinate space (the 240 px panel divided by `UI_ZOOM=2`), the touch targets are large and finger-friendly.
 
-You can configure the path hash size in the device settings (press **S** from the home screen on T-Deck Pro, or open Settings via the tile on T5S3) or set it via USB serial:
+Six tiles are common to both watches — **Messages**, **Contacts**, **Settings**, **Discover**, **Trace**, **Notes**, and **Steps** — with the seventh slot differing by board:
+
+- **S3 Plus** shows **Maps** (it has GPS).
+- **S3** shows **Games** (Snake and Minesweeper) in that slot, since it has no GPS to plot.
+
+Tap a tile to open its screen. Tap the **status bar** at the top of any screen to return home.
+
+---
+
+## The Buttons — S3 vs S3 Plus
+
+This is the main behavioural difference between the two watches. The **S3 has a single button** (the side PWR key), so Meck reads that one; the **S3 Plus has three physical buttons** (PWR, plus BOOT and RESET on the back shell), and Meck reads its **BOOT button** for navigation.
+
+**T-Watch S3** — the *only* control is the side **PWR key**, which is wired to the AXP2101 PMU rather than to a GPIO, so its events arrive over I2C:
+
+| Press | Action |
+|-------|--------|
+| Short press | Enter / select / confirm. On the Contacts screen, opens the path editor for the selected contact. |
+| Long press | Lock / unlock (a long press within the first 8 seconds of boot instead drops to the CLI rescue console). |
+| Double press | Back / previous. |
+| Hold ≥ 6 s | Hardware power-off (handled by the PMU; never reaches the firmware). |
+
+**T-Watch S3 Plus** — Meck reads the **BOOT button (GPIO0)** on the back shell:
+
+| Press | Action |
+|-------|--------|
+| Short press | Wake display / next (page). On the Contacts screen, opens the path editor for the selected contact. |
+| Long press | Lock / unlock (CLI rescue in the first 8 seconds, as above). |
+| Double press | Back / previous. |
+
+The Plus's **RESET button** simply reboots the watch — it is a hardware reset that firmware cannot read or intercept. The Plus's **PWR key** remains the power control (press ~1 s from off to turn on; hold ~6 s to power off).
+
+The net effect on navigation: on the **S3**, a short press acts as *Enter/select* (there is no separate page key, so paging is done by touch); on the **Plus**, a short press of the boot button acts as *page/next* and select is done by tapping.
+
+---
+
+## Touch Gestures
+
+Touch is the primary way to drive both watches, and the gesture set follows the same conventions across screens:
+
+| Gesture | Typical Action |
+|---------|----------------|
+| Tap | Select / activate / open the item under your finger |
+| Swipe up / down | Scroll lists (contacts, messages, settings, discovery) |
+| Swipe left / right | Adjust a value or cycle a filter, depending on screen |
+| Long press | Context action (e.g. open a channel from the picker, DM a contact, open the keyboard for text entry) |
+| Tap status bar | Return to home screen |
+
+Text entry — composing messages, notes, admin passwords, typed paths — is done through the on-screen **touch keyboard**, which opens when you tap into an editable field.
+
+---
+
+## Tilt-to-Wake & Lock Screen
+
+With the display off, a **wrist-raise** (detected by the BMA423 accelerometer) wakes the watch straight to the clock/lock screen and restarts the idle timer — no button press needed.
+
+The lock screen shows the time, battery, and today's step count, and refreshes every 2 minutes while locked to keep the clock current. Unlock with a **long press** of the button (see [The Buttons](#the-buttons--s3-vs-s3-plus)).
+
+---
+
+## Step Counter
+
+Both watches count steps continuously via the BMA423 and roll the daily total over at local midnight. The running total appears on the lock screen and behind the **Steps** home tile, and the step history is persisted to the internal LittleFS partition so it survives reboots.
+
+---
+
+## Clock & Timezone
+
+The watches include a PCF8563 hardware RTC, so the clock keeps time across reboots once set. Set your **UTC offset** from the Settings screen. The valid range is UTC-12 to UTC+14 — for example, AEST is UTC+10 and AEDT is UTC+11. The offset is persisted and survives reboots, so you only set it once.
+
+On the **S3 Plus**, the onboard GPS also provides a time source once it has a satellite fix; on the **S3** (no GPS), set the time from Settings or let a connected companion app push it.
+
+If the RTC has fallen out of sync — most likely on the standalone **S3**, which has neither GPS nor an app connection to correct it — you can push the current time over USB serial with a clock-sync command carrying the current epoch time. See the [Serial Settings Guide](Serial%20Settings%20Guide.md) for the exact command and the full list of serial settings (region, path hash, radio parameters, and more).
+
+---
+
+## Channel Messages & the Channel Picker
+
+A **long press on the home screen** opens the watch channel picker. It lists all your channels and the DM inbox in a single view with unread badges, so you can jump straight to a channel with new messages:
+
+| Gesture | Action |
+|---------|--------|
+| Tap a row | Select that channel |
+| Long press a row | Open the channel |
+| Tap the back arrow (top-left) | Return home |
+
+Inside a channel, scroll messages by swiping, tap to compose a new message via the touch keyboard, and long-press to go back. Replies and @mentions follow the standard MeshCore conventions.
+
+---
+
+## Contacts & Direct Messages
+
+The Contacts screen lists all known nodes sorted by most recently heard, with a type prefix, estimated hop count, and time since last advert.
+
+| Gesture | Action |
+|---------|--------|
+| Swipe up / down | Scroll contacts |
+| Swipe left / right | Cycle the contact filter |
+| Tap | Enter select mode (the tapped contact is pre-selected) |
+| Long press on a chat contact | View unread DMs, then compose a DM |
+| Long press on a repeater/room-server contact | Open repeater admin login |
+
+**Select mode** lets you batch-operate on contacts — mark favourites or delete — from the overlay that appears after you exit select mode with contacts selected.
+
+Sending a DM opens the touch keyboard; the message is tracked with the standard device-side retry counter and delivery status.
+
+---
+
+## "Heard By" on Sent Messages
+
+When you send a channel message, the watch tracks which repeaters re-flooded it. Selecting one of your own outgoing messages opens a **"Heard by"** overlay listing the distinct repeaters that echoed it, along with the signal quality (SNR) heard from each — a quick way to confirm your message is propagating and see which repeaters are carrying it.
+
+On the **S3 Plus** this is reached via the boot button on a selected outgoing message; on the **S3**, via the PWR key.
+
+---
+
+## Notes
+
+A lightweight notes screen stores `.txt` files on the internal LittleFS partition (there is no SD card). Tap while editing to open the touch keyboard; long-press to save and exit.
+
+Notes are entered through the touch keyboard, so each note is capped at **133 characters** — the same length as a standard MeshCore message.
+
+---
+
+## Discovery & Last Heard
+
+- **Discovery** runs an active scan for nearby nodes. Swipe to scroll results, tap to add a node to contacts, long-press to rescan.
+- **Last Heard** is a passive advert history — a running list of every node the watch has heard, even long after the advert arrived. Tap an entry to add it to contacts (or remove it). This is especially useful when auto-add is off, as it gives you a catalogue of everything heard on the network.
+
+---
+
+## Rx Log
+
+The **Rx Log** is a packet sniffer, opened from **Settings → Rx Log**. It captures every packet the radio receives — including foreign relays the watch isn't the destination for — and shows each as a block with the route and payload type, time, source/destination or channel, decoded text (for readable channels), and SNR.
+
+- It holds the most recent **100 packets** in a ring buffer, newest shown first; older entries roll off as new ones arrive.
+- The log is **held in RAM (PSRAM) only and does not persist across reboots** — it starts empty on every boot.
+- Because the watch has no scroll key, the Rx Log **auto-scrolls**, cycling through the captured entries on its own, and new packets appear as they come in.
+
+---
+
+## Repeater Admin & Path Editor
+
+Long-pressing a repeater or room-server contact opens the **repeater admin** login. Enter the admin password via the touch keyboard to manage the repeater over RF.
+
+The **path editor** lets you set a manual repeater chain for a contact, for direct routing. Open it from the Contacts screen using the button (short press on the S3, boot button on the Plus) with a contact selected.
+
+---
+
+## Trace Route
+
+The **Trace** tile runs a trace-route across the mesh — pick a contact or type a path, and the watch reports each hop back. Useful for diagnosing routing and confirming which repeaters a path traverses.
+
+---
+
+## Games
+
+On the **S3**, the **Games** tile (in the slot the Plus uses for Maps) opens a small games menu with **Snake** and **Minesweeper**, both playable by touch.
+
+**Snake** is steered entirely by tapping:
+
+- **Tap anywhere** to start the game, and to restart after a game over.
+- **While playing**, tap a zone relative to the centre of the board to steer: tap right of centre to go right, left to go left, above centre to go up, below to go down. The tap direction can't reverse the snake straight back on itself.
+- **Tap the top-right corner** to exit back to the games menu, the same back gesture used across the watch UI.
+
+---
+
+## Maps (S3 Plus only)
+
+The S3 Plus has an onboard MIA-M10Q GNSS receiver, so it carries the **Maps** tile — plotting contacts with known GPS positions on a scrollable map. The S3 has no GPS and shows the Games tile in that slot instead.
+
+Map tiles are read from the watch's internal LittleFS partition — a dedicated **~9.9 MB `maps` partition** (mounted at `/maps`), so you can hold a useful subset of your local geography across a few zoom levels. Tiles use the **standard OpenStreetMap "slippy map" layout, exactly the same as Ripple and every other MeshCore device**: PNG tiles at `/tiles/{z}/{x}/{y}.png` (on-disk, `/maps/tiles/{z}/{x}/{y}.png`). A `tiles` folder you've already prepared for any other MeshCore device drops straight in — no watch-specific conversion needed.
+
+To load them, copy the prepared `tiles` folder onto the partition over USB using the browser-based **ESPConnect** tool: connect the watch, open the **LittleFS Tools** tab, drag-and-drop the folder, then write it back with **Save to Flash**. Scott Powell's [T-Watch S3 Plus write-up](https://blog.meshcore.io/2026/03/28/twatch-s3-plus) walks through the ESPConnect steps in detail (see its "Copying Files to LittleFS" section).
+
+> That article covers Ripple's own T-Watch firmware, so only the **ESPConnect / LittleFS file-copy procedure** and the standard tile layout apply to Meck — the firmware variants, watchfaces, partition sizes, and navigation it describes are Ripple-specific and do not match this build.
+
+---
+
+## Settings
+
+Open **Settings** from its home tile. The watch settings screen exposes:
+
+- **Node name**
+- **Radio preset**, and the individual radio parameters — **frequency, bandwidth, spreading factor, coding rate, TX power**
+- **UTC offset** (see [Clock & Timezone](#clock--timezone))
+- **GPS baud** (S3 Plus only)
+- **Path hash size** (see [Path Hash Mode](#path-hash-mode))
+- **Default region scope** (see [Region Scope](#region-scope))
+- **Channels** submenu — add, edit, and manage channels including private ones (see [Channels](#channels-public-private--sharing))
+
+| Gesture | Action |
+|---------|--------|
+| Swipe up / down | Scroll settings |
+| Swipe left / right | Adjust the selected value |
+| Tap | Toggle or edit the selected setting |
+
+> Some options present on the larger Meck devices are intentionally not shown on the watch — dark mode, font-style selection, and the large-font toggle are omitted, and the SD-dependent config export/import and WiFi options do not apply.
+
+---
+
+## Path Hash Mode
+
+Meck supports multibyte path hash, in line with MeshCore v1.14. The path hash controls how many bytes each repeater uses to identify itself in forwarded flood packets. Larger hashes reduce the chance of identity collisions at the cost of fewer maximum hops per packet.
+
+Set it from **Settings → Path Hash Size**, or via USB serial:
 
 ```
 set path.hash.mode 1
@@ -201,32 +352,26 @@ set path.hash.mode 1
 | 1 | 2 | 32 | Recommended — effectively eliminates collisions |
 | 2 | 3 | 21 | Maximum precision, rarely needed |
 
-Nodes with different path hash modes can coexist on the same network. The mode only affects packets your node originates — the hash size is encoded in each packet's header, so receiving nodes adapt automatically.
-
-For a detailed explanation of what multibyte path hash means and why it matters, see the [Path Diagnostics & Improvements write-up](https://buymeacoffee.com/ripplebiz/path-diagnostics-improvements).
+Nodes with different path hash modes can coexist on the same network — the hash size is encoded in each packet's header, so receiving nodes adapt automatically. The mode only affects packets your node originates.
 
 ---
 
-## Region Scope (v1.7+)
+## Region Scope
 
-Regions limit how far your flood messages propagate through the mesh. When you set a region, outgoing messages are tagged with a transport code that repeaters use to decide whether to forward them. Messages sent without a region reach all repeaters via the default wildcard, same as always.
+Regions limit how far your flood messages propagate through the mesh. When you set a region, outgoing messages are tagged with a transport code that repeaters use to decide whether to forward them. Messages sent without a region reach all repeaters via the default wildcard.
 
-Meck does not pre-set any region on a fresh flash. Region names are determined by your local mesh community — check with your local group for the names in use. Common patterns follow ISO 3166 country/subdivision codes (e.g. `au` for Australia, `gb-eng` for England, `us-ca` for California), but communities may also use custom names for their area. Region names must be lowercase alphanumeric characters and hyphens only, max 29 characters.
+Meck does not pre-set any region on a fresh flash. Region names are determined by your local mesh community — check with your local group for the names in use. Common patterns follow ISO 3166 country/subdivision codes (e.g. `au`, `gb-eng`, `us-ca`), but communities may use custom names. Region names must be lowercase alphanumeric and hyphens only, max 29 characters.
 
-**Device-wide default region:** Set in **Settings → Default Region**. This applies to all channels and DMs unless a channel has its own override.
-
-**Per-channel region:** In Settings → Channels, select a channel and press Enter to edit its region scope. This overrides the device default for that specific channel only.
-
-**Settings nudge:** When exiting settings, if no region is configured anywhere (no device default and no per-channel scopes), a prompt reminds you to consider setting one. You can dismiss it to stay unscoped.
-
-Region scope can also be configured via serial commands — see the [Serial Settings Guide](Serial_Settings_Guide.md) for `set region`, `get region`, `set channel.scope`, and `get channel.scope` commands.
+- **Device-wide default:** Set in **Settings → Default Region** (default scope). Applies to all channels and DMs unless a channel overrides it.
+- **Per-channel:** In the Channels submenu, a channel can carry its own scope, overriding the device default for that channel only.
 
 ---
 
-## T-Deck Pro
+## Channels: Public, Private & Sharing
 
-### T-Deck Pro Build Variants
+Channels are managed from **Settings → Channels**. You can add a public channel (a plain `#name`) or a **private channel** with a randomly generated secret, and edit or delete existing ones. `MAX_GROUP_CHANNELS` is 40 on the watch builds.
 
+<<<<<<< HEAD
 | Variant | Environment | BLE | WiFi | 4G Modem | Audio DAC | Web Reader | Max Contacts |
 |---------|------------|-----|------|----------|-----------|------------|-------------|
 | Audio + BLE | `meck_audio_ble` | Yes | Yes (web reader only) | — | PCM5102A | Yes | 2,000 |
@@ -878,587 +1023,82 @@ An auto-lock timer can be configured in **Settings → Auto Lock** (None / 2 / 5
 ### Shutdown (T-Deck Pro & Max)
 
 The home screen includes a **Shutdown** page. Selecting it powers the device off completely — the ESP32-S3 enters deep sleep with no wake sources, peripheral power is cut, and the LoRa module is powered down. Only a hardware reset (reset button) or USB power-on will wake the device. This is distinct from the auto-lock hibernate, which maintains wake-on-LoRa capability.
+=======
+Private channels and channel sharing follow the standard Meck/MeshCore model — a private channel is encrypted with its secret, and sharing sends the channel to a contact so they can join it.
+>>>>>>> dev
 
 ---
 
-## T-Deck Max
+## Bluetooth (BLE)
 
-The LilyGo T-Deck Max is a close relative of the T-Deck Pro: same 240×320 e-ink panel and TCA8418 keyboard, same ESP32-S3, and the same on-device UI. **All the [T-Deck Pro](#t-deck-pro) keyboard controls and screens apply unchanged** — this section only covers what's different on the MAX.
-
-The headline difference is that the MAX carries both an A7682E 4G modem **and** an ES8311 audio codec, wired through an XL9555 I/O expander so they can run at the same time. On the T-Deck Pro the audio DAC and the 4G modem share one hardware slot and are mutually exclusive; on the MAX you get the SMS & phone app, the audiobook player, the alarm clock, **and** cellular data on a single device. The MAX also adds a CST328 capacitive touchscreen, three capacitive front buttons, a DRV2605 haptic motor for vibrate alerts, an e-ink frontlight, and a 1500 mAh battery.
-
-### T-Deck Max Build Variants
-
-| Variant | Environment | BLE | WiFi | 4G Modem | Audio Codec | Web Reader | Max Contacts |
-|---------|------------|-----|------|----------|-------------|------------|-------------|
-| MAX + BLE | `meck_max_ble` | Yes | — | A7682E | ES8311 | Yes | 2,000 |
-| MAX + WiFi | `meck_max_wifi` | — | Yes (TCP:5000) | A7682E | ES8311 | Yes | 2,000 |
-| MAX + Standalone | `meck_max_standalone` | — | — | A7682E | ES8311 | Yes | 2,000 |
-
-Unlike the T-Deck Pro, **every** MAX variant includes both the 4G modem and the audio codec — there is no separate "audio" vs "4G" split because the MAX runs both. The web reader is available on all three variants (it has a data path via the 4G modem, plus WiFi on the WiFi build), and all three support up to 2,000 contacts in PSRAM.
-
-### 4G and Audio at the Same Time
-
-Because the modem and codec are independently powered via the XL9555 expander, the MAX home screen exposes the full set of apps that are otherwise split across the T-Deck Pro's audio and 4G variants:
-
-- **[P] Audiobooks / Audio** — the audiobook player (also plays music from `/audiobooks/music`)
-- **[K] Alarm** — the alarm clock with custom MP3 sounds
-- **[T] Phone** — the SMS & Phone app for calls and texts over the 4G modem
-- **[B] Browser** — the web reader & IRC client (BLE / WiFi builds)
-- **[F] Discover** — node discovery
-- **Mic** — the voice messages screen (record and play on the MAX — see note below)
-
-Audio output is routed through a shared speaker mux: when a call, ringtone, or modem notification tone plays, the MAX switches the speaker to the modem; for audiobooks, alarms, and notification MP3s it switches to the ES8311 codec.
-
-> **Voice-note recording and playback both work on the MAX.** Capture runs through the ES8311's ADC and playback through the ES8311 output (the same path that drives audiobooks and alarms). Sending recorded notes over the mesh is implemented but has not yet been verified end to end on the MAX.
-
-### Antenna (Internal / External)
-
-The MAX has both an on-board internal antenna and an external MMCX antenna connector, with a switch in **Settings** to select between them. **Internal is the default** — if you want to use an external MMCX antenna, change the switch in Settings first.
-
-### Buzzer (Vibrate) Notifications
-
-The MAX has a DRV2605 haptic motor, so each channel (and the DM inbox) can be set to vibrate instead of playing a tone. In **Settings → Channels**, highlight a channel and press **T** to open the notification tone picker — on the MAX, a **Buzzer (vibrate)** entry appears just below "Default (silent)". Selecting it makes incoming messages on that channel pulse the motor rather than sounding the buzzer or a tone. See [Custom Notification Tones](#custom-notification-tones-v110).
-
-### Capacitive Touch & Buttons
-
-The MAX adds a CST328 capacitive touchscreen and **three capacitive buttons** along the bottom of the front bezel — none of which the T-Deck Pro has:
-
-| Button | Action |
-|--------|--------|
-| **Heart** | Toggle the e-ink frontlight on/off (at the brightness configured in settings — see below) |
-| **Speech bubble** | Quick access to the channel picker (same as pressing M) |
-| **Paper plane** | Quick access to the DM inbox |
-
-### Frontlight & Backlight Brightness
-
-The MAX has an e-ink frontlight. The brightness it turns on to is set in **Settings → Backlight Brightness**, adjustable from **5% to 100%** in 5% steps (default 100%). The Heart capacitive button toggles the frontlight at that level. This setting only appears on the MAX.
-
-### Keyboard Backlight
-
-Press **both Shift keys together** to toggle the keyboard backlight on and off.
-
-### Multi-Constellation GPS
-
-The MAX's GPS is configured for multi-constellation positioning (GPS, Galileo, and BeiDou) via the `$PCAS04,7` command, for faster fixes and better coverage than single-constellation GPS.
+On the **BLE** builds, BLE is disabled by default at boot, consistent with the other Meck devices and standalone-first operation. Enable it to connect the MeshCore companion app or the [Meck-Mycelium web app](https://pelgraine.github.io/Meck-Mycelium). **Standalone** builds omit BLE entirely and run fully self-contained — no phone required for any function.
 
 ---
 
-## Remote Repeater (T-Deck Pro 4G)
+## Battery & Charging
 
-> **TODO — This section needs full documentation.** The feature is implemented and shipping. Draft outline below.
+Both watches ship with **LiHV** (high-voltage lithium) cells: 3.8 V nominal, 4.35 V maximum charge. The S3's cell is a 470 mAh Tewaycell 552530; the S3 Plus uses a Tewaycell 112530-2P of the same chemistry. Meck charges both to 4.35 V to use the full capacity of the LiHV cell.
 
-The remote repeater variant (`meck_remote_repeater`) turns a T-Deck Pro 4G board into a dedicated MeshCore repeater with cellular MQTT remote management. The repeater functions as a normal MeshCore repeater on the mesh — it forwards packets and responds to guest logins — but **admin management (clock sync, send advert, reboot, get status, configuration) is performed remotely via MQTT** through the [Meck-Mycelium dashboard](https://pelgraine.github.io/Meck-Mycelium), not via the standard mesh admin password login. The device connects to an MQTT broker (HiveMQ Cloud recommended — free tier available) over cellular data, publishing telemetry (uptime, battery, signal strength, temperature, neighbour count) and subscribing to admin commands.
+> LilyGo's published battery specifications for these watches (1500 mAh, 3.7 V) do not match the cells actually fitted — the figures above are taken from the physical cell labels. If you replace a cell, confirm its chemistry: charging a standard 3.7 V / 4.2 V-max cell to 4.35 V is unsafe.
 
-**Sections to write:**
-
-- **Requirements** — T-Deck Pro 4G (A7682E), active SIM with data plan, SD card, MQTT broker account
-- **Setting up HiveMQ Cloud** — step-by-step free account creation, cluster setup, credentials
-- **SD card configuration** — `/remote/mqtt.cfg` (broker, port, username, password, device ID) and optional `/remote/apn.cfg`
-- **Deploying** — flash `meck_remote_repeater`, insert SIM and SD, boot sequence, display status indicators
-- **Dashboard usage** — connecting Meck-Mycelium to your MQTT broker, available commands (clock sync, send advert, reboot, get status), telemetry display
-- **Troubleshooting** — common issues (SIM not registering, MQTT auth failures, APN auto-detection)
-
----
-
-## WiFi Repeater
-
-> **TODO — This section needs full documentation.** The feature is implemented. Draft outline below.
-
-The WiFi repeater variants turn a device into a dedicated MeshCore repeater with WiFi MQTT remote management — similar to the cellular remote repeater but using WiFi instead of 4G. The repeater forwards mesh traffic and responds to guest logins as normal, but **admin management is performed remotely via MQTT** through the Meck-Mycelium dashboard, not via the standard mesh admin password login. Available for the following platforms:
-
-| Variant | Environment | Platform |
-|---------|------------|----------|
-| T-Deck Pro WiFi Repeater | `meck_wifi_repeater` | LilyGo T-Deck Pro |
-| T5S3 WiFi Repeater | `meck_wifi_repeater_t5s3` | LilyGo T5S3 E-Paper Pro |
-| Heltec V3 WiFi Repeater | `meck_wifi_repeater_heltec_v3` | Heltec V3 |
-| Heltec V4 WiFi Repeater | `meck_wifi_repeater_heltec_v4` | Heltec V4 |
-| Heltec V4 WiFi Repeater (headless) | `meck_wifi_repeater_heltec_v4_headless` | Heltec V4 (no display) |
-
-**Sections to write:**
-
-- **Requirements** — device, WiFi network, MQTT broker account, SD card (T-Deck Pro / T5S3) or SPIFFS config (Heltec V4)
-- **SD card configuration** — `/remote/wifi.cfg` (supports multiple SSIDs) and `/remote/mqtt.cfg`
-- **Heltec V4 specifics** — no SD card slot, config stored in SPIFFS, headless vs display variant
-- **OTA updates** — NTP time sync, HTTP firmware download over WiFi
-- **Dashboard** — same Meck-Mycelium dashboard as the cellular remote repeater
-
----
-
-## T5S3 E-Paper Pro
-
-The LilyGo T5S3 E-Paper Pro (V2, H752-B) is a 4.7-inch e-ink device with capacitive touch and no physical keyboard. All navigation is done via touch gestures and the Boot button (GPIO0). The larger 960×540 display provides significantly more screen real estate than the T-Deck Pro's 240×320 panel.
-
-### T5S3 Build Variants
-
-| Variant | Environment | BLE | WiFi | Web Reader | Max Contacts |
-|---------|------------|-----|------|------------|-------------|
-| Standalone | `meck_t5s3_standalone` | — | — | No | 2,000 |
-| BLE Companion | `meck_t5s3_ble` | Yes | — | No | 2,000 |
-| WiFi Companion | `meck_t5s3_wifi` | — | Yes (TCP:5000) | Yes | 2,000 |
-| WiFi Repeater | `meck_wifi_repeater_t5s3` | — | Yes (MQTT) | No | — |
-
-The WiFi variant connects to the MeshCore web app or meshcore.js over your local network. The web reader shares the same WiFi connection — no extra setup needed. The WiFi Repeater variant is a dedicated remote repeater — see [WiFi Repeater](#wifi-repeater) for details on MQTT-based admin management.
-
-### Touch Navigation
-
-The T5S3 uses a combination of touch gestures and the Boot button for all interaction. There is no physical keyboard — text entry uses an on-screen virtual keyboard that appears when needed.
-
-**Core gesture types:**
-
-| Gesture | Description |
-|---------|-------------|
-| **Tap** | Touch and release quickly. Context-dependent: opens tiles on home screen, selects items in lists, advances pages in readers. |
-| **Swipe** | Touch, drag at least 60 pixels, and release. Direction determines action (scroll, page turn, switch channel/filter). |
-| **Long press (touch)** | Touch and hold for 500ms+. Context-dependent: compose messages, open DMs, delete bookmarks. |
-
-### T5S3 Home Screen
-
-The home screen displays a grid of tappable tiles across three rows:
-
-| | Column 1 | Column 2 | Column 3 |
-|---|----------|----------|----------|
-| **Row 1** | Messages | Contacts | Settings |
-| **Row 2** | Reader | Notes | Browser (WiFi) / Discover (other) |
-| **Row 3** | Trace | Games | |
-
-Tap a tile to open that screen. Tap outside the tile grid (or swipe left/right) to cycle between home pages. The additional home pages show BLE status, battery info, GPS status, and a hibernate option — same as the T-Deck Pro but navigated by swiping or tapping the left/right halves of the screen instead of pressing keys.
-
-### Boot Button Controls
-
-The Boot button (GPIO0, bottom of device) provides essential navigation and utility functions:
-
-| Action | Effect |
-|--------|--------|
-| **Single click** | On home screen: cycle to next page. On other screens: go back (same as pressing Q on T-Deck Pro). In text reader reading mode: close book and return to file list. |
-| **Double-click** | Toggle backlight at full brightness (comfortable for indoor reading). |
-| **Triple-click** | Toggle backlight at low brightness (dim nighttime reading). |
-| **Long press** | Lock or unlock the screen. While locked, touch is disabled and a lock screen shows the time, battery percentage, and unread message count. |
-| **Long press during first 8 seconds after boot** | Enter CLI rescue mode (serial settings interface). |
-
-### Backlight
-
-The T5S3 has a warm-tone front-light controlled by PWM on GPIO11. Brightness ranges from 0 (off) to 255 (maximum).
-
-- **Double-click Boot button** — toggle backlight on at 153/255 brightness (comfortable reading level)
-- **Triple-click Boot button** — toggle backlight on at low brightness (4/255, nighttime reading)
-- The backlight turns off automatically when the screen locks
-
-### Lock Screen
-
-Long press the Boot button to lock the device. The lock screen shows:
-- Current time in large text (HH:MM)
-- Battery percentage
-- Unread message count (if any)
-- "Hold button to unlock" hint
-
-Touch input is completely disabled while locked. Long press the Boot button again to unlock and return to whatever screen you were on.
-
-An auto-lock timer can be configured in **Settings → Auto Lock** (None / 2 / 5 / 10 / 15 / 30 minutes of idle time). The CPU drops to 40 MHz while locked to reduce power consumption.
-
-### Virtual Keyboard
-
-Since the T5S3 has no physical keyboard, a full-screen QWERTY virtual keyboard appears automatically when text input is needed (composing messages, entering WiFi passwords, editing settings, etc.).
-
-The virtual keyboard supports:
-- QWERTY letter layout with a symbol/number layer (tap the **123** key to switch)
-- Shift toggle for uppercase
-- Backspace (UTF-8 aware — correctly deletes multi-byte emoji) and Enter keys
-- **Emoji picker** — tap the **$** key to open a scrollable 8-column grid of 79 emoji sprites with page indicators. Tap an emoji to insert it inline in your message. Tap **Back** to return to the keyboard. Faces and emotions are grouped first for quick access.
-- Inline emoji rendering — emoji appear as pixel sprites in the text field as you type
-- Phantom keystroke prevention (a brief cooldown after the keyboard opens prevents accidental taps)
-
-Tap keys to type. Tap **Enter** to submit, or press the **Boot button** to cancel and close the keyboard.
-
-### External Keyboard (CardKB)
-
-The T5S3 supports the M5Stack CardKB (or compatible I2C keyboard) connected via the QWIIC port. When detected at boot, the CardKB can be used for all text input — composing messages, entering URLs, editing notes, and navigating menus — without the on-screen virtual keyboard.
-
-The CardKB is auto-detected on the I2C bus at address `0x5F`. No configuration is needed — just plug it in.
-
-### Display Settings
-
-The T5S3 Settings screen includes display options shared with the T-Deck Pro, plus one T5S3-specific setting:
-
-| Setting | Description |
-|---------|-------------|
-| **Dark Mode** | Inverts the display — white text on black background. Tap to toggle on/off. Available on both T-Deck Pro and T5S3. |
-| **Larger Font** | Increases text size on channel messages, contacts, DM inbox, and repeater admin screens. Tap to toggle on/off. Available on both T-Deck Pro and T5S3. |
-| **Font Style** | Choose between Classic (FreeSans), Noto Sans, or Montserrat. Swipe left/right to cycle, tap to apply. Available on both T-Deck Pro and T5S3. |
-| **Portrait Mode** | Rotates the display 90° from landscape (960×540) to portrait (540×960). Touch coordinates are automatically remapped. Text reader layout recalculates on orientation change. T5S3 only. |
-
-These settings are persisted and survive reboots.
-
-### Clock & RTC
-
-Unlike the T-Deck Pro (which relies on GPS for time), the T5S3 has a hardware RTC (PCF8563/BM8563) that maintains time across reboots as long as the battery has charge. On first use (or after a full battery drain), the clock needs to be set via USB serial:
-
-```
-clock sync 1773554535
-```
-
-Where the number is a Unix epoch timestamp. Quick one-liner from a macOS/Linux terminal:
-
-```
-echo "clock sync $(date +%s)" > /dev/ttyACM0
-```
-
-Once set, the RTC retains the time across reboots. See the [Serial Settings Guide](Serial_Settings_Guide.md) for full clock sync documentation including the PlatformIO auto-sync feature.
-
-The UTC offset is configured in the Settings screen (same as T-Deck Pro) and is persisted to flash.
-
-### Touch Gestures by Screen
-
-#### Home Screen
-
-| Gesture | Action |
-|---------|--------|
-| Tap tile | Open that screen (Messages, Contacts, Settings, Reader, Notes, Browser/Discover) |
-| Tap outside tiles (left half) | Previous home page |
-| Tap outside tiles (right half) | Next home page |
-| Swipe left / right | Next / previous home page |
-| Long press (touch) | Activate current page action (toggle BLE, hibernate, etc.) |
-
-#### Channel Messages
-
-| Gesture | Action |
-|---------|--------|
-| Swipe up / down | Scroll messages |
-| Swipe left / right | Open channel picker — shows all channels and DM inbox in a vertical bubble list with unread badges. Tap to select. |
-| Tap footer area | View relay path of last received message |
-| Tap path overlay | Dismiss overlay |
-| Long press (touch) | Open virtual keyboard to compose message to current channel |
-
-#### Contacts
-
-The contacts list shows all known nodes sorted by most recently heard, with type prefix, estimated hop count, and time since last advert. See the [T-Deck Pro Contacts Screen](#contacts-screen) section for an explanation of the type prefix and hop count display — the same conventions apply on the T5S3.
-
-**Normal mode**
-
-| Gesture | Action |
-|---------|--------|
-| Swipe up / down | Scroll through contacts |
-| Swipe left / right | Cycle contact filter (All → Chat → Rptr → Room → Sens → Fav) |
-| Tap | Enter select mode (tapped contact is pre-selected) |
-| Long press on Chat contact | View unread DMs (if any), then compose DM |
-| Long press on Repeater/RS contact | Open repeater admin login |
-
-> **Note:** The **Fav** filter shows only contacts you have marked as favourites. If it appears empty, no contacts have been favourited yet — use select mode (tap a contact) and then long-press to mark favourites.
-
-**Select mode** — tap any contact row to enter select mode. The tapped contact is pre-selected (shown with `*`). Swipe or tap to navigate and toggle selections. You can also use a **two-finger tap** anywhere on the contacts screen to toggle select mode on and off.
-
-| Gesture | Action |
-|---------|--------|
-| Tap | Toggle selection on tapped row |
-| Swipe left | Select all contacts in current filter |
-| Swipe right | Deselect all |
-| Two-finger tap | Toggle select mode on/off |
-| Long press | Exit select mode (confirm favourites / deletions first) |
-
-Batch operations (favourite toggle, delete) are triggered from the overlay that appears after exiting select mode with contacts selected.
-
-**Adding contacts**
-
-1. **Automatic** — if Settings → Contacts → Add Mode is set to *Auto All*, nodes are added as their adverts are heard. *Custom* mode adds only nodes matching the enabled type toggles (Companion, Repeater, Room Server, Sensor). *Manual Only* disables auto-add.
-
-2. **From the Last Heard screen** — tap the **Discover** tile (or access via the home page on non-WiFi builds) and navigate to Last Heard. Tap any entry to add it to contacts, or tap an existing contact to remove it (favourites require a second tap within 3 seconds to confirm). Entries show `[+]` if already in contacts, `[★]` if a favourite.
-
-   > **Note:** The Last Heard list holds up to 1,000 entries in PSRAM, and advert data is stored persistently on the SD card — so contacts can be added long after the original advertisement was received, even across reboots. This makes Last Heard especially useful when auto-add is set to *Manual Only*, as it provides a passive catalogue of every node heard on the network.
-
-3. **From the Discovery screen** — tap the Discover tile and run an active scan. Tap any result to add it to contacts.
-
-**Deleting contacts**
-
-Tap a contact to enter select mode, select the contacts to remove, exit select mode, and choose delete from the confirmation overlay.
-
-#### Text Reader (File List)
-
-| Gesture | Action |
-|---------|--------|
-| Swipe up / down | Scroll file list |
-| Tap | Open selected book |
-
-#### Text Reader (Reading)
-
-| Gesture | Action |
-|---------|--------|
-| Tap anywhere | Next page |
-| Tap footer bar | Go to page number (via virtual keyboard) |
-| Swipe left | Next page |
-| Swipe right | Previous page |
-| Swipe up / down | Next / previous page |
-| Long press (touch) | Close book, return to file list |
-| Tap status bar | Go to home screen |
-
-#### Web Reader (WiFi variant)
-
-| Gesture | Action |
-|---------|--------|
-| Tap URL bar | Open virtual keyboard for URL entry |
-| Tap Search | Open virtual keyboard for DuckDuckGo search |
-| Tap reading area | Next page |
-| Tap footer (if links exist) | Open virtual keyboard to enter link number |
-| Swipe left / right (reading) | Next / previous page |
-| Swipe up / down (home/lists) | Scroll list |
-| Long press (reading) | Navigate back |
-| Long press on bookmark | Delete bookmark |
-| Long press on home | Exit web reader |
-
-#### Settings
-
-| Gesture | Action |
-|---------|--------|
-| Swipe up / down | Scroll through settings |
-| Swipe left / right | Adjust value (same as A/D keys on T-Deck Pro) |
-| Tap | Toggle or edit selected setting |
-
-#### Notes
-
-| Gesture | Action |
-|---------|--------|
-| Tap (while editing) | Open virtual keyboard for text entry |
-| Long press (while editing) | Save note and exit editor |
-
-#### Discovery
-
-| Gesture | Action |
-|---------|--------|
-| Swipe up / down | Scroll node list |
-| Tap | Add selected node to contacts |
-| Long press | Rescan for nodes |
-
-#### Last Heard
-
-| Gesture | Action |
-|---------|--------|
-| Swipe up / down | Scroll advert list |
-| Tap | Add to or delete from contacts |
-
-#### Repeater Admin
-
-| Gesture | Action |
-|---------|--------|
-| Swipe up / down | Scroll menu / response |
-| Long press (password entry) | Open virtual keyboard for admin password |
-
-#### All Screens
-
-| Gesture | Action |
-|---------|--------|
-| Tap status bar (top of screen) | Return to home screen (except in text reader reading mode, where it advances the page) |
-
----
-
-## Meck-Mycelium Web App
-
-The [Meck-Mycelium web app](https://pelgraine.github.io/Meck-Mycelium) is a browser-based companion that connects to your MeshCore device via BLE (using WebBLE in Chrome) or to your MQTT broker for remote repeater management.
-
-**Features:**
-
-- **Voice message playback** — voice notes sent from a Meck Audio device appear as tappable playback bubbles in the DM view. Codec2 decoding happens entirely in the browser via WebAssembly — no app install or audio hardware needed on the receiving end.
-- **Remote repeater dashboard** — connect to your MQTT broker to administer remote repeater devices (cellular or WiFi). View live telemetry, send admin commands (clock sync, send advert, reboot, get status), and manage repeaters that are out of LoRa range. This replaces the standard mesh admin password login for remote repeater variants.
-- **Standard companion features** — messaging, contacts, channel messages via BLE.
-
-Open **https://pelgraine.github.io/Meck-Mycelium** in Chrome on your phone or computer.
-
-> **Note:** WebBLE requires Chrome (or a Chromium-based browser). Safari and Firefox do not support WebBLE.
+Charge over USB-C. The AXP2101 PMU manages charging; a moderate charge current is recommended for cell longevity.
 
 ---
 
 ## About MeshCore
 
-MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.
+MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for resilient, decentralized communication networks that work without the internet — devices (nodes) relay messages through intermediate nodes to communicate over long distances, which is especially useful in off-grid, emergency, or tactical situations.
 
-## What is MeshCore?
+Key characteristics:
 
-MeshCore now supports a range of LoRa devices, allowing for easy flashing without the need to compile firmware manually. Users can flash a pre-built binary using tools like esptool.py and interact with the network through a serial console.
-MeshCore provides the ability to create wireless mesh networks, similar to Meshtastic and Reticulum but with a focus on lightweight multi-hop packet routing for embedded projects. Unlike Meshtastic, which is tailored for casual LoRa communication, or Reticulum, which offers advanced networking, MeshCore balances simplicity with scalability, making it ideal for custom embedded solutions, where devices (nodes) can communicate over long distances by relaying messages through intermediate nodes. This is especially useful in off-grid, emergency, or tactical situations where traditional communication infrastructure is unavailable.
+- **Multi-hop packet routing** — messages are forwarded across nodes, extending range beyond a single radio's reach, with a configurable hop limit. "Companion" nodes (like these watches) do not repeat messages, which keeps routing paths clean.
+- **Decentralized & resilient** — no central server or internet required; the network is self-healing.
+- **Low power** — suited to battery-powered devices.
 
-## Key Features
+Use cases include off-grid communication, emergency response and disaster recovery, outdoor activities, tactical and security applications, and IoT sensor networks.
 
-* Multi-Hop Packet Routing
-  * Devices can forward messages across multiple nodes, extending range beyond a single radio's reach.
-  * Supports up to a configurable number of hops to balance network efficiency and prevent excessive traffic.
-  * Nodes use fixed roles where "Companion" nodes are not repeating messages at all to prevent adverse routing paths from being used.
-* Supports LoRa Radios — Works with Heltec, RAK Wireless, and other LoRa-based hardware.
-* Decentralized & Resilient — No central server or internet required; the network is self-healing.
-* Low Power Consumption — Ideal for battery-powered or solar-powered devices.
-* Simple to Deploy — Pre-built example applications make it easy to get started.
-
-## What Can You Use MeshCore For?
-
-* Off-Grid Communication: Stay connected even in remote areas.
-* Emergency Response & Disaster Recovery: Set up instant networks where infrastructure is down.
-* Outdoor Activities: Hiking, camping, and adventure racing communication.
-* Tactical & Security Applications: Military, law enforcement, and private security use cases.
-* IoT & Sensor Networks: Collect data from remote sensors and relay it back to a central location.
-
-## How to Get Started
-
-- Watch the [MeshCore Intro Video](https://www.youtube.com/watch?v=t1qne8uJBAc) by Andy Kirby.
-- Read through our [Frequently Asked Questions](./docs/faq.md) section.
-- Download firmware from the [Releases](https://github.com/pelgraine/Meck/releases) page and flash it using the instructions above.
-- Connect with a supported client.
-
-For developers:
-
-- Install [PlatformIO](https://docs.platformio.org) in [Visual Studio Code](https://code.visualstudio.com).
-- Clone and open the Meck repository in Visual Studio Code.
-- Build for your target device using the environment names listed in the build variant tables above.
+---
 
 ## MeshCore Clients
 
-**Companion Firmware**
-
-The companion firmware can be connected to via BLE (T-Deck Pro and T5S3 BLE variants) or WiFi (T-Deck Pro WiFi variants and T5S3 WiFi variant, TCP port 5000).
-
-> **Note:** On both the T-Deck Pro and T5S3, BLE and WiFi are disabled by default at boot. On the T-Deck Pro, navigate to the Bluetooth or WiFi home page and press Enter to enable. On the T5S3, navigate to the Bluetooth home page and long-press the screen to toggle BLE on.
+The watch **BLE** builds can connect to a MeshCore companion client over Bluetooth. (Standalone builds run without a client.) BLE is disabled by default at boot — enable it first.
 
 - Web: https://app.meshcore.nz
-- Meck-Mycelium: https://pelgraine.github.io/Meck-Mycelium (voice playback, remote repeater dashboard)
+- Meck-Mycelium: https://pelgraine.github.io/Meck-Mycelium
 - Android: https://play.google.com/store/apps/details?id=com.liamcottle.meshcore.android
 - iOS: https://apps.apple.com/us/app/meshcore/id6742354151?platform=iphone
 - NodeJS: https://github.com/liamcottle/meshcore.js
 - Python: https://github.com/fdlamotte/meshcore-cli
 
-## 🛠 Hardware Compatibility
+> **Note:** WebBLE (used by the browser clients) requires Chrome or a Chromium-based browser. Safari and Firefox do not support WebBLE.
 
-MeshCore is designed for devices listed in the [MeshCore Flasher](https://flasher.meshcore.io). Meck specifically targets the LilyGo T-Deck Pro, LilyGo T-Deck Max, LilyGo T5S3 E-Paper Pro, Heltec V3 (remote repeater only), and Heltec V4 (remote repeater only).
+---
 
 ## Contributing
 
-Please submit PR's using 'dev' as the base branch!
-For minor changes just submit your PR and I'll try to review it, but for anything more 'impactful' please open an Issue first and start a discussion. Is better to sound out what it is you want to achieve first, and try to come to a consensus on what the best approach is, especially when it impacts the structure or architecture of this codebase.
+Please submit PRs using `dev` as the base branch. For minor changes just open the PR; for anything more impactful, open an Issue first to discuss the approach — especially where it affects structure or architecture.
 
-Here are some general principals you should try to adhere to:
-* Keep it simple. Please, don't think like a high-level lang programmer. Think embedded, and keep code concise, without any unnecessary layers.
-* No dynamic memory allocation, except during setup/begin functions.
-* Use the same brace and indenting style that's in the core source modules. (A .clang-format is prob going to be added soon, but please do NOT retroactively re-format existing code. This just creates unnecessary diffs that make finding problems harder)
+General principles:
 
-## Road-Map / To-Do
+- Keep it simple — think embedded, not high-level. Concise code, no unnecessary layers.
+- No dynamic memory allocation except during setup/begin functions.
+- Match the existing brace and indenting style; do not retroactively reformat existing code (it creates noisy diffs).
 
-There are a number of fairly major features in the pipeline, with no particular time-frames attached yet. In partly chronological order:
+For developers:
 
-**T-Deck Pro:**
-- [X] Companion radio: BLE
-- [X] Text entry for Public channel messages Companion BLE firmware
-- [X] View and compose all channel messages Companion BLE firmware
-- [X] Standalone DM functionality for Companion BLE firmware
-- [X] Contacts list with filtering for Companion BLE firmware
-- [X] Standalone repeater admin access for Companion BLE firmware
-- [X] GPS time sync with on-device timezone setting
-- [X] Settings screen with radio presets, channel management, and first-boot onboarding
-- [X] Expand SMS app to enable phone calls
-- [X] Basic web reader app with IRC client
-- [X] Lock screen with auto-lock timer and low-power standby
-- [X] Last heard passive advert list
-- [X] Touch-to-select on contacts, discovery, settings, text reader, notes screens
-- [X] Map screen with GPS tile rendering
-- [X] WiFi companion environment
-- [X] OTA firmware update via phone
-- [X] DM inbox with per-contact unread indicators
-- [X] Roomserver message handling and mark-read on login
-- [X] Alarm clock with custom MP3 sounds (audio variant)
-- [X] Customised user option for larger-font mode
-- [X] Voice notes over LoRa (Codec2, audio variant)
-- [X] Contact select mode with batch favourite, export, import, and delete
-- [X] Path editor for manual contact route management
-- [X] Remote repeater with cellular MQTT admin management (4G variant)
-- [X] WiFi remote repeater with MQTT admin management
-- [X] SD File Manager via OTA Tools
-- [X] 2,000 contact support (PSRAM, all variants)
-- [X] Channel picker screen with unread badges
-- [X] Region scope (MeshCore v1.15+ compatibility)
-- [X] Selectable font styles (Classic, Noto Sans, Montserrat)
-- [X] Expanded emoji picker (79 emoji, reordered, wrap scrolling)
-- [X] 1,000-entry advert path cache (PSRAM)
-- [X] Accented character / diacritics support (Czech, Polish, French, German, Latin Extended)
-- [X] Page scroll (Shift+W/S) on all list screens
-- [X] True power off (deep sleep, no wake sources)
-- [X] BLE 2M PHY, DLE, and faster write interval
-- [X] Trace route screen with contact picker and typed-path entry (v1.9)
-- [X] DM message persistence across reboots (v1.9)
-- [X] Per-channel message history deletion (v1.10)
-- [X] Per-channel notification preferences with @mention support (v1.10)
-- [X] Custom notification tones per channel -- audio variant (MP3) and 4G variant (WAV via modem) (v1.10)
-- [X] Games menu with Snake and Minesweeper (v1.10)
-- [X] MAX_GROUP_CHANNELS expanded to 40 for all builds (v1.10)
-- [X] Private channel support with random secret generation (v1.11)
-- [X] Channel sharing via encrypted DM with auto-add on receive (v1.11)
-- [X] Config export/import to SD card with selectable sections (v1.11)
-- [X] Contact recency fix for nodes with stuck/behind clocks (v1.11)
-- [X] Expanded emoji picker (79 emoji) (v1.11)
-- [ ] Fix M4B rendering to enable chaptered audiobook playback
-- [ ] Better JPEG and PNG decoding
-- [ ] Improve EPUB rendering and EPUB format handling
-- [ ] Incoming call ringer silence (hardware limitation -- A7682E drives speaker autonomously on RING, no software mute path available)
-
-**T-Deck Max:**
-- [X] Core port: e-ink display, TCA8418 keyboard, LoRa, battery, GPS (decoupled from the T-Deck Pro variant)
-- [X] Companion radio: BLE, WiFi, and Standalone variants (`meck_max_ble` / `meck_max_wifi` / `meck_max_standalone`)
-- [X] Combined 4G (A7682E) and audio (ES8311) running simultaneously via the XL9555 I/O expander
-- [X] ES8311 audio codec init -- audiobooks, music, alarms, and notification MP3s
-- [X] Music playback from `/audiobooks/music` (no bookmarks, WAV duration from header)
-- [X] SMS & phone app available alongside the audio apps on the same device
-- [X] CST328 capacitive touch support (vendored Hynitron driver)
-- [X] Three capacitive front buttons -- Heart (frontlight), speech bubble (channel picker), paper plane (DM inbox)
-- [X] E-ink frontlight with configurable brightness (Settings, 5--100%)
-- [X] Keyboard backlight toggle (press both Shift keys)
-- [X] Buzzer (vibrate) per-channel notification option via DRV2605 haptic motor
-- [X] Multi-constellation GPS -- GPS, Galileo, BeiDou (`$PCAS04,7`)
-- [X] Home-screen e-ink X-offset and word-wrap fixes
-- [X] Voice-note playback (ES8311 output path)
-- [X] Voice-note recording on MAX (ES8311 ADC capture path)
-- [ ] BHI260AP gyroscope / IMU support (0x28) -- new on the MAX, not yet used by Meck
-
-**T5S3 E-Paper Pro:**
-- [X] Core port: display, touch input, LoRa, battery, RTC
-- [X] Touch-navigable home screen with tappable tile grid
-- [X] Full virtual keyboard for text entry
-- [X] Lock screen with clock, battery, unread count, and auto-lock timer
-- [X] Backlight control (double/triple-click Boot button)
-- [X] Dark mode and portrait mode display settings
-- [X] Channel messages with swipe navigation and touch compose
-- [X] Contacts with filter cycling and long-press DM/admin
-- [X] Text reader with swipe page turns
-- [X] Web reader with virtual keyboard URL/search entry (WiFi variant)
-- [X] Settings screen with touch editing
-- [X] Serial clock sync for hardware RTC
-- [X] CardKB external keyboard support (via QWIIC)
-- [X] Last heard passive advert list
-- [X] Tap-to-select on contacts, discovery, settings, text reader, notes screens
-- [X] OTA firmware update via phone (WiFi variant)
-- [X] DM inbox with per-contact unread indicators
-- [X] Roomserver message handling and mark-read on login
-- [X] Customised user option for larger-font mode
-- [X] Contact select mode with batch favourite and delete
-- [X] WiFi remote repeater with MQTT admin management
-- [X] 2,000 contact support (PSRAM, all variants)
-- [X] Channel picker screen with vertical bubble list layout
-- [X] Region scope (MeshCore v1.15+ compatibility)
-- [X] Selectable font styles (Classic, Noto Sans, Montserrat)
-- [X] Virtual keyboard emoji grid with scrollable pages
-- [X] Accented character / diacritics support (Czech, Polish, French, German, Latin Extended)
-- [X] DM message persistence across reboots (v1.9)
-- [X] Expanded Minesweeper grid to 14x14 with 25 mines (v1.11)
-- [ ] Improve EPUB rendering and EPUB format handling
-
-**Heltec V4:**
-- [X] WiFi remote repeater with MQTT admin management
-- [X] Headless WiFi repeater variant (no display)
-
-**Heltec V3:**
-- [X] WiFi remote repeater with MQTT admin management
+- Install [PlatformIO](https://docs.platformio.org) in [Visual Studio Code](https://code.visualstudio.com).
+- Clone and open this repository.
+- Build for your target using the environment names in [Build Variants](#build-variants).
 
 ## 📞 Get Support
 
-- Join [MeshCore Discord](https://discord.gg/KWFeY45sN) to chat with the developers and get help from the community.
+- Join the [MeshCore Discord](https://discord.gg/KWFeY45sN) to chat with the developers and get help from the community.
 
 ## 📜 License
 
 The upstream [MeshCore](https://github.com/meshcore-dev/MeshCore) library is released under the **MIT License** (Copyright © 2025 Scott Powell / rippleradios.com). Meck-specific code (UI screens, display helpers, device integration) is also provided under the MIT License.
 
-However, this firmware links against libraries with different license terms. Because some dependencies use the **GPL-3.0** copyleft license (GxEPD2, ESP32-audioI2S) and others use **LGPL-2.1** (Codec2, ESPAsyncWebServer, Arduino_LPS22HB), the combined firmware binary is effectively subject to GPL-3.0 obligations when distributed. Please review the individual licenses below if you intend to redistribute or modify this firmware.
+This firmware links against third-party libraries with their own license terms; review the individual licenses below if you intend to redistribute or modify the firmware.
 
 ### Third-Party Libraries
 
@@ -1466,29 +1106,15 @@ However, this firmware links against libraries with different license terms. Bec
 |---------|---------|-----------------|
 | [MeshCore](https://github.com/meshcore-dev/MeshCore) | MIT | Scott Powell / rippleradios.com |
 | [RadioLib](https://github.com/jgromes/RadioLib) | MIT | Jan Gromeš |
-| [GxEPD2](https://github.com/ZinggJM/GxEPD2) | GPL-3.0 | Jean-Marc Zingg (T-Deck Pro) |
-| [FastEPD](https://github.com/bitbank2/FastEPD) | Apache-2.0 | Larry Bank / bitbank2 (T5S3) |
+| [LovyanGFX](https://github.com/lovyan03/LovyanGFX) | FreeBSD | lovyan03 (watch display) |
+| [XPowersLib](https://github.com/lewisxhe/XPowersLib) | MIT | Lewis He (AXP2101 PMU) |
+| [SensorLib](https://github.com/lewisxhe/SensorLib) | MIT | Lewis He (BMA423, PCF8563) |
 | [Adafruit GFX Library](https://github.com/adafruit/Adafruit-GFX-Library) | BSD | Adafruit |
-| [SensorLib](https://github.com/lewisxhe/SensorLib) | MIT | Lewis He (T5S3 touch/RTC) |
-| [ESP32-audioI2S](https://github.com/schreibfaul1/ESP32-audioI2S) | GPL-3.0 | schreibfaul1 / Wolle |
-| [Codec2](https://github.com/sh123/esp32_codec2_arduino) | LGPL-2.1 | sh123 (ESP32 port) |
-| [JPEGDEC](https://github.com/bitbank2/JPEGDEC) | Apache-2.0 | Larry Bank / bitbank2 |
-| [PNGdec](https://github.com/bitbank2/PNGdec) | Apache-2.0 | Larry Bank / bitbank2 |
-| [ESPAsyncWebServer](https://github.com/me-no-dev/ESPAsyncWebServer) | LGPL-2.1 | Hristo Gochkov / me-no-dev (OTA) |
-| [PubSubClient](https://github.com/knolleary/pubsubclient) | MIT | Nick O'Leary (MQTT) |
+| [PNGdec](https://github.com/bitbank2/PNGdec) | Apache-2.0 | Larry Bank / bitbank2 (image decoding) |
 | [Arduino Crypto](https://github.com/rweather/arduinolibs) | MIT | Rhys Weatherley |
 | [base64](https://github.com/Densaugeo/base64_arduino) | MIT | densaugeo |
-| [CRC32](https://github.com/bakercp/CRC32) | MIT | Christopher Baker |
 | [RTClib](https://github.com/adafruit/RTClib) | MIT | Adafruit |
 | [Melopero RV3028](https://github.com/melopero/Melopero_RV-3028_Arduino_Library) | MIT | Melopero |
-| [MicroNMEA](https://github.com/stevemarple/MicroNMEA) | MIT | Steve Marple (GPS) |
 | [CayenneLPP](https://github.com/ElectronicCats/CayenneLPP) | MIT | Electronic Cats |
-| [Adafruit ST7735/ST7789](https://github.com/adafruit/Adafruit-ST7735-Library) | MIT | Adafruit (Heltec V4 TFT) |
-| [INA226](https://github.com/RobTillaart/INA226) | MIT | Rob Tillaart |
-| [Arduino_LPS22HB](https://github.com/arduino-libraries/Arduino_LPS22HB) | LGPL-2.1 | Arduino |
-| Adafruit sensor drivers¹ | MIT / BSD | Adafruit |
-| [Sensirion I2C SHT4x](https://github.com/Sensirion/arduino-i2c-sht4x) | BSD-3-Clause | Sensirion |
-
-¹ Includes INA219, INA260, INA3221, AHTX0, BME280, BMP280, BME680, BMP085, SHTC3, MLX90614, VL53L0X — all MIT or BSD licensed. Used via the sensor manager for optional environmental monitoring.
 
 Full license texts for each dependency are available in their respective repositories linked above.

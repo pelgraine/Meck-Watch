@@ -94,11 +94,7 @@ struct NodePrefs {  // persisted to file
   // than built-in 6×8 but fits within the 9-unit virtual grid.
   // T5S3 size 0/1 → same 12pt height → always 9 in virtual coords.
   inline int smallLineH() const {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    return 9;
-#else
     return large_font ? 11 : 9;
-#endif
   }
 
   // Returns the Y offset for selection highlight fillRect (T-Deck Pro only).
@@ -109,7 +105,7 @@ struct NodePrefs {  // persisted to file
   //   upward → fillRect must start above baseline to cover ascenders.
   // T5S3: always 0 (both sizes use baseline fonts with highlight at y).
   inline int smallHighlightOff() const {
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
     return 0;
 #else
     // Custom 7pt fonts at textSize 0 use GFXfont (baseline rendering), not built-in.

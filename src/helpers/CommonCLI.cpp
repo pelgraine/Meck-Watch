@@ -33,11 +33,7 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
 }
 
 void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
-#if defined(RP2040_PLATFORM)
-  File file = fs->open(filename, "r");
-#else
   File file = fs->open(filename);
-#endif
   if (file) {
     uint8_t pad[8];
 
@@ -120,14 +116,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
 }
 
 void CommonCLI::savePrefs(FILESYSTEM* fs) {
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  fs->remove("/com_prefs");
-  File file = fs->open("/com_prefs", FILE_O_WRITE);
-#elif defined(RP2040_PLATFORM)
-  File file = fs->open("/com_prefs", "w");
-#else
   File file = fs->open("/com_prefs", "w", true);
-#endif
   if (file) {
     uint8_t pad[8];
     memset(pad, 0, sizeof(pad));
@@ -378,31 +367,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         }
       // Power management commands
       } else if (memcmp(config, "pwrmgt.support", 14) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        strcpy(reply, "> supported");
-#else
         strcpy(reply, "> unsupported");
-#endif
       } else if (memcmp(config, "pwrmgt.source", 13) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        strcpy(reply, _board->isExternalPowered() ? "> external" : "> battery");
-#else
         strcpy(reply, "ERROR: Power management not supported");
-#endif
       } else if (memcmp(config, "pwrmgt.bootreason", 17) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        sprintf(reply, "> Reset: %s; Shutdown: %s",
-          _board->getResetReasonString(_board->getResetReason()),
-          _board->getShutdownReasonString(_board->getShutdownReason()));
-#else
         strcpy(reply, "ERROR: Power management not supported");
-#endif
       } else if (memcmp(config, "pwrmgt.bootmv", 13) == 0) {
-#ifdef NRF52_POWER_MANAGEMENT
-        sprintf(reply, "> %u mV", _board->getBootVoltage());
-#else
         strcpy(reply, "ERROR: Power management not supported");
-#endif
       } else {
         sprintf(reply, "??: %s", config);
       }

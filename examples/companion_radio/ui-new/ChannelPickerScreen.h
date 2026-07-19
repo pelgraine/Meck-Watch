@@ -161,112 +161,6 @@ public:
     display.print(tmp);
     display.drawRect(0, 11, display.width(), 1);
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    // =================================================================
-    // T5S3: Vertical bubble list (matches P4 channel picker aesthetic)
-    // Full-width outlined bubbles with channel name left-aligned and
-    // unread badge right-aligned.  1-tap opens the channel.
-    // =================================================================
-    const int headerH = 14;
-    const int footerH = 14;
-    const int bodyH = display.height() - headerH - footerH;
-    const int bubbleH = 11;   // Bubble height in virtual coords
-    const int gap = 2;        // Gap between bubbles
-    const int padX = 3;       // Horizontal padding from screen edge
-    const int bubbleW = display.width() - 2 * padX;
-    int maxVisible = bodyH / (bubbleH + gap);
-    if (maxVisible < 3) maxVisible = 3;
-    if (maxVisible > _itemCount) maxVisible = _itemCount;
-
-    // Cache layout for touch hit test
-    _cellW = bubbleW;
-    _cellH = bubbleH + gap;
-    _gridTop = headerH;
-    _gridCols = 1;  // Single column -- list mode
-
-    // Centre scroll window on cursor
-    _scrollTop = max(0, min(_cursor - maxVisible / 2, _itemCount - maxVisible));
-    if (_scrollTop < 0) _scrollTop = 0;
-    int endIdx = min(_itemCount, _scrollTop + maxVisible);
-
-    for (int i = _scrollTop; i < endIdx; i++) {
-      int row = i - _scrollTop;
-      int x = padX;
-      int y = headerH + row * (bubbleH + gap) + 1;
-      int w = bubbleW;
-      int h = bubbleH;
-
-      bool selected = (i == _cursor);
-      int unread = getItemUnread(i);
-
-      // Bubble: filled if selected, outlined otherwise
-      if (selected) {
-        display.setColor(DisplayDriver::LIGHT);
-        display.fillRect(x, y, w, h);
-        display.setColor(DisplayDriver::DARK);
-      } else {
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawRect(x, y, w, h);
-        // Draw a second outline 1px inset for a bolder border
-        display.drawRect(x + 1, y + 1, w - 2, h - 2);
-      }
-
-      // Channel name -- left-aligned with inner padding
-      char name[32];
-      getItemName(i, name, sizeof(name));
-      char filtered[32];
-      display.translateUTF8ToBlocks(filtered, name, sizeof(filtered));
-
-      int textY = y + (h - 9) / 2;
-      if (textY < y + 1) textY = y + 1;
-      int textX = x + 4;
-
-      // Badge width reservation
-      int badgeW = 0;
-      char badge[8];
-      if (unread > 0) {
-        if (unread > 99) snprintf(badge, sizeof(badge), "99+");
-        else snprintf(badge, sizeof(badge), "*%d", unread);
-        badgeW = display.getTextWidth(badge) + 4;
-      }
-      int nameMaxW = w - 8 - badgeW;
-      if (nameMaxW < 8) nameMaxW = 8;
-
-      int nameW = display.getTextWidth(filtered);
-      if (nameW <= nameMaxW) {
-        display.setCursor(textX, textY);
-        display.print(filtered);
-      } else {
-        display.drawTextEllipsized(textX, textY, nameMaxW, filtered);
-      }
-
-      // Unread badge -- right-aligned inside bubble
-      if (unread > 0) {
-        int bx = x + w - badgeW;
-        display.setCursor(bx, textY);
-        display.print(badge);
-      }
-
-      display.setColor(DisplayDriver::LIGHT);
-    }
-
-    // Scroll indicator (if more items than visible)
-    if (_itemCount > maxVisible) {
-      const int sbW = 3;
-      int sbX = display.width() - sbW;
-      int sbTop = headerH;
-      int sbHeight = bodyH;
-      display.setColor(DisplayDriver::LIGHT);
-      display.drawRect(sbX, sbTop, sbW, sbHeight);
-      int thumbH = (maxVisible * sbHeight) / _itemCount;
-      if (thumbH < 4) thumbH = 4;
-      int maxScroll = _itemCount - maxVisible;
-      if (maxScroll < 1) maxScroll = 1;
-      int thumbY = sbTop + (_scrollTop * (sbHeight - thumbH)) / maxScroll;
-      display.fillRect(sbX + 1, thumbY + 1, sbW - 2, thumbH - 2);
-    }
-
-#else
     // =================================================================
     // T-Deck Pro / MAX: Vertical list
     // Uses NodePrefs font helpers for large_font compatibility.
@@ -338,7 +232,6 @@ public:
       int thumbY = sbTop + (_scrollTop * (sbHeight - thumbH)) / maxScroll;
       display.fillRect(sbX + 1, thumbY + 1, sbW - 2, thumbH - 2);
     }
-#endif
 
     // =================================================================
     // Delete confirmation overlay
@@ -376,11 +269,7 @@ public:
 
       // Key hints
       display.setColor(DisplayDriver::YELLOW);
-    #if defined(LilyGo_T5S3_EPaper_Pro)
-      const char* hints = "Tap:Yes  Boot:Cancel";
-    #else
       const char* hints = "Enter:Yes  Q:Cancel";
-    #endif
       display.setCursor(boxX + 4, boxY + 29);
       display.print(hints);
     }
@@ -392,24 +281,6 @@ public:
     display.setColor(DisplayDriver::YELLOW);
     display.setCursor(0, footerY);
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    if (_confirmDelete) {
-      display.print("Tap:Yes");
-      const char* rt = "Boot:Cancel";
-      display.setCursor(display.width() - display.getTextWidth(rt) - 2, footerY);
-      display.print(rt);
-    } else {
-      display.print("Tap:Open");
-      const char* rt = "Long Press:Del Hist Boot:Back";
-      display.setCursor(display.width() - display.getTextWidth(rt) - 2, footerY);
-      display.print(rt);
-    }
-#elif defined(LILYGO_TECHO_LITE)
-    display.print("Q:Bk");
-    const char* rt = "Ent:Open";
-    display.setCursor(display.width() - display.getTextWidth(rt) - 2, footerY);
-    display.print(rt);
-#else
     if (_confirmDelete) {
       display.print("Enter:Yes Q:Cancel");
     } else {
@@ -418,13 +289,8 @@ public:
       display.setCursor(display.width() - display.getTextWidth(rt) - 2, footerY);
       display.print(rt);
     }
-#endif
 
-#ifdef USE_EINK
-    return 5000;
-#else
     return 1000;
-#endif
   }
 
   // -----------------------------------------------------------------------
@@ -512,25 +378,10 @@ public:
     //   T5S3: tap = confirm (return 2 → KEY_ENTER → handleInput confirms)
     //   T-Deck Pro: tap = cancel (dismiss overlay, stay on picker)
     if (_confirmDelete) {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      return 2;  // Confirm — maps to KEY_ENTER in mapTouchTap
-#else
       _confirmDelete = false;
       return 1;  // Cancel — redraw without activating
-#endif
     }
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    // Vertical bubble list hit test
-    if (vy < _gridTop || _cellH == 0) return 0;
-    int footerY = 128 - 14;
-    if (vy >= footerY) return 0;
-    int row = (vy - _gridTop) / _cellH;
-    int idx = _scrollTop + row;
-    if (idx < 0 || idx >= _itemCount) return 0;
-    _cursor = idx;
-    return 2;  // Direct open on tap
-#else
     // T-Deck Pro / MAX list hit test -- uses NodePrefs for large_font compatibility
     NodePrefs* prefs = the_mesh.getNodePrefs();
     int lineH = prefs->smallLineH();
@@ -547,6 +398,5 @@ public:
     if (tappedRow == _cursor) return 2;
     _cursor = tappedRow;
     return 1;
-#endif
   }
 };
