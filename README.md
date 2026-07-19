@@ -226,7 +226,9 @@ A **long press on the home screen** opens the watch channel picker. It lists all
 | Long press a row | Open the channel |
 | Tap the back arrow (top-left) | Return home |
 
-Inside a channel, scroll messages by swiping, tap to compose a new message via the touch keyboard, and long-press to go back. Replies and @mentions follow the standard MeshCore conventions.
+Inside a channel, scroll messages by swiping, tap the compose bar at the bottom to write a new message via the touch keyboard, and long-press to go back. Replies and @mentions follow the standard MeshCore conventions.
+
+Long messages are truncated to a single line in the list, but they aren't cut off — **tap a message** to display it in ticker-scroll mode, scrolling the full text across the screen from left to right so you can read the whole message. Tap it again to stop the ticker.
 
 ---
 
