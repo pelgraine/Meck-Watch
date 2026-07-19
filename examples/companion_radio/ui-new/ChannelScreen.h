@@ -933,7 +933,11 @@ public:
         display.setCursor(0, y);
         display.print("No direct messages");
         display.setCursor(0, y + lineH);
+#if defined(MECK_TWATCH)
+        display.print("Swipe: Channels");
+#else
         display.print("A/D: Switch channel");
+#endif
       } else {
         int startIdx = max(0, min(_dmInboxScroll - maxVisible / 2,
                                   inboxCount - maxVisible));
@@ -993,11 +997,18 @@ public:
       int footerY = display.height() - 12;
       display.drawRect(0, footerY - 2, display.width(), 1);
       display.setColor(DisplayDriver::YELLOW);
+#if defined(MECK_TWATCH)
+      // Watch: no Q/Enter keys -- long press opens the selected conversation.
+      const char* rtInbox = "Hold:Open";
+      display.setCursor(display.width() - display.getTextWidth(rtInbox) - 2, footerY);
+      display.print(rtInbox);
+#else
       display.setCursor(0, footerY);
       display.print("Q:Bck");
       const char* rtInbox = "Ent:Open";
       display.setCursor(display.width() - display.getTextWidth(rtInbox) - 2, footerY);
       display.print(rtInbox);
+#endif
 
       return 1000;
     }
@@ -1682,6 +1693,12 @@ public:
       display.setCursor(display.width() - display.getTextWidth(rightText) - 2, footerY);
       display.print(rightText);
     } else if (_viewChannelIdx == 0xFF) {
+#if defined(MECK_TWATCH)
+      // Watch: no Q/L/Enter keys -- long press composes a reply.
+      const char* rightText = "Long Press: Reply";
+      display.setCursor(display.width() - display.getTextWidth(rightText) - 2, footerY);
+      display.print(rightText);
+#else
       if (_dmContactPerms > 0) {
         display.print("Q:Exit L:Admin");
       } else {
@@ -1690,6 +1707,7 @@ public:
       const char* rightText = "Ent:Reply";
       display.setCursor(display.width() - display.getTextWidth(rightText) - 2, footerY);
       display.print(rightText);
+#endif
     } else {
       display.print("Q:Bck R:Rply");
       const char* rightText = "Ent:New";

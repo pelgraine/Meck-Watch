@@ -13,6 +13,12 @@
 #define NOTIF_MENTIONS  1   // Notify only when @nodename appears in message
 #define NOTIF_NONE      2   // No notifications (muted)
 
+// Fixed channel_notif[] index for the DM slot. The array is sized [21]
+// (20 group channels + 1 DM slot) regardless of MAX_GROUP_CHANNELS, so the
+// DM slot must NOT be computed as MAX_GROUP_CHANNELS -- on 40-channel builds
+// that lands out of bounds and the DM preference silently never applies.
+#define DM_NOTIF_SLOT   20
+
 struct NodePrefs {  // persisted to file
   float airtime_factor;
   char node_name[32];
@@ -59,7 +65,7 @@ struct NodePrefs {  // persisted to file
   uint8_t default_scope_key[16];   // TransportKey derived from "#" + name
 
   // --- Per-channel notification preferences ---
-  // Index 0..MAX_GROUP_CHANNELS-1 for group channels, index MAX_GROUP_CHANNELS for DMs.
+  // Index 0..19 for group channels, index DM_NOTIF_SLOT (20) for DMs.
   // Values: NOTIF_ALL (0), NOTIF_MENTIONS (1), NOTIF_NONE (2).
   // Defaults to NOTIF_ALL for all channels.
   uint8_t channel_notif[21];       // 20 group channels + 1 DM slot

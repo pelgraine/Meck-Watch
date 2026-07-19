@@ -12,7 +12,7 @@
 #endif
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "Meck v0.3"
+#define FIRMWARE_VERSION "Meck v0.4"
 #endif
 
 #if   defined(ESP32)

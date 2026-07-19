@@ -376,7 +376,7 @@ Meck does not pre-set any region on a fresh flash. Region names are determined b
 
 ## Channels: Public, Private & Sharing
 
-Channels are managed from **Settings → Channels**. You can add a public channel (a plain `#name`) or a **private channel** with a randomly generated secret, and edit or delete existing ones. `MAX_GROUP_CHANNELS` is 40 on the watch builds.
+Channels are managed from **Settings → Channels**. You can add a public channel (a plain `#name`) or a **private channel** with a randomly generated secret, and edit or delete existing ones. `MAX_GROUP_CHANNELS` is 20 on the watch builds, plus the DMs slot.
 
 Private channels and channel sharing follow the standard Meck/MeshCore model — a private channel is encrypted with its secret, and sharing sends the channel to a contact so they can join it.
 

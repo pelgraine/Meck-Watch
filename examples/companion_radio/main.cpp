@@ -482,14 +482,14 @@ static void lastHeardToggleContact() {
             int idx = cs->getSelectedContactIdx();
             uint8_t ctype = cs->getSelectedContactType();
             if (idx >= 0 && ctype == ADV_TYPE_CHAT) {
-              if (ui_task.hasDMUnread(idx)) {
-                char cname[32];
-                cs->getSelectedContactName(cname, sizeof(cname));
-                ui_task.clearDMUnread(idx);
-                ui_task.gotoDMConversation(cname);
-                return 0;
-              }
-              ui_task.openTWatchKeyboard(1, idx);   // TWKB_DM
+              // Always open the conversation view (sent + received history);
+              // compose is a long-press inside the conversation, mirroring
+              // the Meck-P4 flow. Passing idx lets the reply compose resolve
+              // the recipient without a name lookup.
+              char cname[32];
+              cs->getSelectedContactName(cname, sizeof(cname));
+              ui_task.clearDMUnread(idx);
+              ui_task.gotoDMConversation(cname, idx);
               return 0;
             } else if (idx >= 0 && ctype == ADV_TYPE_REPEATER) {
               ui_task.gotoRepeaterAdmin(idx);
@@ -916,8 +916,19 @@ static void lastHeardToggleContact() {
           // Inbox mode: long press = open selected conversation (same as Enter)
           return '\r';
         }
+#if defined(MECK_TWATCH)
+        // Watch conversation mode: long press = compose reply on the touch
+        // keyboard. ChannelScreen does not consume KEY_ENTER here and the
+        // watch has no physical keyboard, so open TWKB_DM directly.
+        int dmIdx = chScr->getDMContactIdx();
+        if (dmIdx >= 0) {
+          ui_task.openTWatchKeyboard(1, dmIdx);   // TWKB_DM
+        }
+        return 0;
+#else
         // Conversation mode: long press = compose reply
         return KEY_ENTER;
+#endif
       }
       return KEY_ENTER;  // T-Deck Pro: keyboard handles compose mode
     }

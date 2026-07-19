@@ -44,7 +44,7 @@
 #define TW_OUT_BUF_LEN     134    // MeshCore per-channel msg cap (~133) + NUL
 #define TW_TICKER_MS_PER_PX 20    // channel-screen ticker scroll speed (ms per pixel)
 #define TW_CH_NAME_LEN     32
-#define TW_PICKER_MAX      20     // matches MAX_GROUP_CHANNELS
+#define TW_PICKER_MAX      21     // DMs pseudo-row + up to 20 channels
 
 // =============================================================================
 // TWatchChannelPicker

@@ -1463,7 +1463,7 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
   // stored in history regardless -- only alerts and unread badges are gated.
   bool suppressNotif = false;
   {
-    int notifSlot = (channel_idx == 0xFF) ? MAX_GROUP_CHANNELS : (int)channel_idx;
+    int notifSlot = (channel_idx == 0xFF) ? DM_NOTIF_SLOT : (int)channel_idx;
     if (notifSlot >= 0 && notifSlot < (int)sizeof(_node_prefs->channel_notif)) {
       uint8_t pref = _node_prefs->channel_notif[notifSlot];
       if (pref == NOTIF_NONE) {
@@ -1850,11 +1850,17 @@ if (curr) curr->poll();
   if (curr == tw_picker) {
     TWatchChannelPicker* picker = (TWatchChannelPicker*)tw_picker;
     if (picker->isConfirmed()) {
-      ((TWatchChannelScreen*)tw_channel)->setSelfName(the_mesh.getNodePrefs()->node_name);
-      ((TWatchChannelScreen*)tw_channel)->activate(picker->getSelectedChannelIdx(),
-                                                   picker->getSelectedChannelName());
-      setCurrScreen(tw_channel);
-      picker->acknowledgeConfirm();
+      if (picker->getSelectedChannelIdx() == 0xFF) {
+        // DMs pseudo-row: open the DM inbox on the shared channel screen
+        picker->acknowledgeConfirm();
+        gotoDMTab();
+      } else {
+        ((TWatchChannelScreen*)tw_channel)->setSelfName(the_mesh.getNodePrefs()->node_name);
+        ((TWatchChannelScreen*)tw_channel)->activate(picker->getSelectedChannelIdx(),
+                                                     picker->getSelectedChannelName());
+        setCurrScreen(tw_channel);
+        picker->acknowledgeConfirm();
+      }
     }
     if (picker->wantsExit()) {
       picker->acknowledgeExit();
@@ -2337,6 +2343,10 @@ void UITask::gotoChannelPickerScreen() {
 void UITask::openTWatchPicker() {
   TWatchChannelPicker* picker = (TWatchChannelPicker*)tw_picker;
   picker->beginChannelSelect();
+  // DMs pseudo-row first, above the public channel. idx 0xFF is the DM
+  // sentinel; the unread badge comes from getUnreadForChannel(0xFF) which
+  // returns the DM total. Long-press routes to gotoDMTab() (see loop()).
+  picker->addChannel(0xFF, "DMs");
   ChannelDetails ch;
   for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
     if (the_mesh.getChannel(i, ch) && ch.name[0] != 0) {

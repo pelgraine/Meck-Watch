@@ -40,6 +40,9 @@ class UITask;
 #ifndef MAX_GROUP_CHANNELS
   #define MAX_GROUP_CHANNELS 20
 #endif
+#ifndef DM_NOTIF_SLOT
+  #define DM_NOTIF_SLOT 20
+#endif
 
 #define WCC_ROWS 4    // list rows per page
 
@@ -51,7 +54,7 @@ private:
   UITask*    _task;
   NodePrefs* _node_prefs;
 
-  uint8_t _chIdx[MAX_GROUP_CHANNELS];   // populated channel slots, in order
+  uint8_t _chIdx[MAX_GROUP_CHANNELS + 1];   // DMs pseudo-row + populated channel slots, in order
   int     _numCh = 0;
 
   Mode _mode = LIST;
@@ -73,9 +76,11 @@ private:
   static const int FOOTER_Y = 100;
 
   void rebuildList() {
-    // Scan ALL slots -- the companion app may write non-contiguously, and
-    // gaps can appear after deletion (same scan as SettingsScreen).
+    // DMs pseudo-row first (sentinel 0xFF), then scan ALL channel slots --
+    // the companion app may write non-contiguously, and gaps can appear
+    // after deletion (same scan as SettingsScreen).
     _numCh = 0;
+    _chIdx[_numCh++] = 0xFF;
     for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
       ChannelDetails ch;
       if (the_mesh.getChannel(i, ch) && ch.name[0] != '\0') {
@@ -87,7 +92,8 @@ private:
   }
 
   const char* notifLabel(uint8_t idx) const {
-    uint8_t n = _node_prefs->channel_notif[idx];
+    uint8_t slot = (idx == 0xFF) ? DM_NOTIF_SLOT : idx;
+    uint8_t n = _node_prefs->channel_notif[slot];
     return (n == NOTIF_NONE) ? "Off" : (n == NOTIF_MENTIONS) ? "@" : "All";
   }
 
@@ -181,6 +187,21 @@ private:
     for (int i = 0; i < visible; i++) {
       uint8_t idx = _chIdx[_scrollTop + i];
       int y = HEADER_H + i * ROW_H;
+
+      if (idx == 0xFF) {
+        // DMs pseudo-row: no scope, notification state only
+        if (_scrollTop + i == _sel) {
+          d->setRawColor(0x231D);                   // same blue as the home tile
+          d->drawRoundRect(1, y, display.width() - 2, ROW_H - 2, 3);
+        }
+        d->setRawColor(0xFFFF);
+        display.setCursor(5, y + 2);
+        display.print("DMs");
+        d->setRawColor(0x7BEF);
+        d->printSmallFont(5, y + 13, notifLabel(idx));
+        continue;
+      }
+
       ChannelDetails ch;
       if (!the_mesh.getChannel(idx, ch)) continue;
 
@@ -217,6 +238,29 @@ private:
   void renderDetail(DisplayDriver& display) {
     LGFXDisplay* d = (LGFXDisplay*)&display;
     char buf[44];
+
+    if (_detail == 0xFF) {
+      // DMs pseudo-entry: notification preference only (no scope, no delete)
+      display.setColor(DisplayDriver::LIGHT);
+      display.setTextSize(1);
+      display.drawTextCentered(display.width() / 2, 3, "DMs");
+
+      // Notify row -- tap cycles All -> Mentions -> Off.
+      d->setRawColor(0x231D);
+      d->drawRoundRect(1, 16, display.width() - 2, 18, 3);
+      uint8_t n = _node_prefs->channel_notif[DM_NOTIF_SLOT];
+      snprintf(buf, sizeof(buf), "Notify: %s",
+               (n == NOTIF_NONE) ? "Off" : (n == NOTIF_MENTIONS) ? "Mentions" : "All");
+      d->setRawColor(0xFFFF);
+      d->printSmallFont(6, 24, buf);
+
+      // Footer: Back to the list.
+      d->setRawColor(0x231D);
+      d->drawRoundRect(1, FOOTER_Y, 58, 18, 3);
+      d->setRawColor(0xFFFF);
+      d->printSmallFont(20, FOOTER_Y + 8, "Back");
+      return;
+    }
 
     ChannelDetails ch;
     if (_detail < 0 || !the_mesh.getChannel((uint8_t)_detail, ch)) {
@@ -319,6 +363,15 @@ public:
       rebuildList();
       return true;
     }
+    if (_detail == 0xFF) {
+      // DMs pseudo-entry: only the Notify row is live.
+      if (ly >= 16 && ly < 34) {             // Notify: cycle All -> @ -> Off
+        uint8_t cur = _node_prefs->channel_notif[DM_NOTIF_SLOT];
+        _node_prefs->channel_notif[DM_NOTIF_SLOT] = (cur + 1) % 3;
+        the_mesh.savePrefs();
+      }
+      return true;
+    }
     ChannelDetails ch;
     if (_detail < 0 || !the_mesh.getChannel((uint8_t)_detail, ch)) {
       _mode = LIST;
@@ -360,10 +413,11 @@ public:
       return true;
     }
     if (_mode == DETAIL && (c == KEY_ENTER || c == KEY_NEXT)) {
-      // Button click deletes the open channel (channel 0 is protected):
+      // Button click deletes the open channel (channel 0 is protected, and
+      // the DMs pseudo-entry cannot be deleted):
       // first press arms, a second press within 3s confirms. Back is the
       // touch footer.
-      if (_detail > 0) {
+      if (_detail > 0 && _detail != 0xFF) {
         if (_confirmDelete) {
           deleteChannel((uint8_t)_detail);
           _confirmDelete = false;
