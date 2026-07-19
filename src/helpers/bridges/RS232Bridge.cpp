@@ -15,15 +15,6 @@ void RS232Bridge::begin() {
 
 #if defined(ESP32)
   ((HardwareSerial *)_serial)->setPins(WITH_RS232_BRIDGE_RX, WITH_RS232_BRIDGE_TX);
-#elif defined(NRF52_PLATFORM)
-  // Tested with RAK_4631 and T114
-  ((Uart *)_serial)->setPins(WITH_RS232_BRIDGE_RX, WITH_RS232_BRIDGE_TX);
-#elif defined(RP2040_PLATFORM)
-  ((SerialUART *)_serial)->setRX(WITH_RS232_BRIDGE_RX);
-  ((SerialUART *)_serial)->setTX(WITH_RS232_BRIDGE_TX);
-#elif defined(STM32_PLATFORM)
-  ((HardwareSerial *)_serial)->setRx(WITH_RS232_BRIDGE_RX);
-  ((HardwareSerial *)_serial)->setTx(WITH_RS232_BRIDGE_TX);
 #else
 #error RS232Bridge was not tested on the current platform
 #endif

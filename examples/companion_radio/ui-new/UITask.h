@@ -22,23 +22,17 @@
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
 
-#ifdef HAS_4G_MODEM
-  #include "SMSScreen.h"
-#endif
 
 #ifdef MECK_WEB_READER
   #include "WebReaderScreen.h"
 #endif
 
-#ifdef MECK_AUDIO_VARIANT
-  #include "AlarmScreen.h"
-#endif
 
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
   #include "VirtualKeyboard.h"
 #endif
 
-// MapScreen.h included in UITask.cpp and main.cpp only (PNGdec headers
+// WatchMapScreen.h included in UITask.cpp and main.cpp only (PNGdec headers
 // conflict with BLE if pulled into the global include chain)
 
 class UITask : public AbstractUITask {
@@ -53,11 +47,6 @@ class UITask : public AbstractUITask {
   unsigned long _next_refresh, _auto_off;
   bool _notifAudioActive = false;          // True while a notification tone plays; defers e-ink refresh (SPI bus contention)
   unsigned long _kb_flash_off_at;          // Keyboard flash turn-off timer
-#ifdef HAS_4G_MODEM
-  bool _incomingCallRinging;               // Currently ringing (incoming call)
-  unsigned long _nextCallFlash;            // Next LED toggle time
-  bool _callFlashState;                    // Current LED state during ring
-#endif
   NodePrefs* _node_prefs;
   char _alert[80];
   unsigned long _alert_expiry;
@@ -89,13 +78,6 @@ class UITask : public AbstractUITask {
   UIScreen* notes_screen;    // Notes editor screen
   UIScreen* settings_screen; // Settings/onboarding screen
   UIScreen* audiobook_screen; // Audiobook player screen (null if not available)
-#ifdef MECK_AUDIO_VARIANT
-  UIScreen* alarm_screen;     // Alarm clock screen (audio variant only)
-  UIScreen* voice_screen;     // Voice message screen (audio variant only)
-#endif
-#ifdef HAS_4G_MODEM
-  UIScreen* sms_screen;      // SMS messaging screen (4G variant only)
-#endif
   UIScreen* repeater_admin;   // Repeater admin screen
   UIScreen* path_editor;      // Custom path editor screen (lazy-init)
   UIScreen* discovery_screen;  // Node discovery scan screen
@@ -117,7 +99,7 @@ class UITask : public AbstractUITask {
   UIScreen* curr;
   bool _homeShowingTiles = false;  // Set by HomeScreen render when tile grid is visible
   int _tileGridVY = 44;           // Virtual Y of tile grid top (updated each render)
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
   UIScreen* lock_screen;     // Lock screen (big clock + battery + unread)
 #if defined(MECK_TWATCH)
   UIScreen* steps_screen;         // Steps screen (big daily step count)
@@ -159,15 +141,6 @@ class UITask : public AbstractUITask {
   unsigned long _psLastActive = 0;       // millis() at last wake or lock entry
   unsigned long _psNextSleepSecs = 60;   // Seconds before first sleep (60s), then 5s cycles
 #endif
-#ifdef MECK_CARDKB
-  bool _cardkbDetected = false;
-#endif
-#elif defined(LilyGo_TDeck_Pro)
-  UIScreen* lock_screen;     // Lock screen (big clock + battery + unread)
-  UIScreen* _screenBeforeLock = nullptr;
-  bool _locked = false;
-  unsigned long _lastInputMillis = 0;  // Auto-lock idle tracking
-  unsigned long _lastLockRefresh = 0;  // Periodic lock screen clock update
 #endif
 
   // --- Message dedup ring buffer (suppress retry spam at UI level) ---
@@ -205,11 +178,6 @@ public:
   UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : AbstractUITask(board, serial), _display(NULL), _sensors(NULL) {
     next_batt_chck = _next_refresh = 0;
     _kb_flash_off_at = 0;
-  #ifdef HAS_4G_MODEM
-    _incomingCallRinging = false;
-    _nextCallFlash = 0;
-    _callFlashState = false;
-  #endif
     ui_started_at = 0;
     curr = NULL;
   }
@@ -230,10 +198,6 @@ public:
   void gotoSettingsScreen(); // Navigate to settings
   void gotoOnboarding();     // Navigate to settings in onboarding mode
   void gotoAudiobookPlayer(); // Navigate to audiobook player
-#ifdef MECK_AUDIO_VARIANT
-  void gotoAlarmScreen();     // Navigate to alarm clock
-  void gotoVoiceScreen();     // Navigate to voice message recorder
-#endif
   void gotoRepeaterAdmin(int contactIdx);  // Navigate to repeater admin
   void gotoRepeaterAdminDirect(int contactIdx);  // Auto-login admin (L key from conversation)
   void gotoPathEditor(int contactIdx);     // Navigate to custom path editor
@@ -255,11 +219,6 @@ public:
 #endif
 #ifdef MECK_WEB_READER
   void gotoWebReader();         // Navigate to web reader (browser)
-#endif
-#ifdef HAS_4G_MODEM
-  void gotoSMSScreen();
-  bool isOnSMSScreen() const { return curr == sms_screen; }
-  SMSScreen* getSMSScreen() const { return (SMSScreen*)sms_screen; }
 #endif
   void showAlert(const char* text, int duration_millis) override;
   void forceRefresh() override { _next_refresh = 100; }
@@ -299,10 +258,6 @@ public:
   bool isOnNotesScreen() const { return curr == notes_screen; }
   bool isOnSettingsScreen() const { return curr == settings_screen; }
   bool isOnAudiobookPlayer() const { return curr == audiobook_screen; }
-#ifdef MECK_AUDIO_VARIANT
-  bool isOnAlarmScreen() const { return curr == alarm_screen; }
-  bool isOnVoiceScreen() const { return curr == voice_screen; }
-#endif
   bool isOnRepeaterAdmin() const { return curr == repeater_admin; }
   bool isOnPathEditor() const { return curr == path_editor; }
   bool isOnDiscoveryScreen() const { return curr == discovery_screen; }
@@ -324,33 +279,23 @@ public:
 #endif
   bool isOnMinesweeperScreen() const { return curr == minesweeper_screen; }
   bool isOnMapScreen() const { return curr == map_screen; }
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
   bool isLocked() const { return _locked; }
   void lockScreen();
   void unlockScreen();
 #endif
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
   bool isVKBActive() const { return _vkbActive; }
   unsigned long vkbOpenedAt() const { return _vkbOpenedAt; }
   VirtualKeyboard& getVKB() { return _vkb; }
   void showVirtualKeyboard(VKBPurpose purpose, const char* label, const char* initial, int maxLen, int contextIdx = 0);
   void onVKBSubmit();
   void onVKBCancel();
-#ifdef MECK_CARDKB
-  void setCardKBDetected(bool v) { _cardkbDetected = v; }
-  bool hasCardKB() const { return _cardkbDetected; }
-  void feedCardKBChar(char c);
-#endif
 #endif
 #ifdef MECK_WEB_READER
   bool isOnWebReader() const { return curr == web_reader; }
 #endif
 
-#ifdef MECK_AUDIO_VARIANT
-  // Check if audio is playing/paused in the background (for status indicators)
-  bool isAudioPlayingInBackground() const;
-  bool isAudioPausedInBackground() const;
-#endif
   uint8_t getChannelScreenViewIdx() const;
 
   void toggleBuzzer();
@@ -400,12 +345,6 @@ public:
   UIScreen* getAudiobookScreen() const { return audiobook_screen; }
   void setAudiobookScreen(UIScreen* s) { audiobook_screen = s; }
   void setHomeScreen(UIScreen* s) { if (home) delete home; home = s; }
-#ifdef MECK_AUDIO_VARIANT
-  UIScreen* getAlarmScreen() const { return alarm_screen; }
-  void setAlarmScreen(UIScreen* s) { alarm_screen = s; }
-  UIScreen* getVoiceScreen() const { return voice_screen; }
-  void setVoiceScreen(UIScreen* s) { voice_screen = s; }
-#endif
   UIScreen* getRepeaterAdminScreen() const { return repeater_admin; }
   UIScreen* getPathEditorScreen() const { return path_editor; }
   UIScreen* getDiscoveryScreen() const { return discovery_screen; }

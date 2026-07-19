@@ -4,15 +4,9 @@
 #include <Mesh.h>
 #include "RadioPresets.h"        // Shared radio presets (serial CLI + settings screen)
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-  #include "target.h"            // for board.setBacklight() CLI command
-#endif
 
-#ifdef HAS_4G_MODEM
-  #include "ModemManager.h"      // Serial CLI modem commands
-#endif
 
-#if defined(LilyGo_TDeck_Pro_Max) || defined(LILYGO_TWATCH_S3)
+#if defined(LILYGO_TWATCH_S3)
   #include "DRV2605Haptic.h"     // inline haptic driver for the 'buzz' CLI test command
 #endif
 
@@ -2858,14 +2852,6 @@ void MyMesh::checkCLIRescueCmd() {
               RADIO_PRESETS[i].bw, RADIO_PRESETS[i].sf,
               RADIO_PRESETS[i].cr, RADIO_PRESETS[i].tx_power);
         }
-#ifdef HAS_4G_MODEM
-      } else if (strcmp(key, "modem") == 0) {
-        Serial.printf("  > %s\n", ModemManager::loadEnabledConfig() ? "on" : "off");
-      } else if (strcmp(key, "apn") == 0) {
-        Serial.printf("  > %s\n", modemManager.getAPN());
-      } else if (strcmp(key, "imei") == 0) {
-        Serial.printf("  > %s\n", modemManager.getIMEI());
-#endif
       } else if (strcmp(key, "all") == 0) {
         Serial.println("  === Meck Device Settings ===");
         Serial.printf("  name:       %s\n", _prefs.node_name);
@@ -2892,11 +2878,6 @@ void MyMesh::checkCLIRescueCmd() {
         }
         Serial.printf("  region:     %s\n",
             _prefs.default_scope_name[0] ? _prefs.default_scope_name : "(none — unscoped)");
-#ifdef HAS_4G_MODEM
-        Serial.printf("  modem:      %s\n", ModemManager::loadEnabledConfig() ? "on" : "off");
-        Serial.printf("  apn:        %s\n", modemManager.getAPN());
-        Serial.printf("  imei:       %s\n", modemManager.getIMEI());
-#endif
         // Contact auto-add
         {
           const char* mode = (_prefs.manual_add_contacts & 1) == 0 ? "auto" :
@@ -3253,27 +3234,6 @@ void MyMesh::checkCLIRescueCmd() {
           }
         }
 
-#ifdef HAS_4G_MODEM
-      } else if (memcmp(config, "apn ", 4) == 0) {
-        const char* apn = &config[4];
-        if (strlen(apn) > 0) {
-          modemManager.setAPN(apn);
-          Serial.printf("  > apn = %s\n", apn);
-        } else {
-          ModemManager::saveAPNConfig("");
-          Serial.println("  > apn cleared (will auto-detect on next boot)");
-        }
-
-      } else if (strcmp(config, "modem on") == 0) {
-        ModemManager::saveEnabledConfig(true);
-        modemManager.begin();
-        Serial.println("  > modem enabled");
-
-      } else if (strcmp(config, "modem off") == 0) {
-        ModemManager::saveEnabledConfig(false);
-        modemManager.shutdown();
-        Serial.println("  > modem disabled");
-#endif
 
       // --- Mesh tuning parameters ---
       } else if (memcmp(config, "rxdelay ", 8) == 0) {
@@ -3412,27 +3372,7 @@ void MyMesh::checkCLIRescueCmd() {
 
       // Backlight control (T5S3 E-Paper Pro only)
       } else if (memcmp(config, "backlight ", 10) == 0) {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        const char* val = &config[10];
-        if (strcmp(val, "on") == 0) {
-          board.setBacklight(true);
-          Serial.println("  > backlight ON");
-        } else if (strcmp(val, "off") == 0) {
-          board.setBacklight(false);
-          Serial.println("  > backlight OFF");
-        } else {
-          int brightness = atoi(val);
-          if (brightness >= 0 && brightness <= 255) {
-            board.setBacklightBrightness((uint8_t)brightness);
-            board.setBacklight(brightness > 0);
-            Serial.printf("  > backlight brightness = %d\n", brightness);
-          } else {
-            Serial.println("  Error: use 'on', 'off', or 0-255");
-          }
-        }
-#else
         Serial.println("  Error: backlight not available on this device");
-#endif
 
       // --- Contact auto-add settings ---
       } else if (memcmp(config, "contact.mode ", 13) == 0) {
@@ -3591,22 +3531,12 @@ void MyMesh::checkCLIRescueCmd() {
       Serial.println("    contact.autoadd          Show type toggles");
       Serial.println("    contact.autoadd <type> on|off  chat|repeater|room|sensor|overwrite");
       Serial.println("    contact.maxhops <0-64>   Max hops for auto-add (0=no limit)");
-#ifdef HAS_4G_MODEM
-      Serial.println("");
-      Serial.println("  4G modem:");
-      Serial.println("    get/set apn, get imei, set modem on/off");
-#endif
       Serial.println("");
       Serial.println("  System:");
       Serial.println("    rebuild   Erase & rebuild filesystem");
       Serial.println("    erase     Format filesystem");
       Serial.println("    reboot    Restart device");
       Serial.println("    ls / cat / rm   File operations");
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      Serial.println("");
-      Serial.println("  Display:");
-      Serial.println("    set backlight on/off/0-255  Control front-light");
-#endif
 
     // =====================================================================
     // Existing system commands (unchanged)
@@ -3748,7 +3678,7 @@ void MyMesh::checkCLIRescueCmd() {
       }
 
     }
-#if defined(LilyGo_TDeck_Pro_Max) || defined(LILYGO_TWATCH_S3)
+#if defined(LILYGO_TWATCH_S3)
     else if (strncmp(cli_command, "buzz", 4) == 0 &&
              (cli_command[4] == '\0' || cli_command[4] == ' ')) {
       // Fire a DRV2605 library-1 effect to confirm the motor works.
@@ -3757,10 +3687,6 @@ void MyMesh::checkCLIRescueCmd() {
       static DRV2605Haptic haptic;
       static bool haptic_ready = false;
       if (!haptic_ready) {
-#if defined(LilyGo_TDeck_Pro_Max)
-        board.motorEnable();       // MAX: motor rail is behind an XL9555 pin
-        delay(10);                 // let the motor rail settle before I2C
-#endif
         haptic_ready = haptic.begin();
       }
       if (haptic_ready) {
@@ -3902,15 +3828,6 @@ void MyMesh::loop() {
   // is there are pending dirty contacts write needed?
   bool userActive = _lastUserInput && (millis() - _lastUserInput) < USER_IDLE_SAVE_THRESHOLD;
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-    // nRF52/STM32: blocking save (fast on internal flash, no chunking needed)
-    if (!_deferSaves && !userActive) {
-      _store->saveContacts(this);
-      dirty_contacts_expiry = 0;
-    } else {
-      dirty_contacts_expiry = futureMillis(2000);
-    }
-#else
     if (_deferSaves || userActive) {
       // Voice session or active keyboard use -- push save forward
       dirty_contacts_expiry = futureMillis(2000);
@@ -3925,10 +3842,8 @@ void MyMesh::loop() {
         _nextContactSaveDue = 0;
       }
     }
-#endif
   }
 
-#if !defined(NRF52_PLATFORM) && !defined(STM32_PLATFORM)
   // Drive chunked contact save -- write a batch each loop iteration
   // Paused while user is actively pressing keys or voice session is receiving
   if (_store->isSaveInProgress() && !_deferSaves && !userActive) {
@@ -3936,7 +3851,6 @@ void MyMesh::loop() {
       _store->finishSaveContacts();  // Done or error -- verify and commit
     }
   }
-#endif
 
   // Discovery scan timeout
   if (_discoveryActive && millisHasNowPassed(_discoveryTimeout)) {

@@ -65,10 +65,6 @@ public:
 
       // T5S3: Also wake on boot button press (GPIO0, active LOW).
       // gpio_wakeup uses level trigger — works for light sleep only.
-#if defined(LilyGo_T5S3_EPaper_Pro) && defined(PIN_USER_BTN)
-      gpio_wakeup_enable((gpio_num_t)PIN_USER_BTN, GPIO_INTR_LOW_LEVEL);
-      esp_sleep_enable_gpio_wakeup();
-#endif
 
       if (secs > 0) {
         esp_sleep_enable_timer_wakeup(secs * 1000000ULL); // Timer wake (microseconds)

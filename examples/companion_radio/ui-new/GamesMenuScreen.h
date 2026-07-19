@@ -99,12 +99,8 @@ public:
 
     // --- Header ---
     display.setColor(DisplayDriver::GREEN);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.drawTextCentered(display.width() / 2, 2, "Games");
-#else
     display.setCursor(2, 2);
     display.print("Games");
-#endif
     display.setColor(DisplayDriver::LIGHT);
     display.drawRect(0, 12, display.width(), 1);
 
@@ -124,19 +120,15 @@ public:
         display.setColor(DisplayDriver::LIGHT);
       }
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      display.drawTextCentered(display.width() / 2, y + 2, getGames()[i].name);
-#else
       display.setCursor(6, y + 2);
       display.print(getGames()[i].name);
-#endif
 
       y += lineH;
     }
 
     // --- Footer ---
     display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
     display.setTextSize(0);
     display.drawTextCentered(display.width() / 2, display.height() - 8, "Tap to select");
     display.setTextSize(1);

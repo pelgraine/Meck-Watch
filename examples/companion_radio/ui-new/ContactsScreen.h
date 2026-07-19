@@ -260,11 +260,7 @@ public:
   int selectRowAtVY(int vy) {
     if (_filteredCount == 0) return 0;
     const int headerH = 14, footerH = 14, lineH = the_mesh.getNodePrefs()->smallLineH();
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    const int bodyTop = headerH;
-#else
     const int bodyTop = headerH + the_mesh.getNodePrefs()->smallHighlightOff();
-#endif
     if (vy < bodyTop || vy >= 128 - footerH) return 0;
 
     int maxVisible = (128 - headerH - footerH) / lineH;
@@ -372,11 +368,7 @@ public:
       display.setCursor(0, y);
       display.print("No contacts");
       display.setCursor(0, y + lineHeight);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      display.print("Swipe to change filter");
-#else
       display.print("A/D: Change filter");
-#endif
     } else {
       // Center visible window around selected item (TextReaderScreen pattern)
       int maxVisible = (maxY - headerHeight) / lineHeight;
@@ -395,11 +387,7 @@ public:
         // Highlight: fill LIGHT rect first, then draw DARK text on top
         if (selected) {
           display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-          display.fillRect(0, y, display.width(), lineHeight);
-#else
           display.fillRect(0, y + the_mesh.getNodePrefs()->smallHighlightOff(), display.width(), lineHeight);
-#endif
           display.setColor(DisplayDriver::DARK);
         } else {
           display.setColor(DisplayDriver::LIGHT);
@@ -492,33 +480,10 @@ public:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::YELLOW);
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.setCursor(0, footerY);
-    if (_selectMode) {
-      display.print("Swipe:All/Clr");
-      const char* right = "Tap:Tog Hold:Exit";
-      display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
-      display.print(right);
-    } else {
-      display.print("Swipe:Filter");
-      const char* right = "Hold:DM/Admin";
-      display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
-      display.print(right);
-    }
-#elif defined(MECK_TWATCH)
+#if   defined(MECK_TWATCH)
     display.setCursor(0, footerY);
     if (!_selectMode) {
       display.print("Long Press: Enter");
-    }
-#elif defined(LILYGO_TECHO_LITE)
-    display.setCursor(0, footerY);
-    if (_selectMode) {
-      display.print("Q:Done");
-    } else {
-      display.print("Q:Bk");
-      const char* right = "Ent:Sel";
-      display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
-      display.print(right);
     }
 #else
     display.setCursor(0, footerY);

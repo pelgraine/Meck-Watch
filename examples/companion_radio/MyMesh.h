@@ -15,11 +15,7 @@
 #define FIRMWARE_VERSION "Meck v1.12.5"
 #endif
 
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-#include <InternalFileSystem.h>
-#elif defined(RP2040_PLATFORM)
-#include <LittleFS.h>
-#elif defined(ESP32)
+#if   defined(ESP32)
 #include <SPIFFS.h>
 #endif
 

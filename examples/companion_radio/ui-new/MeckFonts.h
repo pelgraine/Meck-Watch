@@ -74,7 +74,6 @@ static inline const char* meckFontStyleName(uint8_t style) {
 //   Classic 9pt=22, Noto 9pt=24, Montserrat 9pt=21  — close enough
 //   Classic 12ptB=29, Noto 12ptB=32, Montserrat 12ptB=29  — close
 // ---------------------------------------------------------------------------
-#if !defined(LilyGo_T5S3_EPaper_Pro)
 
 static inline const GFXfont* meckGetFont_TDeckPro(uint8_t style, int textSize) {
   // Classic — return NULL to let display driver use its defaults
@@ -102,7 +101,6 @@ static inline const GFXfont* meckGetFont_TDeckPro(uint8_t style, int textSize) {
   }
 }
 
-#endif  // !LilyGo_T5S3_EPaper_Pro
 
 // ---------------------------------------------------------------------------
 // T5S3 font lookup (960×540, FastEPD)
@@ -123,34 +121,6 @@ static inline const GFXfont* meckGetFont_TDeckPro(uint8_t style, int textSize) {
 //   FreeSansBold18pt=42, NotoBold18pt=48, MontBold18pt=43
 //   FreeSansBold24pt=56, NotoBold24pt=64, MontBold24pt=57
 // ---------------------------------------------------------------------------
-#if defined(LilyGo_T5S3_EPaper_Pro)
-
-static inline const GFXfont* meckGetFont_T5S3(uint8_t style, int textSize) {
-  if (style == MECK_FONT_CLASSIC) return nullptr;
-
-  if (style == MECK_FONT_NOTO) {
-    switch (textSize) {
-      case 0:  return &NotoSans12pt8b;
-      case 1:  return &NotoSans_Bold12pt7b;
-      case 2:  return &NotoSans_Bold18pt7b;
-      case 3:  return &NotoSans_Bold24pt7b;
-      case 5:  return &NotoSans_Bold24pt7b;  // caller applies x5 scale
-      default: return &NotoSans12pt8b;
-    }
-  }
-
-  // MECK_FONT_MONTSERRAT
-  switch (textSize) {
-    case 0:  return &Montserrat_Regular12pt7b;
-    case 1:  return &MontserratBold12pt8b;
-    case 2:  return &Montserrat_Bold18pt7b;
-    case 3:  return &Montserrat_Bold24pt7b;
-    case 5:  return &Montserrat_Bold24pt7b;  // caller applies x5 scale
-    default: return &Montserrat_Regular12pt7b;
-  }
-}
-
-#endif  // LilyGo_T5S3_EPaper_Pro
 
 // ---------------------------------------------------------------------------
 // Unified lookup — called from display driver setTextSize()
@@ -160,9 +130,5 @@ static inline const GFXfont* meckGetFont_T5S3(uint8_t style, int textSize) {
 // (FreeSans for Classic style, or built-in 6×8 for textSize 0).
 // ---------------------------------------------------------------------------
 static inline const GFXfont* meckGetFont(uint8_t style, int textSize) {
-#if defined(LilyGo_T5S3_EPaper_Pro)
-  return meckGetFont_T5S3(style, textSize);
-#else
   return meckGetFont_TDeckPro(style, textSize);
-#endif
 }

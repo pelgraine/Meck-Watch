@@ -20,11 +20,7 @@ class DataStore {
   IdentityStore identity_store;
 
   void loadPrefsInt(const char *filename, NodePrefs& prefs, double& node_lat, double& node_lon);
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  void checkAdvBlobFile();
-#endif
 
-#if !defined(NRF52_PLATFORM) && !defined(STM32_PLATFORM)
   // Chunked save state (ESP32 with SD card only)
   File _saveFile;
   DataStoreHost* _saveHost = nullptr;
@@ -32,7 +28,6 @@ class DataStore {
   uint32_t _saveRecordsWritten = 0;
   bool _saveInProgress = false;
   bool _saveWriteOk = true;
-#endif
 
 public:
   DataStore(FILESYSTEM& fs, mesh::RTCClock& clock);
@@ -47,13 +42,11 @@ public:
   void savePrefs(const NodePrefs& prefs, double node_lat, double node_lon);
   void loadContacts(DataStoreHost* host);
   void saveContacts(DataStoreHost* host);
-#if !defined(NRF52_PLATFORM) && !defined(STM32_PLATFORM)
   // Chunked save — splits contact write across multiple loop iterations
   bool beginSaveContacts(DataStoreHost* host);
   bool saveContactsChunk(int batchSize = 20);
   void finishSaveContacts();
   bool isSaveInProgress() const { return _saveInProgress; }
-#endif
   void loadChannels(DataStoreHost* host);
   void saveChannels(DataStoreHost* host);
   void migrateToSecondaryFS();

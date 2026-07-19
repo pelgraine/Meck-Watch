@@ -5,11 +5,7 @@ bool IdentityStore::load(const char *name, mesh::LocalIdentity& id) {
   char filename[40];
   sprintf(filename, "%s/%s.id", _dir, name);
   if (_fs->exists(filename)) {
-#if defined(RP2040_PLATFORM)
-    File file = _fs->open(filename, "r");
-#else
     File file = _fs->open(filename);
-#endif
     if (file) {
       loaded = id.readFrom(file);
       file.close();
@@ -23,11 +19,7 @@ bool IdentityStore::load(const char *name, mesh::LocalIdentity& id, char display
   char filename[40];
   sprintf(filename, "%s/%s.id", _dir, name);
   if (_fs->exists(filename)) {
-#if defined(RP2040_PLATFORM)
-    File file = _fs->open(filename, "r");
-#else
     File file = _fs->open(filename);
-#endif
     if (file) {
       loaded = id.readFrom(file);
 
@@ -46,14 +38,7 @@ bool IdentityStore::save(const char *name, const mesh::LocalIdentity& id) {
   char filename[40];
   sprintf(filename, "%s/%s.id", _dir, name);
 
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  _fs->remove(filename);
-  File file = _fs->open(filename, FILE_O_WRITE);
-#elif defined(RP2040_PLATFORM)
-  File file = _fs->open(filename, "w");
-#else
   File file = _fs->open(filename, "w", true);
-#endif
   if (file) {
     bool success = id.writeTo(file);
     file.close();
@@ -68,14 +53,7 @@ bool IdentityStore::save(const char *name, const mesh::LocalIdentity& id, const 
   char filename[40];
   sprintf(filename, "%s/%s.id", _dir, name);
 
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  _fs->remove(filename);
-  File file = _fs->open(filename, FILE_O_WRITE);
-#elif defined(RP2040_PLATFORM)
-  File file = _fs->open(filename, "w");
-#else
   File file = _fs->open(filename, "w", true);
-#endif
   if (file) {
     id.writeTo(file);
 

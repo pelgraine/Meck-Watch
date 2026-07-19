@@ -12,20 +12,10 @@
 #include <MeshCore.h>
 #include "../NodePrefs.h"
 #include "MeckFonts.h"
-#if defined(MECK_AUDIO_VARIANT) || defined(HAS_4G_MODEM)
-#include "NotifSounds.h"
-#endif
 
 // Inline edit hint shown next to values being adjusted
-#if defined(LilyGo_T5S3_EPaper_Pro)
-  #define EDIT_ADJ_HINT "<Swipe>"
-#else
   #define EDIT_ADJ_HINT "<W/S>"
-#endif
 
-#ifdef HAS_4G_MODEM
-  #include "ModemManager.h"
-#endif
 
 #ifdef MECK_WIFI_COMPANION
   #include <WiFi.h>
@@ -48,10 +38,6 @@ class UITask;
 class MyMesh;
 extern MyMesh the_mesh;
 
-#if defined(LilyGo_TDeck_Pro_Max)
-#include "TDeckProMaxBoard.h"
-extern TDeckProMaxBoard board;
-#endif
 
 // ---------------------------------------------------------------------------
 // Auto-add config bitmask (mirrored from MyMesh.cpp for UI access)
@@ -134,9 +120,6 @@ static inline int findAutoLockIndex(uint8_t minutes) {
 // Settings row types
 // ---------------------------------------------------------------------------
 enum SettingsRowType : uint8_t {
-#if defined(LilyGo_TDeck_Pro_Max)
-  ROW_LORA_ANTENNA,   // LoRa antenna select: internal/external (MAX only)
-#endif
   ROW_NAME,           // Device name (text editor)
   ROW_RADIO_PRESET,   // Radio preset picker
   ROW_FREQ,           // Frequency (float)
@@ -151,22 +134,12 @@ enum SettingsRowType : uint8_t {
   ROW_DARK_MODE,      // Dark mode toggle (inverted display)
   ROW_LARGE_FONT,     // Font size toggle: 0=tiny (default), 1=larger
   ROW_FONT_STYLE,     // Font style: Classic / Noto Sans / Montserrat
-#if defined(LilyGo_T5S3_EPaper_Pro)
-  ROW_PORTRAIT_MODE,  // Portrait orientation toggle
-#endif
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
-  ROW_AUTO_LOCK,      // Auto-lock timeout picker (None/2/5/10/15/30 min)
-#endif
   ROW_GPS_BAUD,       // GPS baud rate picker (requires reboot)
   ROW_PATH_HASH_SIZE, // Path hash size (1, 2, or 3 bytes per hop)
   ROW_DEFAULT_SCOPE,  // Device-wide default region (text editor)
   #ifdef MECK_WIFI_COMPANION
   ROW_WIFI_SETUP,     // WiFi SSID/password configuration
   ROW_WIFI_TOGGLE,    // WiFi radio on/off toggle
-  #endif
-  #ifdef HAS_4G_MODEM
-  ROW_MODEM_TOGGLE,   // 4G modem enable/disable toggle (4G builds only)
-  // ROW_RINGTONE,       // Incoming call ringtone toggle (4G builds only)
   #endif
   ROW_CONTACT_HEADER,  // "--- Contacts ---" separator
   ROW_CONTACT_MODE,    // Contact auto-add mode picker (Auto All / Custom / Manual)
@@ -200,11 +173,6 @@ enum SettingsRowType : uint8_t {
   #endif
   ROW_PUB_KEY,        // Public key display
   ROW_FIRMWARE,       // Firmware version
-  #ifdef HAS_4G_MODEM
-  ROW_IMEI,           // IMEI display (read-only)
-  ROW_OPERATOR_INFO,  // Carrier/operator display (read-only)
-  ROW_APN,            // APN setting (editable)
-  #endif
 };
 
 // ---------------------------------------------------------------------------
@@ -265,16 +233,8 @@ enum FmPhase : uint8_t {
 #endif
 
 // Max rows in the settings list (increased for contact sub-toggles + WiFi)
-#if defined(LilyGo_TDeck_Pro_Max)
-#define SETTINGS_LORA_ANTENNA_ROWS 1  // LoRa antenna toggle (MAX only)
-#else
 #define SETTINGS_LORA_ANTENNA_ROWS 0
-#endif
-#if defined(HAS_4G_MODEM) && defined(MECK_WIFI_COMPANION)
-#define SETTINGS_MAX_ROWS (63 + SETTINGS_LORA_ANTENNA_ROWS)  // Extra rows for IMEI, Carrier, APN, contacts, WiFi, scope, export
-#elif defined(HAS_4G_MODEM)
-#define SETTINGS_MAX_ROWS (61 + SETTINGS_LORA_ANTENNA_ROWS)  // Extra rows for IMEI, Carrier, APN + contacts + scope + export
-#elif defined(MECK_WIFI_COMPANION)
+#if   defined(MECK_WIFI_COMPANION)
 #define SETTINGS_MAX_ROWS (57 + SETTINGS_LORA_ANTENNA_ROWS)  // Extra rows for contacts + WiFi + scope + export
 #else
 #define SETTINGS_MAX_ROWS (55 + SETTINGS_LORA_ANTENNA_ROWS)  // Contacts section + scope + export
@@ -310,11 +270,6 @@ private:
   int _confirmAction;       // 0=none, 1=delete channel, 2=apply radio
 
   // Notification sound picker state
-  #if defined(MECK_AUDIO_VARIANT) || defined(HAS_4G_MODEM)
-  int _notifSoundSelected;      // Cursor in sound picker (0=default/silent, 1+=files)
-  int _notifSoundScroll;        // Scroll offset in picker list
-  uint8_t _notifSoundChannel;   // Channel index being edited
-  #endif
 
   // Onboarding mode
   bool _onboarding;
@@ -357,9 +312,6 @@ private:
 #endif
 
   // 4G modem state (runtime cache of config)
-  #ifdef HAS_4G_MODEM
-  bool _modemEnabled;
-  #endif
 
   #ifdef MECK_WIFI_COMPANION
   // WiFi setup sub-screen state
@@ -377,9 +329,6 @@ private:
   char _wifiPassBuf[64];
   int _wifiPassLen;
   unsigned long _wifiFormLastChar;  // For brief password reveal
-#if defined(LilyGo_T5S3_EPaper_Pro)
-  bool _wifiNeedsVKB;              // T5S3: signal UITask to open VKB for password
-#endif
   #endif
 
   #ifdef MECK_OTA_UPDATE
@@ -501,9 +450,6 @@ private:
     #endif
     } else {
       // --- Top-level settings list ---
-#if defined(LilyGo_TDeck_Pro_Max)
-      addRow(ROW_LORA_ANTENNA);
-#endif
       addRow(ROW_NAME);
       addRow(ROW_RADIO_PRESET);
       addRow(ROW_FREQ);
@@ -512,10 +458,6 @@ private:
       addRow(ROW_CR);
       addRow(ROW_TX_POWER);
       addRow(ROW_UTC_OFFSET);
-#if defined(LilyGo_TDeck_Pro_Max)
-      addRow(ROW_BACKLIGHT_BRIGHTNESS);
-      addRow(ROW_KB_BACKLIGHT);
-#endif
 #if !defined(MECK_TWATCH)
       addRow(ROW_MSG_NOTIFY);
 #endif
@@ -527,22 +469,13 @@ private:
 #if !defined(MECK_TWATCH)
       addRow(ROW_DARK_MODE);
 #endif
-#if !defined(LILYGO_TECHO_LITE) && !defined(MECK_TWATCH)
+#if !defined(MECK_TWATCH)
       addRow(ROW_LARGE_FONT);
       addRow(ROW_FONT_STYLE);
-#endif
-#if defined(LilyGo_T5S3_EPaper_Pro)
-      addRow(ROW_PORTRAIT_MODE);
-#endif
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
-      addRow(ROW_AUTO_LOCK);
 #endif
       #ifdef MECK_WIFI_COMPANION
       addRow(ROW_WIFI_SETUP);
       addRow(ROW_WIFI_TOGGLE);
-      #endif
-      #ifdef HAS_4G_MODEM
-      addRow(ROW_MODEM_TOGGLE);
       #endif
 
       // Folder rows for sub-screens
@@ -563,11 +496,6 @@ private:
       addRow(ROW_PUB_KEY);
       addRow(ROW_FIRMWARE);
 
-      #ifdef HAS_4G_MODEM
-      addRow(ROW_IMEI);
-      addRow(ROW_OPERATOR_INFO);
-      addRow(ROW_APN);
-      #endif
     }
 
     // Clamp cursor
@@ -588,9 +516,6 @@ private:
     if (idx < 0 || idx >= _numRows) return false;
     SettingsRowType t = _rows[idx].type;
     return t != ROW_CH_HEADER && t != ROW_INFO_HEADER && t != ROW_CONTACT_HEADER
-    #ifdef HAS_4G_MODEM
-      && t != ROW_IMEI && t != ROW_OPERATOR_INFO
-    #endif
     ;  // ROW_CONTACTS_SUBMENU and ROW_CHANNELS_SUBMENU ARE selectable
   }
 
@@ -739,11 +664,6 @@ public:
     _fmError = nullptr;
     _dnsServer = nullptr;
     #endif
-    #if defined(MECK_AUDIO_VARIANT) || defined(HAS_4G_MODEM)
-    _notifSoundSelected = 0;
-    _notifSoundScroll = 0;
-    _notifSoundChannel = 0;
-    #endif
   }
 
   void enter() {
@@ -762,9 +682,6 @@ public:
     _shareRequested = false;
     _shareContactIdx = -1;
     _shareContactCount = 0;
-    #ifdef HAS_4G_MODEM
-    _modemEnabled = ModemManager::loadEnabledConfig();
-    #endif
     #ifdef MECK_WIFI_COMPANION
     _wifiPhase = WIFI_PHASE_IDLE;
     _wifiSSIDCount = 0;
@@ -772,9 +689,6 @@ public:
     _wifiPassLen = 0;
     memset(_wifiPassBuf, 0, sizeof(_wifiPassBuf));
     _wifiFormLastChar = 0;
-  #if defined(LilyGo_T5S3_EPaper_Pro)
-    _wifiNeedsVKB = false;
-  #endif
     #endif
     rebuildRows();
   }
@@ -805,11 +719,7 @@ public:
     const int headerH = 14, footerH = 14, lineH = _prefs->smallLineH();
     // bodyTop must match where the visual rows start (highlight bar position).
     // T5S3 renders highlight at y directly. T-Deck Pro offsets by smallHighlightOff().
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    const int bodyTop = headerH;
-#else
     const int bodyTop = headerH + _prefs->smallHighlightOff();
-#endif
     if (vy < bodyTop || vy >= 128 - footerH) return 0;  // Outside body area
 
     int maxVisible = (128 - headerH - footerH) / lineH;
@@ -898,58 +808,6 @@ public:
     return _editMode == EDIT_WIFI && _wifiPhase == WIFI_PHASE_SELECT;
   }
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-  // T5S3 VKB integration — UITask polls this to open the virtual keyboard
-  // when settings enters WiFi password phase (no physical keyboard available).
-  bool needsWifiVKB() const { return _wifiNeedsVKB; }
-  void clearWifiNeedsVKB() { _wifiNeedsVKB = false; }
-
-  // Called by UITask::onVKBSubmit with the password text from VKB.
-  // Fills the password buffer and triggers the WiFi connect sequence.
-  void submitWifiPassword(const char* pass) {
-    _wifiNeedsVKB = false;
-    int len = strlen(pass);
-    if (len > 63) len = 63;
-    memcpy(_wifiPassBuf, pass, len);
-    _wifiPassBuf[len] = '\0';
-    _wifiPassLen = len;
-
-    // Trigger the same connect sequence as pressing Enter in password phase
-    _wifiPhase = WIFI_PHASE_CONNECTING;
-
-    // Save credentials to SD (so web reader can reuse them)
-    if (SD.exists("/web") || SD.mkdir("/web")) {
-      File f = SD.open("/web/wifi.cfg", FILE_WRITE);
-      if (f) {
-        f.println(_wifiSSIDs[_wifiSSIDSelected]);
-        f.println(_wifiPassBuf);
-        f.close();
-      }
-      digitalWrite(SDCARD_CS, HIGH);
-    }
-
-    WiFi.disconnect(false);
-    WiFi.begin(_wifiSSIDs[_wifiSSIDSelected].c_str(), _wifiPassBuf);
-
-    // Brief blocking wait — fine for e-ink
-    unsigned long timeout = millis() + 8000;
-    while (WiFi.status() != WL_CONNECTED && millis() < timeout) {
-      delay(100);
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf("Settings VKB: WiFi connected to %s, IP: %s\n",
-                    _wifiSSIDs[_wifiSSIDSelected].c_str(),
-                    WiFi.localIP().toString().c_str());
-      _editMode = EDIT_NONE;
-      _wifiPhase = WIFI_PHASE_IDLE;
-      if (_onboarding) _onboarding = false;
-    } else {
-      Serial.println("Settings VKB: WiFi connection failed");
-      _wifiPhase = WIFI_PHASE_SELECT;  // Back to SSID list to retry
-    }
-  }
-#endif
 
   #endif
 
@@ -1760,9 +1618,6 @@ public:
     strncpy(_editBuf, initial, SETTINGS_TEXT_BUF - 1);
     _editBuf[SETTINGS_TEXT_BUF - 1] = '\0';
     _editPos = strlen(_editBuf);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    _needsTextVKB = true;  // Signal UITask to open virtual keyboard
-#endif
   }
 
   void startEditPicker(int initialIdx) {
@@ -1845,13 +1700,7 @@ public:
       // Selection highlight
       if (selected) {
         display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        // FreeSans12pt: baseline at (y+5)*scale_y, ascent ~17px above.
-        // Highlight needs to start above the baseline to cover ascenders.
-        display.fillRect(0, y, display.width() - sbW, lineHeight);
-#else
         display.fillRect(0, y + _prefs->smallHighlightOff(), display.width() - sbW, lineHeight);
-#endif
         display.setColor(DisplayDriver::DARK);
       } else {
         display.setColor(DisplayDriver::LIGHT);
@@ -2023,13 +1872,6 @@ public:
           break;
         }
 
-#if defined(LilyGo_TDeck_Pro_Max)
-        case ROW_LORA_ANTENNA:
-          snprintf(tmp, sizeof(tmp), "LoRa Antenna: %s",
-                   _prefs->lora_antenna ? "External" : "Internal");
-          display.print(tmp);
-          break;
-#endif
 
         case ROW_DARK_MODE:
           snprintf(tmp, sizeof(tmp), "Dark Mode: %s",
@@ -2054,26 +1896,7 @@ public:
           display.print(tmp);
           break;
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        case ROW_PORTRAIT_MODE:
-          snprintf(tmp, sizeof(tmp), "Portrait Mode: %s",
-                   _prefs->portrait_mode ? "ON" : "OFF");
-          display.print(tmp);
-          break;
-#endif
 
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
-        case ROW_AUTO_LOCK:
-          if (editing && _editMode == EDIT_PICKER) {
-            snprintf(tmp, sizeof(tmp), "< Auto Lock: %s >",
-                     autoLockLabel(AUTO_LOCK_OPTIONS[_editPickerIdx]));
-          } else {
-            snprintf(tmp, sizeof(tmp), "Auto Lock: %s",
-                     autoLockLabel(_prefs->auto_lock_minutes));
-          }
-          display.print(tmp);
-          break;
-#endif
 
         #ifdef MECK_WIFI_COMPANION
         case ROW_WIFI_SETUP:
@@ -2091,19 +1914,6 @@ public:
           break;
         #endif
 
-        #ifdef HAS_4G_MODEM
-        case ROW_MODEM_TOGGLE:
-          snprintf(tmp, sizeof(tmp), "4G Modem: %s",
-                   _modemEnabled ? "ON" : "OFF");
-          display.print(tmp);
-          break;
-
-        //case ROW_RINGTONE:
-        //  snprintf(tmp, sizeof(tmp), "Incoming Call Ring: %s",
-        //           _prefs->ringtone_enabled ? "ON" : "OFF");
-       //   display.print(tmp);
-        //  break;
-        #endif
 
         // --- Submenu folder rows ---
         case ROW_CONTACTS_SUBMENU:
@@ -2245,25 +2055,11 @@ public:
                 const char* nTag = (nPref == NOTIF_NONE) ? "Off" :
                                    (nPref == NOTIF_MENTIONS) ? "@" : "All";
                 char hintBuf[40];
-              #if defined(LilyGo_T5S3_EPaper_Pro)
-                if (chIdx > 0) {
-                  snprintf(hintBuf, sizeof(hintBuf), "Hold:Del");
-                } else {
-                  hintBuf[0] = '\0';  // No actionable hints for channel 0 on T5S3
-                }
-              #elif defined(MECK_AUDIO_VARIANT) || defined(HAS_4G_MODEM)
-                if (chIdx > 0) {
-                  snprintf(hintBuf, sizeof(hintBuf), "N:%s T:Tone X:Del", nTag);
-                } else {
-                  snprintf(hintBuf, sizeof(hintBuf), "N:%s T:Tone Ent:Region", nTag);
-                }
-              #else
                 if (chIdx > 0) {
                   snprintf(hintBuf, sizeof(hintBuf), "N:%s Ent:Region X:Del", nTag);
                 } else {
                   snprintf(hintBuf, sizeof(hintBuf), "N:%s Ent:Region", nTag);
                 }
-              #endif
                 int hintW = display.getTextWidth(hintBuf);
                 display.setCursor(display.width() - hintW - 2, y);
                 display.print(hintBuf);
@@ -2321,52 +2117,6 @@ public:
           display.print(tmp);
           break;
 
-        #ifdef HAS_4G_MODEM
-        case ROW_IMEI: {
-          const char* imei = modemManager.getIMEI();
-          snprintf(tmp, sizeof(tmp), "IMEI: %s", imei[0] ? imei : "(unavailable)");
-          display.print(tmp);
-          break;
-        }
-
-        case ROW_OPERATOR_INFO: {
-          const char* op = modemManager.getOperator();
-          int bars = modemManager.getSignalBars();
-          if (op[0]) {
-            // Show carrier name with signal bar count
-            snprintf(tmp, sizeof(tmp), "Carrier: %s (%d/5)", op, bars);
-          } else {
-            snprintf(tmp, sizeof(tmp), "Carrier: (searching)");
-          }
-          display.print(tmp);
-          break;
-        }
-
-        case ROW_APN: {
-          if (editing && _editMode == EDIT_TEXT) {
-            snprintf(tmp, sizeof(tmp), "APN: %s_", _editBuf);
-          } else {
-            const char* apn = modemManager.getAPN();
-            const char* src = modemManager.getAPNSource();
-            if (apn[0]) {
-              // Truncate APN to fit: "APN: " (5) + apn (max 28) + " [x]" (4) = ~37 chars
-              char apnShort[29];
-              strncpy(apnShort, apn, 28);
-              apnShort[28] = '\0';
-              // Abbreviate source: auto→A, network→N, user→U, none→?
-              char srcChar = '?';
-              if (strcmp(src, "auto") == 0) srcChar = 'A';
-              else if (strcmp(src, "network") == 0) srcChar = 'N';
-              else if (strcmp(src, "user") == 0) srcChar = 'U';
-              snprintf(tmp, sizeof(tmp), "APN: %s [%c]", apnShort, srcChar);
-            } else {
-              snprintf(tmp, sizeof(tmp), "APN: (none)");
-            }
-          }
-          display.print(tmp);
-          break;
-        }
-        #endif
       }
 
 #if defined(MECK_TWATCH)
@@ -2424,108 +2174,11 @@ public:
         display.drawTextCentered(display.width() / 2, by + 4, "Region not set.");
         display.drawTextCentered(display.width() / 2, by + 15, "Leave unset?");
       }
-    #if defined(LilyGo_T5S3_EPaper_Pro)
-      display.drawTextCentered(display.width() / 2, by + bh - 14, "Tap:Yes  Boot:No");
-    #else
       display.drawTextCentered(display.width() / 2, by + bh - 14, "Enter:Yes  Q:No");
-    #endif
       display.setTextSize(1);
     }
 
     // === Notification sound picker overlay ===
-    #if defined(MECK_AUDIO_VARIANT) || defined(HAS_4G_MODEM)
-    if (_editMode == EDIT_NOTIF_SOUND) {
-      int bx = 2, by = 14, bw = display.width() - 4;
-      int bh = display.height() - 28;
-      display.setColor(DisplayDriver::DARK);
-      display.fillRect(bx, by, bw, bh);
-      display.setColor(DisplayDriver::LIGHT);
-      display.drawRect(bx, by, bw, bh);
-
-      display.setTextSize(_prefs->smallTextSize());
-      int lineH = _prefs->smallLineH();
-
-      // Header
-      display.setColor(DisplayDriver::GREEN);
-      display.setCursor(bx + 4, by + 3);
-      display.print("Notification Tone");
-
-      int listTop = by + 14;
-      int listBot = by + bh - 14;
-      int maxVisible = (listBot - listTop) / lineH;
-      if (maxVisible < 3) maxVisible = 3;
-
-      // Total items: "Default" (+ "Buzzer (vibrate)" on MAX) + sound file count
-      const auto& files = notifSounds.getSoundFiles();
-#if defined(LilyGo_TDeck_Pro_Max)
-      const int kFileBase = 2;   // 0=Default, 1=Buzzer(vibrate), 2+=files
-#else
-      const int kFileBase = 1;   // 0=Default, 1+=files
-#endif
-      int totalItems = kFileBase + (int)files.size();
-
-      // Centre scroll on selection
-      _notifSoundScroll = max(0, min(_notifSoundSelected - maxVisible / 2,
-                                     totalItems - maxVisible));
-      if (_notifSoundScroll < 0) _notifSoundScroll = 0;
-      int endIdx = min(totalItems, _notifSoundScroll + maxVisible);
-
-      int sy = listTop;
-      for (int i = _notifSoundScroll; i < endIdx && sy + lineH <= listBot; i++) {
-        bool isSel = (i == _notifSoundSelected);
-
-        if (isSel) {
-          display.setColor(DisplayDriver::LIGHT);
-          display.fillRect(bx + 2, sy + _prefs->smallHighlightOff(), bw - 4, lineH);
-          display.setColor(DisplayDriver::DARK);
-        } else {
-          display.setColor(DisplayDriver::LIGHT);
-        }
-
-        display.setCursor(bx + 6, sy);
-        if (i == 0) {
-          display.print("Default (silent)");
-#if defined(LilyGo_TDeck_Pro_Max)
-        } else if (i == 1) {
-          display.print("Buzzer (vibrate)");
-#endif
-        } else {
-          // Show filename without extension
-          String displayName = files[i - kFileBase];
-          int dot = displayName.lastIndexOf('.');
-          if (dot > 0) displayName = displayName.substring(0, dot);
-          if (displayName.length() > 28) displayName = displayName.substring(0, 28);
-          display.print(displayName.c_str());
-        }
-        sy += lineH;
-      }
-
-      // Footer
-      display.setTextSize(1);
-      display.setColor(DisplayDriver::YELLOW);
-      int fy = by + bh - 11;
-    #if defined(LilyGo_T5S3_EPaper_Pro)
-      display.setCursor(bx + 4, fy);
-      display.print("Tap:Pick  Boot:Back");
-    #else
-      display.setCursor(bx + 4, fy);
-      display.print("Enter:Pick  Q:Back");
-    #endif
-
-      // Scroll indicator
-      if (totalItems > maxVisible) {
-        int sbX = bx + bw - 4;
-        int sbH = listBot - listTop;
-        display.setColor(DisplayDriver::LIGHT);
-        display.drawRect(sbX, listTop, 3, sbH);
-        int thumbH = max(4, (maxVisible * sbH) / totalItems);
-        int maxScroll = totalItems - maxVisible;
-        if (maxScroll < 1) maxScroll = 1;
-        int thumbY = listTop + (_notifSoundScroll * (sbH - thumbH)) / maxScroll;
-        display.fillRect(sbX + 1, thumbY + 1, 1, thumbH - 2);
-      }
-    }
-    #endif
 
     #ifdef MECK_WIFI_COMPANION
     // === WiFi setup overlay ===
@@ -2565,11 +2218,7 @@ public:
           bool sel = (wi == _wifiSSIDSelected);
           if (sel) {
             display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-            display.fillRect(bx + 2, wy, bw - 4, 8);
-#else
             display.fillRect(bx + 2, wy + 5, bw - 4, 8);
-#endif
             display.setColor(DisplayDriver::DARK);
           } else {
             display.setColor(DisplayDriver::LIGHT);
@@ -2845,11 +2494,7 @@ public:
       // Footer hint
       display.setColor(DisplayDriver::YELLOW);
       display.setCursor(bx + 4, by + bh - 12);
-    #if defined(LilyGo_T5S3_EPaper_Pro)
-      display.print("Tap:Send  Boot:Cancel");
-    #else
       display.print("Enter:Send  Q:Cancel");
-    #endif
       display.setTextSize(1);
     }
 
@@ -2859,102 +2504,6 @@ public:
     display.setColor(DisplayDriver::YELLOW);
     display.setCursor(0, footerY);
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    if (_editMode == EDIT_NONE) {
-      if (_subScreen != SUB_NONE) {
-        display.print("Boot:Back");
-        const char* r;
-        if (_subScreen == SUB_CHANNELS) r = "Tap:Select  Hold:Del";
-        #ifdef MECK_OTA_UPDATE
-        else if (_subScreen == SUB_OTA_TOOLS) r = "Tap:Select";
-        #endif
-        else r = "Tap:Toggle  Hold:Edit";
-        display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-        display.print(r);
-      } else {
-        display.print("Swipe:Scroll");
-        const char* r = "Tap:Toggle  Hold:Edit";
-        display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-        display.print(r);
-      }
-    } else if (_editMode == EDIT_NUMBER) {
-      display.print("Swipe:Adjust");
-      const char* r = "Tap:OK  Boot:Cancel";
-      display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-      display.print(r);
-    } else if (_editMode == EDIT_PICKER) {
-      display.print("Swipe:Choose");
-      const char* r = "Tap:OK  Boot:Cancel";
-      display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-      display.print(r);
-    } else if (_editMode == EDIT_CONFIRM) {
-      display.print("Boot:Cancel");
-      const char* r = "Tap:Confirm";
-      display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-      display.print(r);
-    #ifdef MECK_WIFI_COMPANION
-    } else if (_editMode == EDIT_WIFI) {
-      if (_wifiPhase == WIFI_PHASE_SELECT) {
-        display.print("Swipe:Pick");
-        const char* r = "Tap:Select  Boot:Back";
-        display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-        display.print(r);
-      } else {
-        display.print("Please wait...");
-      }
-    #endif
-    #ifdef MECK_OTA_UPDATE
-    } else if (_editMode == EDIT_OTA) {
-      if (_otaPhase == OTA_PHASE_CONFIRM) {
-        display.print("Boot:Cancel");
-        const char* r = "Tap:Start";
-        display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-        display.print(r);
-      } else if (_otaPhase == OTA_PHASE_WAITING) {
-        display.print("Boot:Cancel");
-      } else if (_otaPhase == OTA_PHASE_ERROR) {
-        display.print("Boot:Back");
-      } else {
-        display.print("Please wait...");
-      }
-    } else if (_editMode == EDIT_FILEMGR) {
-      if (_fmPhase == FM_PHASE_CONFIRM) {
-        display.print("Boot:Cancel");
-        const char* r = "Tap:Start";
-        display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-        display.print(r);
-      } else if (_fmPhase == FM_PHASE_WAITING) {
-        display.print("Boot:Stop");
-      } else if (_fmPhase == FM_PHASE_ERROR) {
-        display.print("Boot:Back");
-      } else {
-        display.print("Please wait...");
-      }
-    #endif
-    } else if (_editMode == EDIT_TEXT) {
-      display.print("Hold:Type");
-      const char* r = "Tap:OK  Boot:Cancel";
-      display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-      display.print(r);
-    } else {
-      display.print("Editing...");
-    }
-#elif defined(LILYGO_TECHO_LITE)
-    if (_editMode == EDIT_TEXT) {
-      display.print("Ent:Ok Sh+Del:Cancel");
-    } else if (_editMode == EDIT_PICKER) {
-      display.print("A/D:Pick Ent:Ok");
-    } else if (_editMode == EDIT_NUMBER) {
-      display.print("W/S:Adj Ent:Ok");
-    } else if (_editMode == EDIT_CONFIRM) {
-      // overlay handles it
-    } else {
-      display.print("Q:Bk");
-      const char* r = "Ent:Edit";
-      display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
-      display.print(r);
-    }
-#else
     if (_editMode == EDIT_TEXT) {
       display.print("Type, Enter:Ok Sh+Del:Cancel");
     #ifdef MECK_WIFI_COMPANION
@@ -3019,7 +2568,6 @@ public:
       display.setCursor(display.width() - display.getTextWidth(r) - 2, footerY);
       display.print(r);
     }
-#endif
 
     #ifdef MECK_OTA_UPDATE
     // Poll web server frequently during OTA waiting/receiving or file manager phases
@@ -3085,48 +2633,6 @@ public:
     }
 
     // --- Notification sound picker ---
-    #if defined(MECK_AUDIO_VARIANT) || defined(HAS_4G_MODEM)
-    if (_editMode == EDIT_NOTIF_SOUND) {
-      const auto& files = notifSounds.getSoundFiles();
-#if defined(LilyGo_TDeck_Pro_Max)
-      const int kFileBase = 2;   // 0=Default, 1=Buzzer(vibrate), 2+=files
-#else
-      const int kFileBase = 1;   // 0=Default, 1+=files
-#endif
-      int totalItems = kFileBase + (int)files.size();
-
-      if (c == 'w' || c == 'W' || c == 0xF2 || c == KEY_UP) {
-        if (_notifSoundSelected > 0) _notifSoundSelected--;
-        return true;
-      }
-      if (c == 's' || c == 'S' || c == 0xF1 || c == KEY_DOWN) {
-        if (_notifSoundSelected < totalItems - 1) _notifSoundSelected++;
-        return true;
-      }
-      if (c == '\r' || c == 13) {
-        // Select: 0 = clear (default silent), [MAX: 1 = vibrate], rest = file
-        if (_notifSoundSelected == 0) {
-          notifSounds.clearSoundForChannel(_notifSoundChannel);
-#if defined(LilyGo_TDeck_Pro_Max)
-        } else if (_notifSoundSelected == 1) {
-          notifSounds.setVibrateForChannel(_notifSoundChannel);
-#endif
-        } else {
-          int fileIdx = _notifSoundSelected - kFileBase;
-          if (fileIdx >= 0 && fileIdx < (int)files.size()) {
-            notifSounds.setSoundForChannel(_notifSoundChannel, files[fileIdx].c_str());
-          }
-        }
-        _editMode = EDIT_NONE;
-        return true;
-      }
-      if (c == KEY_CANCEL || c == 'q') {
-        _editMode = EDIT_NONE;
-        return true;
-      }
-      return true;  // consume all keys in picker mode
-    }
-    #endif
 
     // --- Share contact picker ---
     if (_editMode == EDIT_SHARE_PICK) {
@@ -3242,9 +2748,6 @@ public:
           _wifiPassLen = 0;
           memset(_wifiPassBuf, 0, sizeof(_wifiPassBuf));
           _wifiFormLastChar = 0;
-#if defined(LilyGo_T5S3_EPaper_Pro)
-          _wifiNeedsVKB = true;  // Signal UITask to open virtual keyboard
-#endif
           return true;
         }
         if (c == KEY_CANCEL || c == 'q') {
@@ -3381,20 +2884,6 @@ public:
           }
           _editMode = EDIT_NONE;
         }
-        #ifdef HAS_4G_MODEM
-        else if (type == ROW_APN) {
-          // Save the edited APN (even if empty — clears user override)
-          if (_editPos > 0) {
-            modemManager.setAPN(_editBuf);
-            Serial.printf("Settings: APN set to '%s'\n", _editBuf);
-          } else {
-            // Empty APN: remove user override, revert to auto-detection
-            ModemManager::saveAPNConfig("");
-            Serial.println("Settings: APN cleared (will auto-detect on next boot)");
-          }
-          _editMode = EDIT_NONE;
-        }
-        #endif
         return true;
       }
       if (c == KEY_CANCEL) {
@@ -3428,11 +2917,6 @@ public:
         } else if (type == ROW_GPS_BAUD) {
           _editPickerIdx--;
           if (_editPickerIdx < 0) _editPickerIdx = GPS_BAUD_OPTION_COUNT - 1;
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
-        } else if (type == ROW_AUTO_LOCK) {
-          _editPickerIdx--;
-          if (_editPickerIdx < 0) _editPickerIdx = AUTO_LOCK_OPTION_COUNT - 1;
-#endif
         } else if (type == ROW_FONT_STYLE) {
           _editPickerIdx--;
           if (_editPickerIdx < 0) _editPickerIdx = MECK_FONT_STYLE_COUNT - 1;
@@ -3451,11 +2935,6 @@ public:
         } else if (type == ROW_GPS_BAUD) {
           _editPickerIdx++;
           if (_editPickerIdx >= GPS_BAUD_OPTION_COUNT) _editPickerIdx = 0;
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
-        } else if (type == ROW_AUTO_LOCK) {
-          _editPickerIdx++;
-          if (_editPickerIdx >= AUTO_LOCK_OPTION_COUNT) _editPickerIdx = 0;
-#endif
         } else if (type == ROW_FONT_STYLE) {
           _editPickerIdx++;
           if (_editPickerIdx >= MECK_FONT_STYLE_COUNT) _editPickerIdx = 0;
@@ -3477,14 +2956,6 @@ public:
           _editMode = EDIT_NONE;
           Serial.printf("Settings: GPS baud set to %lu (reboot to apply)\n",
                         (unsigned long)_prefs->gps_baudrate);
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
-        } else if (type == ROW_AUTO_LOCK) {
-          _prefs->auto_lock_minutes = AUTO_LOCK_OPTIONS[_editPickerIdx];
-          the_mesh.savePrefs();
-          _editMode = EDIT_NONE;
-          Serial.printf("Settings: Auto lock = %s\n",
-                        autoLockLabel(_prefs->auto_lock_minutes));
-#endif
         } else if (type == ROW_FONT_STYLE) {
           _prefs->ui_font_style = _editPickerIdx;
           the_mesh.savePrefs();
@@ -3714,16 +3185,6 @@ public:
         case ROW_GPS_BAUD:
           startEditPicker(findGpsBaudIndex(_prefs->gps_baudrate));
           break;
-#if defined(LilyGo_TDeck_Pro_Max)
-        case ROW_LORA_ANTENNA:
-          _prefs->lora_antenna = _prefs->lora_antenna ? 0 : 1;
-          if (_prefs->lora_antenna) board.loraAntennaExternal();
-          else                      board.loraAntennaInternal();
-          the_mesh.savePrefs();
-          Serial.printf("Settings: LoRa antenna = %s\n",
-                        _prefs->lora_antenna ? "External" : "Internal");
-          break;
-#endif
         case ROW_DARK_MODE:
           _prefs->dark_mode = _prefs->dark_mode ? 0 : 1;
           the_mesh.savePrefs();
@@ -3740,19 +3201,6 @@ public:
           _fontPickerOriginal = _prefs->ui_font_style;
           startEditPicker(_prefs->ui_font_style);
           break;
-#if defined(LilyGo_T5S3_EPaper_Pro)
-        case ROW_PORTRAIT_MODE:
-          _prefs->portrait_mode = _prefs->portrait_mode ? 0 : 1;
-          the_mesh.savePrefs();
-          Serial.printf("Settings: Portrait mode = %s\n",
-                        _prefs->portrait_mode ? "ON" : "OFF");
-          break;
-#endif
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(LilyGo_TDeck_Pro)
-        case ROW_AUTO_LOCK:
-          startEditPicker(findAutoLockIndex(_prefs->auto_lock_minutes));
-          break;
-#endif
         #ifdef MECK_WIFI_COMPANION
         case ROW_WIFI_SETUP: {
           // Launch WiFi scan → select → password → connect flow
@@ -3795,32 +3243,6 @@ public:
             Serial.println("Settings: WiFi radio ON");
           }
           break;
-        #endif
-        #ifdef HAS_4G_MODEM
-        case ROW_MODEM_TOGGLE:
-          _modemEnabled = !_modemEnabled;
-          ModemManager::saveEnabledConfig(_modemEnabled);
-          if (_modemEnabled) {
-            modemManager.begin();
-            Serial.println("Settings: 4G modem ENABLED (started)");
-          } else {
-            modemManager.shutdown();
-            Serial.println("Settings: 4G modem DISABLED (shutdown)");
-          }
-          break;
-       // case ROW_RINGTONE:
-       //   _prefs->ringtone_enabled = _prefs->ringtone_enabled ? 0 : 1;
-       //   modemManager.setRingtoneEnabled(_prefs->ringtone_enabled);
-        //  the_mesh.savePrefs();
-       //   Serial.printf("Settings: Ringtone = %s\n",
-      //                  _prefs->ringtone_enabled ? "ON" : "OFF");
-       //   break;
-        case ROW_APN: {
-          // Start text editing with current APN as initial value
-          const char* currentApn = modemManager.getAPN();
-          startEditText(currentApn);
-          break;
-        }
         #endif
 
         // --- Contact mode picker ---
@@ -4054,41 +3476,6 @@ public:
     }
 
     // T: open notification tone picker
-    #if defined(MECK_AUDIO_VARIANT) || defined(HAS_4G_MODEM)
-    if (c == 't' || c == 'T') {
-      if (_rows[_cursor].type == ROW_CHANNEL) {
-        _notifSoundChannel = _rows[_cursor].param;
-        notifSounds.scanSoundFiles();
-        _notifSoundSelected = 0;  // 0 = "Default (silent)"
-        _notifSoundScroll = 0;
-#if defined(LilyGo_TDeck_Pro_Max)
-        const int kFileBase = 2;   // 0=Default, 1=Buzzer(vibrate), 2+=files
-#else
-        const int kFileBase = 1;   // 0=Default, 1+=files
-#endif
-        // Pre-select current assignment
-#if defined(LilyGo_TDeck_Pro_Max)
-        if (notifSounds.isVibrateForChannel(_notifSoundChannel)) {
-          _notifSoundSelected = 1;  // 1 = "Buzzer (vibrate)"
-        } else
-#endif
-        {
-          const char* current = notifSounds.getSoundForChannel(_notifSoundChannel);
-          if (current && current[0] != '\0') {
-            const auto& files = notifSounds.getSoundFiles();
-            for (int i = 0; i < (int)files.size(); i++) {
-              if (files[i] == String(current)) {
-                _notifSoundSelected = i + kFileBase;
-                break;
-              }
-            }
-          }
-        }
-        _editMode = EDIT_NOTIF_SOUND;
-        return true;
-      }
-    }
-    #endif
 
     // Shift+Del: back -- if in sub-screen, return to top level; else exit settings
     if (c == KEY_CANCEL || c == 'q') {

@@ -287,7 +287,7 @@ public:
 
       if (selected) {
         display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
         display.fillRect(0, y, display.width(), lineH);
 #else
         display.fillRect(0, y + 5, display.width(), lineH);
@@ -383,13 +383,7 @@ public:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::YELLOW);
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.setCursor(0, footerY);
-    display.print("Swipe:Nav");
-    const char* right = "Hold:Select";
-    display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
-    display.print(right);
-#elif defined(MECK_TWATCH)
+#if   defined(MECK_TWATCH)
     display.setCursor(0, footerY);
     display.print("Tap:Slct");
     const char* right = "Hold:Entr";
@@ -447,11 +441,7 @@ public:
 
         if (selected) {
           display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-          display.fillRect(0, y, display.width(), lineH);
-#else
           display.fillRect(0, y + 5, display.width(), lineH);
-#endif
           display.setColor(DisplayDriver::DARK);
         } else {
           display.setColor(DisplayDriver::LIGHT);
@@ -478,19 +468,11 @@ public:
     display.drawRect(0, footerY - 2, display.width(), 1);
     display.setColor(DisplayDriver::YELLOW);
 
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.setCursor(0, footerY);
-    display.print("Swipe:Scroll");
-    const char* right = "Hold:Add  Back:Cancel";
-    display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
-    display.print(right);
-#else
     display.setCursor(0, footerY);
     display.print("Q:Cancel W/S:Scroll");
     const char* right = "Enter:Add";
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
-#endif
 
     return 5000;
   }
@@ -730,11 +712,7 @@ public:
   int selectMainRowAtVY(int vy) {
     if (_menuCount == 0) return 0;
     const int headerH = 14, footerH = 14, lineH = 9;
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    const int bodyTop = headerH;
-#else
     const int bodyTop = headerH + 5;
-#endif
     if (vy < bodyTop || vy >= 128 - footerH) return 0;
 
     int maxVisible = (128 - headerH - footerH) / lineH;
@@ -752,11 +730,7 @@ public:
   int selectPickerRowAtVY(int vy) {
     if (_repCount == 0) return 0;
     const int headerH = 14, footerH = 14, lineH = 9;
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    const int bodyTop = headerH;
-#else
     const int bodyTop = headerH + 5;
-#endif
     if (vy < bodyTop || vy >= 128 - footerH) return 0;
 
     int maxVisible = (128 - headerH - footerH) / lineH;

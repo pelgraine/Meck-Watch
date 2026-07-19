@@ -12,7 +12,7 @@
 //   if (keyboard.status() == VKB_SUBMITTED) { ... keyboard.getText() ... }
 // =============================================================================
 
-#if defined(LilyGo_T5S3_EPaper_Pro) || defined(MECK_TWATCH)
+#if defined(MECK_TWATCH)
 #ifndef VIRTUAL_KEYBOARD_H
 #define VIRTUAL_KEYBOARD_H
 
@@ -227,28 +227,6 @@ public:
   // --- Feed a raw ASCII character from an external physical keyboard ---
   // Maps standard ASCII control chars to internal VKB actions.
   // Returns true if the character was consumed.
-#ifdef MECK_CARDKB
-  bool feedChar(char c) {
-    if (_status != VKB_EDITING) return false;
-    switch (c) {
-      case '\r':   processKey('>');  return true;  // Enter → submit
-      case '\b':   processKey('<');  return true;  // Backspace
-      case 0x7F:   processKey('<');  return true;  // Delete → backspace
-      case 0x1B:   _status = VKB_CANCELLED; return true;  // ESC → cancel
-      case ' ':    processKey('~');  return true;  // Space
-      default:
-        // Printable ASCII → insert directly
-        if (c >= 0x20 && c <= 0x7E) {
-          if (_textLen < _maxLen) {
-            _text[_textLen++] = c;
-            _text[_textLen] = '\0';
-          }
-          return true;
-        }
-        return false;  // Non-printable / nav keys — not consumed
-    }
-  }
-#endif
 
 private:
   VKBStatus _status;
@@ -536,4 +514,4 @@ private:
 };
 
 #endif // VIRTUAL_KEYBOARD_H
-#endif // LilyGo_T5S3_EPaper_Pro || MECK_TWATCH
+#endif // MECK_TWATCH

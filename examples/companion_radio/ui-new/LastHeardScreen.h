@@ -74,11 +74,7 @@ public:
   int selectRowAtVY(int vy) {
     if (_count == 0) return 0;
     const int headerH = 14, footerH = 14, lineH = the_mesh.getNodePrefs()->smallLineH();
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    const int bodyTop = headerH;
-#else
     const int bodyTop = headerH + the_mesh.getNodePrefs()->smallHighlightOff();
-#endif
     if (vy < bodyTop || vy >= 128 - footerH) return 0;
 
     int maxVisible = (128 - headerH - footerH) / lineH;
@@ -149,11 +145,7 @@ public:
         // Highlight selected row
         if (selected) {
           display.setColor(DisplayDriver::LIGHT);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-          display.fillRect(0, y, display.width(), lineHeight);
-#else
           display.fillRect(0, y + the_mesh.getNodePrefs()->smallHighlightOff(), display.width(), lineHeight);
-#endif
           display.setColor(DisplayDriver::DARK);
         } else {
           display.setColor(DisplayDriver::LIGHT);
@@ -207,17 +199,10 @@ public:
     display.setColor(DisplayDriver::YELLOW);
 
     display.setCursor(0, footerY);
-#if defined(LilyGo_T5S3_EPaper_Pro)
-    display.print("Swipe:Scroll");
-    const char* right = "Tap:Add/Del";
-    display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
-    display.print(right);
-#else
     display.print("Q:Bk");
     const char* right = "Tap/Ent:Add/Del";
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
-#endif
 
     return 5000;  // refresh every 5s to update ages
   }
