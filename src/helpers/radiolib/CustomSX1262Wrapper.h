@@ -20,6 +20,7 @@ public:
     return packetScoreInt(snr, sf, packet_len);
   }
   virtual void powerOff() override {
+    ((CustomSX1262 *)_radio)->standby();
     ((CustomSX1262 *)_radio)->sleep(false);
   }
 };
