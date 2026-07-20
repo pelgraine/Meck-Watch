@@ -2011,6 +2011,11 @@ if (curr) curr->poll();
       ss->clearWantKeyboard();
       openTWatchKeyboard(TWatchKeyboardScreen::TWKB_SETTING, 0);
       ((TWatchKeyboardScreen*)tw_keyboard)->setInitialText(ss->getKbInitialText());
+      // Default Region: an empty entry clears the region (reverts to unscoped),
+      // so allow OK with an empty buffer for this row only.
+      if (ss->isOnDefaultRegionRow()) {
+        ((TWatchKeyboardScreen*)tw_keyboard)->setAllowEmptySend(true);
+      }
     }
     if (ss->wantsWatchChannels()) {
       ss->clearWantsWatchChannels();
@@ -2025,6 +2030,10 @@ if (curr) curr->poll();
     if (ss->isRxLogRequested()) {
       ss->clearRxLogRequest();
       gotoRxLogScreen();
+    }
+    if (ss->wantsApplyRxDuty()) {
+      ss->clearApplyRxDuty();
+      radio_driver.setDutyCycleEnabled(ss->getRxDutyCycleEnabled());
     }
   }
 #endif

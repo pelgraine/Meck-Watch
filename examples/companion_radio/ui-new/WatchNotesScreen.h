@@ -249,7 +249,7 @@ private:
 
       if (idx == _sel) {
         d->setRawColor(0x231D);                     // same blue as the home tile
-        d->drawRoundRect(1, y, display.width() - 2, ROW_H - 2, 3);
+        d->drawRoundRect(1, y, display.width() - 2 - (_count > ROWS_VISIBLE ? 5 : 0), ROW_H - 2, 3);
       }
 
       d->setRawColor(0xFFFF);
@@ -259,6 +259,22 @@ private:
       dateLabel(_names[idx], buf, sizeof(buf));
       d->setRawColor(0x7BEF);
       d->printSmallFont(5, y + 13, buf);
+    }
+
+    // Scrollbar (thin white, right edge) when the list overflows the view.
+    if (_count > ROWS_VISIBLE) {
+      int sbX = display.width() - 4;
+      int sbTop = ROW_Y0;
+      int sbH = FOOTER_Y - 4 - sbTop;
+      display.setColor(DisplayDriver::LIGHT);
+      display.drawRect(sbX, sbTop, 3, sbH);
+      int thumbH = (ROWS_VISIBLE * sbH) / _count;
+      if (thumbH < 6) thumbH = 6;
+      if (thumbH > sbH) thumbH = sbH;
+      int maxScroll = _count - ROWS_VISIBLE;
+      if (maxScroll < 1) maxScroll = 1;
+      int thumbY = sbTop + (_scroll * (sbH - thumbH)) / maxScroll;
+      display.fillRect(sbX + 1, thumbY + 1, 1, thumbH - 2);
     }
 
     d->setRawColor(0x231D);
@@ -325,6 +341,18 @@ public:
   }
 
   Mode getMode() const { return _mode; }
+
+  // Page the LIST view by one screenful (watch vertical swipe). Scrolls the
+  // viewport only; the selection stays put, so the highlight does not jump --
+  // it reappears when the selected row scrolls back into view, and only moves
+  // when the user taps a row (handleTap sets _sel).
+  void pageScroll(bool up) {
+    if (_mode != LIST || _count <= ROWS_VISIBLE) return;
+    int maxScroll = _count - ROWS_VISIBLE;
+    _scroll += up ? -ROWS_VISIBLE : ROWS_VISIBLE;
+    if (_scroll < 0) _scroll = 0;
+    if (_scroll > maxScroll) _scroll = maxScroll;
+  }
 
   // --- Keyboard handshake, polled from UITask::loop ---
   bool wantsKeyboard() const { return _wantKeyboard; }

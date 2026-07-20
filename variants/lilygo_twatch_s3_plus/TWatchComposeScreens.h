@@ -591,6 +591,7 @@ private:
 
   bool _wantsSend;
   bool _wantsExit;
+  bool _allowEmptySend;   // when true, OK arms a send even with an empty buffer
 
   static const int MAXLEN   = TW_OUT_BUF_LEN - 1;    // 133
 
@@ -623,7 +624,7 @@ private:
   void handleBottomRow(int x) {
     if (x < 24)      cycleMode();
     else if (x < 72) appendChar(' ');
-    else if (x < 96) { if (_outLen > 0) _wantsSend = true; }
+    else if (x < 96) { if (_outLen > 0 || _allowEmptySend) _wantsSend = true; }
     else             backspace();
   }
 
@@ -635,6 +636,7 @@ public:
       _touchDown(false), _downX(0), _downY(0),
       _wantsSend(false), _wantsExit(false) {
     _outBuf[0] = 0;
+    _allowEmptySend = false;
   }
 
   // Enter compose on the given channel (called when the compose bar is tapped).
@@ -647,6 +649,7 @@ public:
     _outLen = 0; _outBuf[0] = 0;
     _mode = LOWER;
     _touchDown = false; _wantsSend = false; _wantsExit = false;
+    _allowEmptySend = false;
   }
 
   // Enter text for a non-channel purpose (DM / admin password / admin CLI).
@@ -658,6 +661,7 @@ public:
     _outLen = 0; _outBuf[0] = 0;
     _mode = LOWER;
     _touchDown = false; _wantsSend = false; _wantsExit = false;
+    _allowEmptySend = false;
   }
 
   Purpose getPurpose() const { return _purpose; }
@@ -671,6 +675,9 @@ public:
     return true;
   }
   void clearOutBuf() { _outLen = 0; _outBuf[0] = 0; }
+  // Allow OK to arm a send with an empty buffer (e.g. clearing the device
+  // Default Region reverts it to unscoped). Reset to false on each activate().
+  void setAllowEmptySend(bool v) { _allowEmptySend = v; }
   // Pre-fill the compose buffer (e.g. editing an existing note). Call after
   // activateFor(), which clears the buffer; input is clamped at MAXLEN.
   void setInitialText(const char* s) {

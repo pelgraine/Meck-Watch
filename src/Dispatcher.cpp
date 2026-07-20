@@ -76,6 +76,15 @@ void Dispatcher::loop() {
   }
   _radio->loop();
 
+  // MCU-driven RX duty cycle (watch): when active, skip the AGC reset and the
+  // RX-stuck watchdog below -- the wrapper's own sleep->RX re-arm re-asserts
+  // gain, and "not in RX for 8s" misfires while the radio sleeps between
+  // listen windows. Compiled in only under MECK_RX_DUTY_CYCLE; false otherwise.
+  bool duty_active = false;
+#if defined(MECK_RX_DUTY_CYCLE)
+  duty_active = _radio->isDutyCycleActive();
+#endif
+
   // check for radio 'stuck' in mode other than Rx
   bool is_recv = _radio->isInRecvMode();
   if (is_recv != prev_isrecv_mode) {
@@ -86,8 +95,7 @@ void Dispatcher::loop() {
       rx_stuck_count = 0;  // radio recovered — reset counter
     }
   }
-#if !defined(MECK_RX_DUTY_CYCLE)
-  if (!is_recv && _ms->getMillis() - radio_nonrx_start > 8000) {   // radio has not been in Rx mode for 8 seconds!
+  if (!duty_active && !is_recv && _ms->getMillis() - radio_nonrx_start > 8000) {   // radio has not been in Rx mode for 8 seconds!
     _err_flags |= ERR_EVENT_STARTRX_TIMEOUT;
 
     rx_stuck_count++;
@@ -106,7 +114,6 @@ void Dispatcher::loop() {
     cad_busy_start = 0;
     next_agc_reset_time = futureMillis(getAGCResetInterval());
   }
-#endif
 
   if (outbound) {  // waiting for outbound send to be completed
     if (_radio->isSendComplete()) {
@@ -154,12 +161,10 @@ void Dispatcher::loop() {
     next_agc_reset_time = futureMillis(getAGCResetInterval());
   }
 
-#if !defined(MECK_RX_DUTY_CYCLE)
-  if (getAGCResetInterval() > 0 && millisHasNowPassed(next_agc_reset_time)) {
+  if (!duty_active && getAGCResetInterval() > 0 && millisHasNowPassed(next_agc_reset_time)) {
     _radio->resetAGC();
     next_agc_reset_time = futureMillis(getAGCResetInterval());
   }
-#endif
 
   // check inbound (delayed) queue
   {

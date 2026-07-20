@@ -653,11 +653,13 @@ static void lastHeardToggleContact() {
         }
         if (result == 2) {
 #if defined(MECK_TWATCH)
-          // Default Region is too easy to hit by accident -- require a long
-          // press to edit it. A tap just keeps the row selected.
-          if (ss->isOnDefaultRegionRow()) return 0;
-#endif
+          // Watch: a tap only selects/cycles rows; activation and edit happen
+          // on long-press (see mapTouchLongPress), matching the "Hold:Edit
+          // Tap:Cycle" footer and preventing accidental edits.
+          return 0;
+#else
           return KEY_ENTER;  // Tapped same row — activate
+#endif
         }
       }
       return KEY_ENTER;  // Editing mode or header/footer tap
@@ -1215,6 +1217,11 @@ void setup() {
   }
   #endif
 
+  // Apply the persisted RX duty-cycle preference now that prefs are final
+  // (after any SD config import). Takes effect once the duty machine is
+  // compiled in (MECK_RX_DUTY_CYCLE); otherwise the flag is simply recorded.
+  radio_driver.setDutyCycleEnabled(the_mesh.getNodePrefs()->rx_duty_cycle != 0);
+
 #ifdef WIFI_SSID
   MESH_DEBUG_PRINTLN("setup() - WiFi mode (compile-time credentials)");
   WiFi.begin(WIFI_SSID, WIFI_PWD);
@@ -1647,6 +1654,16 @@ void loop() {
               // Watch: a vertical swipe pages the message view (one page/swipe).
               ChannelScreen* cs = (ChannelScreen*)ui_task.getChannelScreen();
               if (cs) { cs->pageScroll(c == 'w'); ui_task.forceRefresh(); }
+            } else if (ui_task.isOnWatchNotesScreen() && (c == 'w' || c == 's')) {
+              // Watch: a vertical swipe pages the notes list (one page/swipe).
+              WatchNotesScreen* wn = (WatchNotesScreen*)ui_task.getWatchNotesScreen();
+              if (wn) { wn->pageScroll(c == 'w'); ui_task.forceRefresh(); }
+            } else if (ui_task.isOnSettingsScreen() && (c == 'w' || c == 's')) {
+              // Watch: a vertical swipe pages the settings list (one page/swipe);
+              // while editing a value, keep w/s for adjust.
+              SettingsScreen* ss = (SettingsScreen*)ui_task.getSettingsScreen();
+              if (ss && !ss->isEditing()) { ss->pageScroll(c == 'w'); ui_task.forceRefresh(); }
+              else ui_task.injectKey(c);
 #endif
             } else {
               ui_task.injectKey(c);
@@ -1806,4 +1823,3 @@ void loop() {
   }
 #endif
 }
-

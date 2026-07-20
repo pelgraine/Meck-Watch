@@ -165,6 +165,10 @@ enum SettingsRowType : uint8_t {
   ROW_EXPORT_NOW,        // ">> Export Now" action trigger
   #endif
   ROW_RXLOG,          // Rx Log packet sniffer (opens RxLogScreen)
+#if defined(MECK_TWATCH)
+  ROW_EXPERIMENTAL_SUBMENU, // Folder row: enters Experimental Features sub-screen (watch)
+  ROW_RX_DUTY_CYCLE,        // Toggle: MCU-driven RX duty cycle (watch)
+#endif
   ROW_INFO_HEADER,    // "--- Info ---" separator
   #ifdef MECK_OTA_UPDATE
   ROW_OTA_TOOLS_SUBMENU, // Folder row → enters OTA Tools sub-screen
@@ -202,6 +206,9 @@ enum SubScreen : uint8_t {
   SUB_NONE,        // Top-level settings list
   SUB_CONTACTS,    // Contacts settings sub-screen
   SUB_CHANNELS,    // Channels management sub-screen
+#if defined(MECK_TWATCH)
+  SUB_EXPERIMENTAL,  // Experimental Features sub-screen (watch)
+#endif
   #ifdef MECK_OTA_UPDATE
   SUB_OTA_TOOLS,   // OTA Tools sub-screen (FW update + File Manager)
   #endif
@@ -258,6 +265,7 @@ private:
   // Cursor & scroll
   int _cursor;        // selected row
   int _scrollTop;     // first visible row
+  int _renderScreenH = 128;  // display.height() captured each render, for selectRowAtVY hit-testing
 
   // Editing state
   EditMode _editMode;
@@ -303,6 +311,7 @@ private:
   bool _needsTextVKB;
   bool _wantsWatchChannels;   // Watch: hand off to WatchChannelConfigScreen (polled by UITask)
   bool _wantsKb;              // Watch: open the touch keyboard for the selected text row (polled by UITask)
+  bool _wantsApplyRxDuty;     // Watch: apply the rx_duty_cycle toggle to radio_driver (polled by UITask)
 #if defined(MECK_TWATCH)
   char _kbInitText[40] = "";  // initial text handed to the touch keyboard for the row being edited
 #endif
@@ -432,6 +441,11 @@ private:
         }
       }
       addRow(ROW_ADD_CHANNEL);
+#if defined(MECK_TWATCH)
+    } else if (_subScreen == SUB_EXPERIMENTAL) {
+      // --- Experimental Features sub-screen (watch) ---
+      addRow(ROW_RX_DUTY_CYCLE);
+#endif
     #ifdef MECK_OTA_UPDATE
     } else if (_subScreen == SUB_OTA_TOOLS) {
       // --- OTA Tools sub-screen ---
@@ -495,6 +509,11 @@ private:
       // Rx Log packet sniffer (opens RxLogScreen)
       addRow(ROW_RXLOG);
 
+#if defined(MECK_TWATCH)
+      // Experimental Features (watch) -- placed above the Info section
+      addRow(ROW_EXPERIMENTAL_SUBMENU);
+#endif
+
       // Info section (stays at top level)
       addRow(ROW_INFO_HEADER);
       addRow(ROW_PUB_KEY);
@@ -529,6 +548,19 @@ private:
     }
     if (_cursor < 0) _cursor = 0;
     if (_cursor >= _numRows) _cursor = _numRows - 1;
+    ensureCursorVisible();
+  }
+
+  // Bring the cursor into the visible window WITHOUT re-centering, so an
+  // independent pageScroll() view offset survives until the cursor moves.
+  void ensureCursorVisible() {
+    const int headerH = 14, footerH = 14, lineH = _prefs->smallLineH();
+    int maxVisible = (_renderScreenH - headerH - footerH) / lineH;
+    if (maxVisible < 3) maxVisible = 3;
+    if (_cursor < _scrollTop) _scrollTop = _cursor;
+    else if (_cursor >= _scrollTop + maxVisible) _scrollTop = _cursor - maxVisible + 1;
+    if (_scrollTop < 0) _scrollTop = 0;
+    if (_numRows > maxVisible && _scrollTop > _numRows - maxVisible) _scrollTop = _numRows - maxVisible;
   }
 
   // ---------------------------------------------------------------------------
@@ -644,7 +676,7 @@ public:
       _editMode(EDIT_NONE), _editPos(0), _editPickerIdx(0),
       _editFloat(0), _editInt(0), _fontPickerOriginal(0), _confirmAction(0),
       _onboarding(false), _subScreen(SUB_NONE), _savedTopCursor(0),
-      _radioChanged(false), _needsTextVKB(false), _wantsWatchChannels(false), _wantsKb(false) {
+      _radioChanged(false), _needsTextVKB(false), _wantsWatchChannels(false), _wantsKb(false), _wantsApplyRxDuty(false) {
     memset(_editBuf, 0, sizeof(_editBuf));
     #ifdef HAS_SDCARD
     _savedExportCursor = 0;
@@ -724,13 +756,16 @@ public:
     // bodyTop must match where the visual rows start (highlight bar position).
     // T5S3 renders highlight at y directly. T-Deck Pro offsets by smallHighlightOff().
     const int bodyTop = headerH + _prefs->smallHighlightOff();
-    if (vy < bodyTop || vy >= 128 - footerH) return 0;  // Outside body area
+    // vy arrives in the 128-tall virtual touch space; rows were drawn in the
+    // display's logical space (_renderScreenH). Convert back so the hit-test
+    // matches what was rendered, and use the render's own _scrollTop rather
+    // than recomputing a scroll window (the two used a different maxVisible and
+    // drifted apart toward the bottom of the list).
+    int ly = (int)((long)vy * _renderScreenH / 128);
+    const int maxY = _renderScreenH - footerH;
+    if (ly < bodyTop || ly >= maxY) return 0;  // Outside body area
 
-    int maxVisible = (128 - headerH - footerH) / lineH;
-    if (maxVisible < 3) maxVisible = 3;
-    int startIdx = max(0, min(_cursor - maxVisible / 2, _numRows - maxVisible));
-
-    int tappedRow = startIdx + (vy - bodyTop) / lineH;
+    int tappedRow = _scrollTop + (ly - bodyTop) / lineH;
     if (tappedRow < 0 || tappedRow >= _numRows) return 0;
 
     // Skip non-selectable rows (headers/separators)
@@ -738,7 +773,22 @@ public:
 
     if (tappedRow == _cursor) return 2;  // Same row — activate
     _cursor = tappedRow;
+    ensureCursorVisible();
     return 1;  // Moved to new row
+  }
+
+  // Page the list VIEW by one screenful (watch vertical swipe). Scrolls the
+  // viewport only; the cursor/selection stays put (the highlight reappears
+  // when its row scrolls back into view, and only moves when the user taps).
+  void pageScroll(bool up) {
+    if (_editMode != EDIT_NONE) return;
+    const int headerH = 14, footerH = 14, lineH = _prefs->smallLineH();
+    int maxVisible = (_renderScreenH - headerH - footerH) / lineH;
+    if (maxVisible < 3) maxVisible = 3;
+    if (_numRows <= maxVisible) return;
+    _scrollTop += up ? -maxVisible : maxVisible;
+    if (_scrollTop < 0) _scrollTop = 0;
+    if (_scrollTop > _numRows - maxVisible) _scrollTop = _numRows - maxVisible;
   }
 
   // ---------------------------------------------------------------------------
@@ -825,6 +875,11 @@ public:
   // Frequency, Add Channel).
   bool wantsKeyboard() const { return _wantsKb; }
   void clearWantKeyboard() { _wantsKb = false; }
+  // Watch: Rx Duty Cycle toggle apply bridge (polled by UITask, which reaches
+  // radio_driver). getRxDutyCycleEnabled() reflects the persisted pref.
+  bool wantsApplyRxDuty() const { return _wantsApplyRxDuty; }
+  void clearApplyRxDuty() { _wantsApplyRxDuty = false; }
+  bool getRxDutyCycleEnabled() const { return _prefs->rx_duty_cycle != 0; }
   const char* getKbInitialText() const { return _kbInitText; }
   bool isOnDefaultRegionRow() const {
     return _cursor >= 0 && _cursor < _numRows && _rows[_cursor].type == ROW_DEFAULT_SCOPE;
@@ -1697,11 +1752,15 @@ public:
     int headerH = 14;
     int footerH = 14;
     int maxY = display.height() - footerH;
+    _renderScreenH = display.height();  // captured for selectRowAtVY() touch hit-testing
 
-    // Center scroll window around cursor
     int maxVisible = (maxY - headerH) / lineHeight;
     if (maxVisible < 3) maxVisible = 3;
-    _scrollTop = max(0, min(_cursor - maxVisible / 2, _numRows - maxVisible));
+    // _scrollTop is maintained independently: ensureCursorVisible() on cursor
+    // moves, pageScroll() on swipe. Clamp to range here so a swipe can scroll
+    // the view without dragging the selection along.
+    if (_numRows <= maxVisible) _scrollTop = 0;
+    else _scrollTop = max(0, min(_scrollTop, _numRows - maxVisible));
     int endIdx = min(_numRows, _scrollTop + maxVisible);
 
     // Scrollbar: always shown on the top-level list; on sub-screens only when
@@ -1957,6 +2016,19 @@ public:
           display.setColor(selected ? DisplayDriver::DARK : DisplayDriver::GREEN);
           display.print("Rx Log >>");
           break;
+
+#if defined(MECK_TWATCH)
+        case ROW_EXPERIMENTAL_SUBMENU:
+          display.setColor(selected ? DisplayDriver::DARK : DisplayDriver::GREEN);
+          display.print("Experimental Features >>");
+          break;
+
+        case ROW_RX_DUTY_CYCLE:
+          snprintf(tmp, sizeof(tmp), "Rx Duty Cycle: %s",
+                   _prefs->rx_duty_cycle ? "ON" : "OFF");
+          display.print(tmp);
+          break;
+#endif
 
         #ifdef HAS_SDCARD
         case ROW_EXPORT_IMPORT_SUBMENU:
@@ -2579,7 +2651,11 @@ public:
       if (_subScreen == SUB_CHANNELS) {
         display.print("Q:Bk C:Share");
       } else if (_subScreen != SUB_NONE) {
+#if defined(MECK_TWATCH)
+        display.print("Hold:Edit");
+#else
         display.print("Q:Back");
+#endif
       } else {
 #if defined(MECK_TWATCH)
         display.print("Hold:Edit");
@@ -2588,7 +2664,7 @@ public:
 #endif
       }
 #if defined(MECK_TWATCH)
-      const char* r = (_subScreen == SUB_NONE) ? "Tap:Cycle" : "Tap/Ent:Edit";
+      const char* r = "Tap:Cycle";
 #else
       const char* r = "Tap/Ent:Edit";
 #endif
@@ -2650,6 +2726,7 @@ public:
           for (int r = 0; r < _numRows; r++) {
             if (_rows[r].type == ROW_DEFAULT_SCOPE) { _cursor = r; break; }
           }
+          ensureCursorVisible();
           return true;
         }
         _editMode = EDIT_NONE;
@@ -2865,6 +2942,7 @@ public:
           if (_onboarding) {
             // Move to radio preset selection
             _cursor = 1;  // ROW_RADIO_PRESET
+            ensureCursorVisible();
             startEditPicker(max(0, detectCurrentPreset()));
           }
         } else if (type == ROW_FREQ) {
@@ -3012,6 +3090,7 @@ public:
                 break;
               }
             }
+            ensureCursorVisible();
             // Auto-launch the WiFi scan
             _editMode = EDIT_WIFI;
             performWifiScan();
@@ -3347,6 +3426,25 @@ public:
         case ROW_RXLOG:
           _rxlogRequested = true;
           break;
+
+#if defined(MECK_TWATCH)
+        case ROW_EXPERIMENTAL_SUBMENU:
+          _savedTopCursor = _cursor;
+          _subScreen = SUB_EXPERIMENTAL;
+          _cursor = 0;
+          _scrollTop = 0;
+          rebuildRows();
+          Serial.println("Settings: entered Experimental Features sub-screen");
+          break;
+
+        case ROW_RX_DUTY_CYCLE:
+          _prefs->rx_duty_cycle = _prefs->rx_duty_cycle ? 0 : 1;
+          the_mesh.savePrefs();
+          _wantsApplyRxDuty = true;   // UITask::loop() polls and applies to radio_driver
+          Serial.printf("Settings: Rx Duty Cycle = %s\n",
+                        _prefs->rx_duty_cycle ? "ON" : "OFF");
+          break;
+#endif
 
         case ROW_ADD_CHANNEL:
 #if defined(MECK_TWATCH)

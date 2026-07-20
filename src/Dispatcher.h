@@ -67,6 +67,12 @@ public:
 
   virtual void resetAGC() { }
 
+  /**
+   * \returns true while MCU-driven RX duty cycling is active and the Dispatcher
+   *          must suppress its AGC reset and RX-stuck watchdog. Default false.
+  */
+  virtual bool isDutyCycleActive() const { return false; }
+
   virtual bool isInRecvMode() const = 0;
 
   /**

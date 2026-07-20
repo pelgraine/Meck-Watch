@@ -64,8 +64,9 @@ void RadioLibWrapper::resetAGC() {
 void RadioLibWrapper::loop() {
 #if defined(MECK_RX_DUTY_CYCLE)
   // Duty-cycle RX sleeps the radio between listen windows, so RSSI floor
-  // sampling would read garbage. Skip it; the noise floor keeps its default.
-  return;
+  // sampling would read garbage. Skip sampling while the toggle is on; when
+  // it is off, sample the noise floor normally.
+  if (_dutyEnabled) return;
 #endif
   if (state == STATE_RX && _num_floor_samples < NUM_NOISE_FLOOR_SAMPLES) {
     if (!isReceivingPacket()) {

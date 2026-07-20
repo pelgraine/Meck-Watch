@@ -11,6 +11,7 @@ protected:
   int16_t _noise_floor, _threshold;
   uint16_t _num_floor_samples;
   int32_t _floor_sample_sum;
+  bool _dutyEnabled;   // MCU-driven RX duty cycle runtime toggle (watch)
 
   void idle();
   void startRecv();
@@ -18,7 +19,7 @@ protected:
   virtual bool isReceivingPacket() =0;
 
 public:
-  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board) { n_recv = n_sent = 0; }
+  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board) { n_recv = n_sent = 0; _dutyEnabled = false; }
 
   void begin() override;
   virtual void powerOff() { _radio->sleep(); }
@@ -41,6 +42,10 @@ public:
   int getNoiseFloor() const override { return _noise_floor; }
   void triggerNoiseFloorCalibrate(int threshold) override;
   void resetAGC() override;
+
+  // MCU-driven RX duty cycle (watch): runtime toggle, persisted in NodePrefs.
+  void setDutyCycleEnabled(bool en) { _dutyEnabled = en; }
+  bool isDutyCycleActive() const override { return _dutyEnabled; }
 
   void loop() override;
 

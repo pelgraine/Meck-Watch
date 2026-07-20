@@ -85,6 +85,12 @@ struct NodePrefs {  // persisted to file
   // Takes effect on next toggle. Default 50.
   uint8_t kb_backlight_pct;        // 5..100, default 50
 
+  // --- MCU-driven RX duty cycle (T-Watch S3 / S3 Plus) ---
+  // Runtime toggle for the experimental RX duty-cycle power saving.
+  // 0 = off (default), 1 = on. Off by default; older prefs files short-read
+  // this final field and it keeps its memset-0 default (see DataStore.cpp).
+  uint8_t rx_duty_cycle;           // 0 = off (default), 1 = on
+
   // --- Font helpers (inline, no overhead) ---
   // Returns the DisplayDriver text-size index for "small/body" text.
   // T-Deck Pro: 0 = built-in 6×8 (or 7pt with custom fonts), 1 = 9pt.
