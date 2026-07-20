@@ -913,7 +913,8 @@ public:
   bool applyComposedField(const char* text) {
     SettingsRowType t = _rows[_cursor].type;
     if (t != ROW_NAME && t != ROW_DEFAULT_SCOPE &&
-        t != ROW_FREQ && t != ROW_ADD_CHANNEL && t != ROW_TX_POWER) return false;  // row changed underneath
+        t != ROW_FREQ && t != ROW_ADD_CHANNEL && t != ROW_TX_POWER &&
+        t != ROW_BW) return false;  // row changed underneath
     startEditText("");
     submitEditText(text ? text : "");
     return true;
@@ -3005,6 +3006,21 @@ public:
             Serial.printf("Settings: TX power typed to %d\n", p);
           }
           _editMode = EDIT_NONE;
+        } else if (type == ROW_BW) {
+          if (_editPos > 0) {
+            // Snap the typed value to the nearest valid bandwidth -- the same
+            // discrete set the W/S cycle uses (31.25/62.5/125/250/500 kHz).
+            static const float BW_STEPS[] = { 31.25f, 62.5f, 125.0f, 250.0f, 500.0f };
+            float typed = atof(_editBuf);
+            float best = BW_STEPS[0];
+            for (unsigned i = 1; i < sizeof(BW_STEPS) / sizeof(BW_STEPS[0]); i++) {
+              if (fabsf(typed - BW_STEPS[i]) < fabsf(typed - best)) best = BW_STEPS[i];
+            }
+            _prefs->bw = best;
+            _radioChanged = true;
+            Serial.printf("Settings: BW typed, snapped to %.2f\n", best);
+          }
+          _editMode = EDIT_NONE;
         } else if (type == ROW_ADD_CHANNEL) {
           if (_editPos > 0) {
             createChannel(_editBuf);
@@ -3321,7 +3337,13 @@ public:
           break;
         }
         case ROW_BW:
+#if defined(MECK_TWATCH)
+          // Watch: type the value; it snaps to the nearest valid bandwidth.
+          snprintf(_kbInitText, sizeof(_kbInitText), "%.1f", _prefs->bw);
+          _wantsKb = true;   // UITask::loop() polls and opens the touch keyboard
+#else
           startEditFloat(_prefs->bw);
+#endif
           break;
         case ROW_SF:
           startEditInt(_prefs->sf);

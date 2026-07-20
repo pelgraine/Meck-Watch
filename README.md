@@ -32,6 +32,7 @@ A fork created specifically to focus on enabling BLE & standalone Meshcore compa
 - [Games](#games)
 - [Maps (S3 Plus only)](#maps-s3-plus-only)
 - [Settings](#settings)
+- [Experimental: RX Duty Cycle](#experimental-rx-duty-cycle)
 - [Path Hash Mode](#path-hash-mode)
 - [Region Scope](#region-scope)
 - [Channels: Public, Private & Sharing](#channels-public-private--sharing)
@@ -69,7 +70,7 @@ The two boards are wired identically at the ESP32-S3 — they differ only in wha
 | Home tile (row 3, right) | **Games** (Trace + Games) | **Maps** (Trace + Maps) |
 | Battery cell | 470 mAh LiHV (Tewaycell 552530, 3.8 V nom / 4.35 V max) | LiHV (Tewaycell 112530-2P, 3.8 V nom / 4.35 V max) |
 | Estimated runtime | ~7.5–9.5 hours | ~14–16 hours |
-| Firmware version string | `Meck TWatch S3 v0.3` / `Meck TWatch S3 BLE v0.3` | `Meck TWatch v0.3` / `Meck TWatch BLE v0.3` |
+| Firmware version string | `Meck TWatch S3 v0.6` / `Meck TWatch S3 BLE v0.6` | `Meck TWatch v0.6` / `Meck TWatch BLE v0.6` |
 
 Everything else — the UI, the touch keyboard, step counting, tilt-to-wake, the lock/clock screen, notes, and the whole channel/DM/contacts system — is shared between the two.
 
@@ -145,7 +146,7 @@ Six tiles are common to both watches — **Messages**, **Contacts**, **Settings*
 - **S3 Plus** shows **Maps** (it has GPS).
 - **S3** shows **Games** (Snake and Minesweeper) in that slot, since it has no GPS to plot.
 
-Tap a tile to open its screen. Tap the **status bar** at the top of any screen to return home.
+Tap a tile to open its screen. To get back: **tap the top-right corner of the screen to return home from any screen** — this is the universal "go home" gesture across the whole watch UI. A **long press on the home screen** opens the channel picker (see [Channel Messages & the Channel Picker](#channel-messages--the-channel-picker)).
 
 ---
 
@@ -183,10 +184,10 @@ Touch is the primary way to drive both watches, and the gesture set follows the 
 | Gesture | Typical Action |
 |---------|----------------|
 | Tap | Select / activate / open the item under your finger |
-| Swipe up / down | Scroll lists (contacts, messages, settings, discovery) |
-| Swipe left / right | Adjust a value or cycle a filter, depending on screen |
-| Long press | Context action (e.g. open a channel from the picker, DM a contact, open the keyboard for text entry) |
-| Tap status bar | Return to home screen |
+| Swipe up / down | Scroll or page lists (contacts, messages, settings, notes, discovery) |
+| Swipe left / right | Cycle a filter or switch channel, depending on screen |
+| Long press | Context action (e.g. open a channel from the picker, DM a contact, open the keyboard for text entry, edit a setting) |
+| **Tap the top-right corner** | **Return to the home screen — works from every screen** |
 
 Text entry — composing messages, notes, admin passwords, typed paths — is done through the on-screen **touch keyboard**, which opens when you tap into an editable field.
 
@@ -224,6 +225,7 @@ A **long press on the home screen** opens the watch channel picker. It lists all
 |---------|--------|
 | Tap a row | Select that channel |
 | Long press a row | Open the channel |
+| Swipe up / down | Scroll the list (when you have more channels than fit on screen) |
 | Tap the back arrow (top-left) | Return home |
 
 Inside a channel, scroll messages by swiping, tap the compose bar at the bottom to write a new message via the touch keyboard, and long-press to go back. Replies and @mentions follow the standard MeshCore conventions.
@@ -261,6 +263,8 @@ On the **S3 Plus** this is reached via the boot button on a selected outgoing me
 ## Notes
 
 A lightweight notes screen stores `.txt` files on the internal LittleFS partition (there is no SD card). Tap while editing to open the touch keyboard; long-press to save and exit.
+
+On the notes list, a **vertical swipe pages the list** one screenful at a time, so every saved note is reachable; a thin scrollbar appears on the right edge when the list overflows the view.
 
 Notes are entered through the touch keyboard, so each note is capped at **133 characters** — the same length as a standard MeshCore message.
 
@@ -332,14 +336,85 @@ Open **Settings** from its home tile. The watch settings screen exposes:
 - **Path hash size** (see [Path Hash Mode](#path-hash-mode))
 - **Default region scope** (see [Region Scope](#region-scope))
 - **Channels** submenu — add, edit, and manage channels including private ones (see [Channels](#channels-public-private--sharing))
+- **Rx Log** — the packet sniffer (see [Rx Log](#rx-log))
+- **Experimental Features** submenu — the RX duty cycle battery saver (see [Experimental: RX Duty Cycle](#experimental-rx-duty-cycle))
+
+### Navigating the settings list
+
+The settings list follows one consistent model, shown in the on-screen footer (**Hold:Edit / Tap:Cycle**):
 
 | Gesture | Action |
 |---------|--------|
-| Swipe up / down | Scroll settings |
-| Swipe left / right | Adjust the selected value |
-| Tap | Toggle or edit the selected setting |
+| Swipe up / down | Page the list one screenful at a time (the view scrolls; your selection stays put and its highlight reappears when the row scrolls back into view) |
+| Tap a row | Select it |
+| Long press | Activate the selected row — toggle it, open its submenu, or enter edit mode |
+
+A tap never edits anything — activation and editing always require a **long press**, which prevents accidental edits while scrolling. Tap the **top-right corner** to return home.
+
+### Editing values
+
+Once a row is activated with a long press, how you edit depends on the type of value:
+
+**Number rows — UTC offset, Path hash size, Spreading Factor (5–12), Coding Rate (5–8):**
+
+| Gesture | Action |
+|---------|--------|
+| Tap the **upper half** of the screen | Increase the value |
+| Tap the **lower half** of the screen | Decrease the value |
+| Long press | Save and exit editing |
+
+The footer shows **Tap:+/- Hold:Save** while editing.
+
+**Radio Preset picker:**
+
+| Gesture | Action |
+|---------|--------|
+| Tap the **upper half** | Next preset |
+| Tap the **lower half** | Previous preset |
+| Long press | Save and exit |
+
+**Typed rows — Node name, Frequency, Bandwidth, Default Region, Add Channel, TX Power:** a long press opens the **touch keyboard**, pre-filled with the current value. Type the new value and press OK to commit. Frequency accepts exact values like `916.575`; Bandwidth snaps to the nearest valid value (31.25, 62.5, 125, 250, or 500 kHz); TX power is clamped to 1–30 dBm. Clearing the **Default Region** text and pressing OK reverts the device to unscoped (see [Region Scope](#region-scope)).
+
+### Radio Presets
+
+The Radio Preset picker carries ready-made profiles for common regional configurations — selecting one sets frequency, bandwidth, SF, CR, and TX power together, and you can then fine-tune any individual parameter afterwards:
+
+| Preset | Freq (MHz) | BW (kHz) | SF | CR | TX (dBm) |
+|--------|-----------|----------|----|----|----------|
+| Australia | 915.800 | 250 | 10 | 5 | 22 |
+| Australia (Mid) | 915.075 | 125 | 9 | 5 | 22 |
+| Australia (Narrow) | 916.575 | 62.5 | 7 | 8 | 22 |
+| Australia: SA, WA | 923.125 | 62.5 | 8 | 8 | 22 |
+| Australia: QLD | 923.125 | 62.5 | 8 | 5 | 22 |
+| EU/UK (Narrow) | 869.618 | 62.5 | 8 | 8 | 14 |
+| EU/UK (Long Range) | 869.525 | 250 | 11 | 5 | 14 |
+| EU/UK (Medium Range) | 869.525 | 250 | 10 | 5 | 14 |
+| Czech Republic (Narrow) | 869.432 | 62.5 | 7 | 5 | 14 |
+| EU 433 (Long Range) | 433.650 | 250 | 11 | 5 | 14 |
+| New Zealand | 917.375 | 250 | 11 | 5 | 22 |
+| New Zealand (Narrow) | 917.375 | 62.5 | 7 | 5 | 22 |
+| Portugal 433 | 433.375 | 62.5 | 9 | 6 | 14 |
+| Portugal 868 | 869.618 | 62.5 | 7 | 6 | 14 |
+| Switzerland | 869.618 | 62.5 | 8 | 8 | 14 |
+| USA/Canada (Recommended) | 910.525 | 62.5 | 7 | 5 | 22 |
+| Vietnam | 920.250 | 250 | 11 | 5 | 22 |
 
 > Some options present on the larger Meck devices are intentionally not shown on the watch — dark mode, font-style selection, and the large-font toggle are omitted, and the SD-dependent config export/import and WiFi options do not apply.
+
+---
+
+## Experimental: RX Duty Cycle
+
+**Settings → Experimental Features** holds an opt-in battery saver: instead of listening continuously, the SX1262 duty-cycles its receive window using the chip's own hardware listen/sleep mechanism. It is **off by default**, and nothing changes until you turn it on.
+
+| Row | What it does |
+|-----|--------------|
+| **Rx Duty Cycle** | On/Off toggle. Persists across reboots. |
+| **Nap Depth** | How deeply the radio naps between listen windows: **Light** (~31% asleep), **Medium** (~50%), or **Aggressive** (~64%). Long-press to cycle. Remembered independently of the toggle, so your chosen depth is restored when you switch the feature back on. |
+
+Both rows only appear at **SF9 and below** — at higher spreading factors the longer symbols gain nothing worth the wake cost, and a **"Rx Duty: SF9 or lower only"** note is shown instead. If a preset's symbols are too short to carve out a safe sleep window, the radio automatically falls back to continuous RX, so the mechanism itself never drops a packet.
+
+**The trade-off:** most mesh networks run a 16-symbol preamble at SF9, and against short preambles the fraction of single transmissions you miss roughly tracks the fraction of time the radio is asleep. In practice flooded channel traffic arrives via multiple repeater copies and direct messages are retried, so the everyday impact is mostly added latency rather than lost messages — but it is a genuine reception-versus-battery trade, which is why it's an opt-in dial rather than a default. Start at **Light** and judge the behaviour on your own network.
 
 ---
 
@@ -369,7 +444,7 @@ Regions limit how far your flood messages propagate through the mesh. When you s
 
 Meck does not pre-set any region on a fresh flash. Region names are determined by your local mesh community — check with your local group for the names in use. Common patterns follow ISO 3166 country/subdivision codes (e.g. `au`, `gb-eng`, `us-ca`), but communities may use custom names. Region names must be lowercase alphanumeric and hyphens only, max 29 characters.
 
-- **Device-wide default:** Set in **Settings → Default Region** (default scope). Applies to all channels and DMs unless a channel overrides it.
+- **Device-wide default:** Set in **Settings → Default Region** (default scope) — a long press opens the touch keyboard. Applies to all channels and DMs unless a channel overrides it. To remove a region, clear the text and press OK: the device reverts to unscoped.
 - **Per-channel:** In the Channels submenu, a channel can carry its own scope, overriding the device default for that channel only.
 
 ---
