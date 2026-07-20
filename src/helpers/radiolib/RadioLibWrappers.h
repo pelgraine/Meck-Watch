@@ -12,14 +12,18 @@ protected:
   uint16_t _num_floor_samples;
   int32_t _floor_sample_sum;
   bool _dutyEnabled;   // MCU-driven RX duty cycle runtime toggle (watch)
+  uint8_t _dutyLevel;  // nap depth: 0=Light, 1=Medium, 2=Aggressive
 
   void idle();
   void startRecv();
+#if defined(MECK_RX_DUTY_CYCLE)
+  int  armDutyCycleRx();   // arm hardware RX duty cycle for the current SF/BW + nap level
+#endif
   float packetScoreInt(float snr, int sf, int packet_len);
   virtual bool isReceivingPacket() =0;
 
 public:
-  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board) { n_recv = n_sent = 0; _dutyEnabled = false; }
+  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board) { n_recv = n_sent = 0; _dutyEnabled = false; _dutyLevel = 0; }
 
   void begin() override;
   virtual void powerOff() { _radio->sleep(); }
@@ -46,6 +50,8 @@ public:
   // MCU-driven RX duty cycle (watch): runtime toggle, persisted in NodePrefs.
   void setDutyCycleEnabled(bool en) { _dutyEnabled = en; }
   bool isDutyCycleActive() const override { return _dutyEnabled; }
+  // Nap depth: 0=Light (~31% asleep), 1=Medium (~50%), 2=Aggressive (~64%).
+  void setDutyLevel(uint8_t lvl) { _dutyLevel = (lvl > 2) ? 2 : lvl; }
 
   void loop() override;
 

@@ -636,13 +636,18 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnSettingsScreen()) {
       SettingsScreen* ss = (SettingsScreen*)ui_task.getSettingsScreen();
 #if defined(MECK_TWATCH)
-      // Watch: while editing UTC offset, path hash size, or TX power, tap the
+      // Watch: while editing a number row (UTC / path hash / SF / CR), tap the
       // upper half to increment and the lower half to decrement. Long-press saves.
       if (ss && ss->isEditing() &&
           (ss->getCurrentRowType() == ROW_UTC_OFFSET ||
            ss->getCurrentRowType() == ROW_PATH_HASH_SIZE ||
-           ss->getCurrentRowType() == ROW_TX_POWER)) {
+           ss->getCurrentRowType() == ROW_SF ||
+           ss->getCurrentRowType() == ROW_CR)) {
         return (vy < 64) ? 'w' : 's';
+      }
+      // Watch: while choosing a radio preset, tap upper = next, lower = previous.
+      if (ss && ss->isEditing() && ss->getCurrentRowType() == ROW_RADIO_PRESET) {
+        return (vy < 64) ? 'd' : 'a';
       }
 #endif
       if (ss && !ss->isEditing()) {
@@ -1030,12 +1035,14 @@ static void lastHeardToggleContact() {
       SettingsScreen* ss = (SettingsScreen*)ui_task.getSettingsScreen();
       if (ss) {
 #if defined(MECK_TWATCH)
-        // Watch: long-press while editing UTC offset, path hash size, or TX
-        // power saves the value.
+        // Watch: long-press while editing a number row or the preset picker
+        // saves the value.
         if (ss->isEditing() &&
             (ss->getCurrentRowType() == ROW_UTC_OFFSET ||
              ss->getCurrentRowType() == ROW_PATH_HASH_SIZE ||
-             ss->getCurrentRowType() == ROW_TX_POWER)) {
+             ss->getCurrentRowType() == ROW_SF ||
+             ss->getCurrentRowType() == ROW_CR ||
+             ss->getCurrentRowType() == ROW_RADIO_PRESET)) {
           return '\r';
         }
 #endif
@@ -1221,6 +1228,7 @@ void setup() {
   // (after any SD config import). Takes effect once the duty machine is
   // compiled in (MECK_RX_DUTY_CYCLE); otherwise the flag is simply recorded.
   radio_driver.setDutyCycleEnabled(the_mesh.getNodePrefs()->rx_duty_cycle != 0);
+  radio_driver.setDutyLevel(the_mesh.getNodePrefs()->rx_duty_level);
 
 #ifdef WIFI_SSID
   MESH_DEBUG_PRINTLN("setup() - WiFi mode (compile-time credentials)");

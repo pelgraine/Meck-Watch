@@ -14,7 +14,11 @@
 #include "MeckFonts.h"
 
 // Inline edit hint shown next to values being adjusted
+#if defined(MECK_TWATCH)
+  #define EDIT_ADJ_HINT ""
+#else
   #define EDIT_ADJ_HINT "<W/S>"
+#endif
 
 
 #ifdef MECK_WIFI_COMPANION
@@ -168,6 +172,8 @@ enum SettingsRowType : uint8_t {
 #if defined(MECK_TWATCH)
   ROW_EXPERIMENTAL_SUBMENU, // Folder row: enters Experimental Features sub-screen (watch)
   ROW_RX_DUTY_CYCLE,        // Toggle: MCU-driven RX duty cycle (watch)
+  ROW_RX_DUTY_LEVEL,        // Cycle: nap depth Light/Medium/Aggressive (watch)
+  ROW_RX_DUTY_UNAVAIL,      // Note shown when SF > 9 (feature not applicable)
 #endif
   ROW_INFO_HEADER,    // "--- Info ---" separator
   #ifdef MECK_OTA_UPDATE
@@ -312,6 +318,7 @@ private:
   bool _wantsWatchChannels;   // Watch: hand off to WatchChannelConfigScreen (polled by UITask)
   bool _wantsKb;              // Watch: open the touch keyboard for the selected text row (polled by UITask)
   bool _wantsApplyRxDuty;     // Watch: apply the rx_duty_cycle toggle to radio_driver (polled by UITask)
+  bool _wantsApplyRxLevel;    // Watch: apply the rx_duty_level (nap depth) to radio_driver (polled by UITask)
 #if defined(MECK_TWATCH)
   char _kbInitText[40] = "";  // initial text handed to the touch keyboard for the row being edited
 #endif
@@ -444,7 +451,14 @@ private:
 #if defined(MECK_TWATCH)
     } else if (_subScreen == SUB_EXPERIMENTAL) {
       // --- Experimental Features sub-screen (watch) ---
-      addRow(ROW_RX_DUTY_CYCLE);
+      // RX duty cycle only helps at SF9 and below (higher SF/longer symbols
+      // gain nothing worth the wake cost); hide it entirely otherwise.
+      if (_prefs->sf <= 9) {
+        addRow(ROW_RX_DUTY_CYCLE);
+        addRow(ROW_RX_DUTY_LEVEL);
+      } else {
+        addRow(ROW_RX_DUTY_UNAVAIL);   // note: only available at SF9 and below
+      }
 #endif
     #ifdef MECK_OTA_UPDATE
     } else if (_subScreen == SUB_OTA_TOOLS) {
@@ -539,6 +553,9 @@ private:
     if (idx < 0 || idx >= _numRows) return false;
     SettingsRowType t = _rows[idx].type;
     return t != ROW_CH_HEADER && t != ROW_INFO_HEADER && t != ROW_CONTACT_HEADER
+#if defined(MECK_TWATCH)
+           && t != ROW_RX_DUTY_UNAVAIL
+#endif
     ;  // ROW_CONTACTS_SUBMENU and ROW_CHANNELS_SUBMENU ARE selectable
   }
 
@@ -676,7 +693,7 @@ public:
       _editMode(EDIT_NONE), _editPos(0), _editPickerIdx(0),
       _editFloat(0), _editInt(0), _fontPickerOriginal(0), _confirmAction(0),
       _onboarding(false), _subScreen(SUB_NONE), _savedTopCursor(0),
-      _radioChanged(false), _needsTextVKB(false), _wantsWatchChannels(false), _wantsKb(false), _wantsApplyRxDuty(false) {
+      _radioChanged(false), _needsTextVKB(false), _wantsWatchChannels(false), _wantsKb(false), _wantsApplyRxDuty(false), _wantsApplyRxLevel(false) {
     memset(_editBuf, 0, sizeof(_editBuf));
     #ifdef HAS_SDCARD
     _savedExportCursor = 0;
@@ -880,6 +897,10 @@ public:
   bool wantsApplyRxDuty() const { return _wantsApplyRxDuty; }
   void clearApplyRxDuty() { _wantsApplyRxDuty = false; }
   bool getRxDutyCycleEnabled() const { return _prefs->rx_duty_cycle != 0; }
+  // Nap-depth apply bridge (polled by UITask alongside the on/off apply).
+  bool wantsApplyRxLevel() const { return _wantsApplyRxLevel; }
+  void clearApplyRxLevel() { _wantsApplyRxLevel = false; }
+  uint8_t getRxDutyLevel() const { return _prefs->rx_duty_level; }
   const char* getKbInitialText() const { return _kbInitText; }
   bool isOnDefaultRegionRow() const {
     return _cursor >= 0 && _cursor < _numRows && _rows[_cursor].type == ROW_DEFAULT_SCOPE;
@@ -892,7 +913,7 @@ public:
   bool applyComposedField(const char* text) {
     SettingsRowType t = _rows[_cursor].type;
     if (t != ROW_NAME && t != ROW_DEFAULT_SCOPE &&
-        t != ROW_FREQ && t != ROW_ADD_CHANNEL) return false;  // row changed underneath
+        t != ROW_FREQ && t != ROW_ADD_CHANNEL && t != ROW_TX_POWER) return false;  // row changed underneath
     startEditText("");
     submitEditText(text ? text : "");
     return true;
@@ -2028,6 +2049,19 @@ public:
                    _prefs->rx_duty_cycle ? "ON" : "OFF");
           display.print(tmp);
           break;
+
+        case ROW_RX_DUTY_LEVEL: {
+          const char* lvl = (_prefs->rx_duty_level == 2) ? "Aggressive"
+                          : (_prefs->rx_duty_level == 1) ? "Medium" : "Light";
+          snprintf(tmp, sizeof(tmp), "Nap Depth: %s", lvl);
+          display.print(tmp);
+          break;
+        }
+
+        case ROW_RX_DUTY_UNAVAIL:
+          display.setColor(DisplayDriver::YELLOW);
+          display.print("Rx Duty: SF9 or lower only");
+          break;
 #endif
 
         #ifdef HAS_SDCARD
@@ -2642,9 +2676,17 @@ public:
       }
     #endif
     } else if (_editMode == EDIT_PICKER) {
+#if defined(MECK_TWATCH)
+      display.print("Tap:+/-   Hold:Save");
+#else
       display.print("A/D:Choose Enter:Ok");
+#endif
     } else if (_editMode == EDIT_NUMBER) {
+#if defined(MECK_TWATCH)
+      display.print("Tap:+/-   Hold:Save");
+#else
       display.print("W/S:Adj Enter:Ok Q:Cancel");
+#endif
     } else if (_editMode == EDIT_CONFIRM) {
       // Footer already covered by overlay
     } else {
@@ -2952,6 +2994,15 @@ public:
             _prefs->freq = f;
             _radioChanged = true;
             Serial.printf("Settings: Freq typed to %.3f\n", f);
+          }
+          _editMode = EDIT_NONE;
+        } else if (type == ROW_TX_POWER) {
+          if (_editPos > 0) {
+            int p = atoi(_editBuf);
+            p = constrain(p, 1, 30);
+            _prefs->tx_power_dbm = (uint8_t)p;
+            _radioChanged = true;
+            Serial.printf("Settings: TX power typed to %d\n", p);
           }
           _editMode = EDIT_NONE;
         } else if (type == ROW_ADD_CHANNEL) {
@@ -3279,7 +3330,13 @@ public:
           startEditInt(_prefs->cr);
           break;
         case ROW_TX_POWER:
+#if defined(MECK_TWATCH)
+          // Watch: type the value (range is wide; cycling is tedious).
+          snprintf(_kbInitText, sizeof(_kbInitText), "%d", _prefs->tx_power_dbm);
+          _wantsKb = true;   // UITask::loop() polls and opens the touch keyboard
+#else
           startEditInt(_prefs->tx_power_dbm);
+#endif
           break;
         case ROW_UTC_OFFSET:
           startEditInt(_prefs->utc_offset_hours);
@@ -3443,6 +3500,13 @@ public:
           _wantsApplyRxDuty = true;   // UITask::loop() polls and applies to radio_driver
           Serial.printf("Settings: Rx Duty Cycle = %s\n",
                         _prefs->rx_duty_cycle ? "ON" : "OFF");
+          break;
+
+        case ROW_RX_DUTY_LEVEL:
+          _prefs->rx_duty_level = (_prefs->rx_duty_level >= 2) ? 0 : _prefs->rx_duty_level + 1;
+          the_mesh.savePrefs();
+          _wantsApplyRxLevel = true;   // UITask::loop() polls and applies to radio_driver
+          Serial.printf("Settings: Nap Depth = %d\n", _prefs->rx_duty_level);
           break;
 #endif
 

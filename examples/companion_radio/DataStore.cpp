@@ -210,6 +210,9 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     if (file.read((uint8_t *)&_prefs.rx_duty_cycle, sizeof(_prefs.rx_duty_cycle)) != sizeof(_prefs.rx_duty_cycle)) {
       _prefs.rx_duty_cycle = 0;  // default: off
     }
+    if (file.read((uint8_t *)&_prefs.rx_duty_level, sizeof(_prefs.rx_duty_level)) != sizeof(_prefs.rx_duty_level)) {
+      _prefs.rx_duty_level = 0;  // default: Light
+    }
 
     // Clamp to valid ranges
     if (_prefs.dark_mode > 1) _prefs.dark_mode = 0;
@@ -227,6 +230,7 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     if (_prefs.backlight_brightness_pct < 5 || _prefs.backlight_brightness_pct > 100) _prefs.backlight_brightness_pct = 100;
     if (_prefs.kb_backlight_pct < 5 || _prefs.kb_backlight_pct > 100) _prefs.kb_backlight_pct = 50;
     if (_prefs.rx_duty_cycle > 1) _prefs.rx_duty_cycle = 0;
+    if (_prefs.rx_duty_level > 2) _prefs.rx_duty_level = 0;
     // auto_lock_minutes: only accept known options (0, 2, 5, 10, 15, 30)
     {
       uint8_t alm = _prefs.auto_lock_minutes;
@@ -291,6 +295,7 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.backlight_brightness_pct, sizeof(_prefs.backlight_brightness_pct)); // 175
     file.write((uint8_t *)&_prefs.kb_backlight_pct, sizeof(_prefs.kb_backlight_pct));            // 176
     file.write((uint8_t *)&_prefs.rx_duty_cycle, sizeof(_prefs.rx_duty_cycle));                  // 177
+    file.write((uint8_t *)&_prefs.rx_duty_level, sizeof(_prefs.rx_duty_level));                  // 178
 
     file.close();
   }

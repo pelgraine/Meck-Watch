@@ -87,15 +87,49 @@ void RadioLibWrapper::loop() {
   }
 }
 
-void RadioLibWrapper::startRecv() {
 #if defined(MECK_RX_DUTY_CYCLE)
-  // Watch: SX126x hardware RX duty cycling. senderPreambleLength 0 = use the
-  // configured preamble; minSymbols 0 = library minimum. At preambles too
-  // short to sleep, RadioLib falls back to continuous startReceive() itself.
-  int err = ((SX126x*)_radio)->startReceiveDutyCycleAuto(0, 0);
-#else
-  int err = _radio->startReceive();
+// Nap depths -- see setDutyLevel(). Listen window is held long enough to detect
+// a preamble; the sleep window sets how deeply we nap. On short-preamble senders
+// the miss rate tracks the asleep fraction ~1:1, which is the user-facing dial.
+#define MECK_RX_DUTY_LISTEN_SYM   9
+static const uint8_t MECK_RX_DUTY_SLEEP_SYM[3] = { 4, 9, 16 };  // Light, Medium, Aggressive
+
+// Arm the SX126x's own hardware RX duty cycle for the current SF/BW and the
+// selected nap depth. The chip listens for rxPeriod, naps for sleepPeriod, and
+// holds in RX by itself once it detects a preamble (so a detected packet is not
+// cut off). If the sleep window is too short for the chip's transition time
+// (very short-symbol presets), RadioLib rejects it and we fall back to plain
+// continuous RX -- i.e. no napping, never a dropped packet.
+int RadioLibWrapper::armDutyCycleRx() {
+  SX126x* r = (SX126x*)_radio;
+  uint8_t sf = r->spreadingFactor;
+  float   bw = r->bandwidthKhz;
+  if (sf < 7 || bw <= 0.0f) return r->startReceive();   // safety -> continuous
+
+  // symbol time (us) = (2^SF / BW_kHz) * 1000
+  uint32_t tsym_us = (uint32_t)((float)((uint32_t)1 << sf) / bw * 1000.0f);
+  uint8_t  lvl = (_dutyLevel > 2) ? 2 : _dutyLevel;
+  uint32_t rx_us    = tsym_us * MECK_RX_DUTY_LISTEN_SYM;
+  uint32_t sleep_us = tsym_us * MECK_RX_DUTY_SLEEP_SYM[lvl];
+
+  int err = r->startReceiveDutyCycle(rx_us, sleep_us);
+  if (err != RADIOLIB_ERR_NONE) {
+    err = r->startReceive();   // window too short for this preset -> continuous RX
+  }
+  return err;
+}
 #endif
+
+void RadioLibWrapper::startRecv() {
+  int err;
+#if defined(MECK_RX_DUTY_CYCLE)
+  if (_dutyEnabled) {
+    err = armDutyCycleRx();
+  } else
+#endif
+  {
+    err = _radio->startReceive();
+  }
   if (err == RADIOLIB_ERR_NONE) {
     state = STATE_RX;
   } else {
@@ -126,11 +160,15 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
   }
 
   if (state != STATE_RX) {
+    int err;
 #if defined(MECK_RX_DUTY_CYCLE)
-    int err = ((SX126x*)_radio)->startReceiveDutyCycleAuto(0, 0);
-#else
-    int err = _radio->startReceive();
+    if (_dutyEnabled) {
+      err = armDutyCycleRx();
+    } else
 #endif
+    {
+      err = _radio->startReceive();
+    }
     if (err == RADIOLIB_ERR_NONE) {
       state = STATE_RX;
     } else {

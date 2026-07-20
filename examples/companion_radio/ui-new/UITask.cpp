@@ -2035,6 +2035,10 @@ if (curr) curr->poll();
       ss->clearApplyRxDuty();
       radio_driver.setDutyCycleEnabled(ss->getRxDutyCycleEnabled());
     }
+    if (ss->wantsApplyRxLevel()) {
+      ss->clearApplyRxLevel();
+      radio_driver.setDutyLevel(ss->getRxDutyLevel());
+    }
   }
 #endif
 

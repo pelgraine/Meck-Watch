@@ -91,6 +91,13 @@ struct NodePrefs {  // persisted to file
   // this final field and it keeps its memset-0 default (see DataStore.cpp).
   uint8_t rx_duty_cycle;           // 0 = off (default), 1 = on
 
+  // Nap depth for the RX duty cycle: 0 = Light (~31% asleep), 1 = Medium
+  // (~50%), 2 = Aggressive (~64%). Persists independently of rx_duty_cycle, so
+  // the last-chosen depth is restored when the feature is switched back on.
+  // Older prefs files short-read this final field and keep the memset-0 (Light)
+  // default.
+  uint8_t rx_duty_level;           // 0 = Light (default), 1 = Medium, 2 = Aggressive
+
   // --- Font helpers (inline, no overhead) ---
   // Returns the DisplayDriver text-size index for "small/body" text.
   // T-Deck Pro: 0 = built-in 6×8 (or 7pt with custom fonts), 1 = 9pt.
