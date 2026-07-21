@@ -149,11 +149,19 @@ public:
       _lastY = y;                                    // track the drag
     } else if (!now && _touchDown) {
       _touchDown = false;
-      // Vertical swipe scrolls the list (matches TOUCH_SWIPE_THRESHOLD=16 on
-      // the watch). Checked first so a slow drag never confirms or exits.
+      // Vertical swipe pages the list one screenful per swipe (same as the
+      // settings/notes page scroll): the viewport moves, the selection stays
+      // put, and the scroll clamps at the ends (no wraparound). Checked first
+      // so a slow drag never confirms or exits (TOUCH_SWIPE_THRESHOLD=16).
       int dy = _lastY - _downY;
       if (abs(dy) >= 16) {
-        if (dy > 0) moveDown(); else moveUp();       // swipe down = selection down
+        int vis = visibleRows();
+        int maxScroll = (int)_numChannels - vis;
+        if (maxScroll < 0) maxScroll = 0;
+        int st = (int)_scrollTop + ((dy > 0) ? vis : -vis);   // swipe down = next page
+        if (st < 0) st = 0;
+        if (st > maxScroll) st = maxScroll;
+        _scrollTop = (uint8_t)st;
         return;
       }
       unsigned long held = millis() - _downAt;

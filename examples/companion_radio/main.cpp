@@ -163,7 +163,7 @@ static uint32_t _atoi(const char* sp) {
     #include "WatchNotesScreen.h"  // After UITask.h -- needs NodePrefs
     #include "WatchChannelConfigScreen.h"  // After UITask.h -- needs NodePrefs, the_mesh
   #endif
-  #if defined(MECK_TWATCH) && HAS_GPS
+  #if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
     #include "WatchMapScreen.h"  // After BLE -- PNGdec headers conflict with BLE if included earlier
   #endif
   UITask ui_task(&board, &serial_interface);
@@ -298,7 +298,7 @@ static void lastHeardToggleContact() {
       return '\r';
     }
 
-#if defined(MECK_TWATCH) && HAS_GPS
+#if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
     // Map screen: footer +/- buttons zoom; a tap in the map area recenters on
     // GPS. (A top-strip tap is already handled above -> home.)
     if (ui_task.isOnMapScreen()) {
@@ -703,7 +703,7 @@ static void lastHeardToggleContact() {
 
     // SMS screen: dedicated touch handler covers all interaction
 
-#if defined(MECK_TWATCH) && HAS_GPS
+#if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
     // Map screen: swipe pans the viewport (logical-pixel delta)
     if (ui_task.isOnMapScreen()) {
       WatchMapScreen* wms = (WatchMapScreen*)ui_task.getMapScreen();
@@ -852,7 +852,7 @@ static void lastHeardToggleContact() {
         if (row == 1 && col == 0) { ui_task.gotoSettingsScreen();      return 0; }
         if (row == 1 && col == 1) { ui_task.gotoDiscoveryScreen();     return 0; }
         if (row == 2 && col == 0) { ui_task.gotoTraceScreen();         return 0; }
-#if defined(LILYGO_TWATCH_S3)
+#if defined(LILYGO_TWATCH_S3) || defined(MECK_NO_MAPS)
         // No GNSS on the plain S3, so this slot is the games launcher.
         if (row == 2 && col == 1) { ui_task.gotoGamesMenu(); return 0; }
 #elif HAS_GPS
@@ -1510,7 +1510,7 @@ void loop() {
   #ifdef DISPLAY_CLASS
   #endif
 
-#if defined(MECK_TWATCH) && HAS_GPS
+#if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
   // Watch map screen: on open, centre on GPS and populate contact markers; then
   // refresh own position + markers periodically while it stays open.
   {

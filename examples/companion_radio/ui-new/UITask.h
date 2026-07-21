@@ -214,7 +214,7 @@ public:
   uint32_t getTodaySteps();                // Steps accumulated today
   uint32_t getStepHistory(int daysAgo);    // 0 = today, 1..6 = previous days
 #endif
-#if HAS_GPS
+#if HAS_GPS && !defined(MECK_NO_MAPS)
   void gotoMapScreen();         // Navigate to map tile screen
 #endif
 #ifdef MECK_WEB_READER

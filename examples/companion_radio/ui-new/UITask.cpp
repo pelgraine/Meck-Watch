@@ -14,7 +14,7 @@
 #ifdef MECK_WEB_READER
   #include "WebReaderScreen.h"
 #endif
-#if defined(MECK_TWATCH) && HAS_GPS
+#if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
   #include "WatchMapScreen.h"
 #endif
 #include "target.h"
@@ -503,7 +503,7 @@ public:
         const Tile tiles[4][2] = {
           { {icon_envelope, "Messages", 0x0CB1}, {icon_people,  "Contacts", 0xCAA0} },
           { {icon_gear,     "Settings", 0x0560}, {icon_search,  "Discover", 0xF81F} },
-#if defined(LILYGO_TWATCH_S3)
+#if defined(LILYGO_TWATCH_S3) || defined(MECK_NO_MAPS)
           { {icon_trace,    "Trace",    0xF800}, {icon_gamepad, "Games",    0x231D} },
 #else
           { {icon_trace,    "Trace",    0xF800}, {icon_map,     "Maps",     0x231D} },
@@ -1334,7 +1334,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   ((TWatchChannelScreen*)tw_channel)->setStore((ChannelScreen*)channel_screen);
 #endif
   audiobook_screen = nullptr;  // Created and assigned from main.cpp if audio hardware present
-#if defined(MECK_TWATCH) && HAS_GPS
+#if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
   map_screen = new WatchMapScreen(this);
 #else
   map_screen = nullptr;
@@ -2866,7 +2866,7 @@ void UITask::gotoWebReader() {
 }
 #endif
 
-#if HAS_GPS
+#if HAS_GPS && !defined(MECK_NO_MAPS)
 void UITask::gotoMapScreen() {
   if (!map_screen) return;  // Not available on this platform (T-Echo Card)
 #if defined(MECK_TWATCH)
