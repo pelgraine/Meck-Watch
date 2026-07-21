@@ -184,6 +184,12 @@ public:
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
 
   void gotoHomeScreen();
+#if defined(LILYGO_TWATCH_S3_PLUS) && defined(MECK_NO_MAPS)
+  // Wake the display (if off) and show the clock face. Used by the PWR key
+  // poll in loop() and by the display-off wake-tap gate in main.cpp.
+  void gotoClockScreen();
+  bool isDisplayOn() const { return _display != NULL && _display->isOn(); }
+#endif
   void gotoChannelScreen(bool resetDmView = true);  // Navigate to channel message screen
   void gotoChannelPickerScreen();  // Navigate to channel picker (bubble/list)
 #ifdef TWATCH_COMPOSE_ENABLED

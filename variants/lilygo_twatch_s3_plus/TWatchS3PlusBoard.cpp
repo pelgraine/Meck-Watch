@@ -126,6 +126,11 @@ bool TWatchS3PlusBoard::power_init() {
     PMU = NULL;
     return false;
   }
+#ifdef MECK_NO_MAPS
+  // Same object, concrete type -- constructed as XPowersAXP2101 just above.
+  // Backs PMUButton's pekey IRQ reads; see the note in TWatchS3PlusBoard.h.
+  _axp = static_cast<XPowersAXP2101*>(PMU);
+#endif
 
   PMU->setChargingLedMode(XPOWERS_CHG_LED_CTRL_CHG);
 
@@ -156,6 +161,19 @@ bool TWatchS3PlusBoard::power_init() {
 
   PMU->disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
   PMU->clearIrqStatus();
+
+#ifdef MECK_NO_MAPS
+  // PWR key (SW7 -> AXP2101 PWRON, same wiring as the S3), read by PMUButton:
+  //   press < 1s          -> PKEY_SHORT_IRQ, consumed by PMUButton as a click
+  //   1s <= press < 4s    -> nothing (PKEY_LONG_IRQ is left masked)
+  //   press >= 4s         -> hardware power-off (XPOWERS_POWEROFF_4S, below)
+  // SHORT gives the click; NEGATIVE/POSITIVE are the press/release edges that
+  // back PMUButton::isPressed().
+  _axp->setIrqLevelTime(XPOWERS_AXP2101_IRQ_TIME_1S);   // not on XPowersLibInterface
+  PMU->enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ |
+                 XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
+                 XPOWERS_AXP2101_PKEY_POSITIVE_IRQ);
+#endif
 
   PMU->setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_200MA);
   // The fitted cell (Tewaycell 112530-2P, label verified) is 3.8V nominal

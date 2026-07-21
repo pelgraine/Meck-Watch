@@ -1631,14 +1631,26 @@ void loop() {
         }
       }
       else if (gotPoint && !touchDown) {
-        touchDown = true;
-        touchDownTime = now;
-        touchDownX = tx;
-        touchDownY = ty;
-        touchLastX = tx;
-        touchLastY = ty;
-        longPressHandled = false;
-        swipeHandled = false;
+#if defined(LILYGO_TWATCH_S3_PLUS) && defined(MECK_NO_MAPS)
+        // Display off: this touch is a wake gesture only. Show the clock face
+        // and swallow the rest of the gesture (cooldown clears once the
+        // finger lifts).
+        if (!ui_task.isDisplayOn()) {
+          ui_task.gotoClockScreen();
+          lastTouchEventMs = now;
+          touchCooldown = true;
+        } else
+#endif
+        {
+          touchDown = true;
+          touchDownTime = now;
+          touchDownX = tx;
+          touchDownY = ty;
+          touchLastX = tx;
+          touchLastY = ty;
+          longPressHandled = false;
+          swipeHandled = false;
+        }
       }
       else if (touchDown && fingerPresent) {
         if (gotPoint) {

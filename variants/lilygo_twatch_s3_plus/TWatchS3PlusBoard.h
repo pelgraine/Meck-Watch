@@ -16,6 +16,11 @@ class SensorBMA423;  // full include kept in the .cpp to avoid a BLE-build heade
 
 class TWatchS3PlusBoard : public ESP32Board {
   XPowersLibInterface* PMU = NULL;
+#ifdef MECK_NO_MAPS
+  // Same object as PMU, concrete type (S3 pattern): PMUButton's pekey IRQ
+  // reads and setIrqLevelTime() are not on XPowersLibInterface.
+  XPowersAXP2101* _axp = NULL;
+#endif
   SensorBMA423* _accel = nullptr;
   static volatile bool _tilt_flag;
   static volatile uint32_t _tilt_isr_count;   // TEMP diagnostic
@@ -28,6 +33,11 @@ public:
 
   // Returns true once when the BMA423 tilt (wrist-raise) interrupt has fired.
   bool tiltFired();
+
+#ifdef MECK_NO_MAPS
+  // The AXP2101 handle, for PMUButton. NULL if the PMU failed to init.
+  XPowersAXP2101* getPMU() { return _axp; }
+#endif
 
   void enterDeepSleep(uint32_t secs, int pin_wake_btn) {
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);

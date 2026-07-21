@@ -1136,7 +1136,14 @@ public:
   }
 
   bool handleInput(char c) override {
+#if defined(LILYGO_TWATCH_S3_PLUS) && defined(MECK_NO_MAPS)
+    // No-maps Plus: the clock face is the resting screen. Taps and the boot
+    // button do not dismiss it; only the PWR key (polled in UITask::loop)
+    // goes to the home UI.
+    (void)c;
+#else
     _task->gotoHomeScreen();  // any input dismisses the clock screen back to the tiles
+#endif
     return true;
   }
 };
@@ -1241,6 +1248,9 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 #if (defined(PIN_USER_BTN) || defined(MECK_PMU_BUTTON))
   user_btn.begin();
+#endif
+#if defined(LILYGO_TWATCH_S3_PLUS) && defined(MECK_NO_MAPS)
+  pwr_btn.begin();
 #endif
 #if defined(PIN_USER_BTN_ANA)
   analog_btn.begin();
@@ -1785,6 +1795,23 @@ void UITask::loop() {
     c = handleTripleClick(KEY_SELECT);
   }
 #endif
+#if defined(LILYGO_TWATCH_S3_PLUS) && defined(MECK_NO_MAPS)
+  // Side PWR key (AXP2101 PWRON, polled). The clock face is the resting
+  // screen: display off -> wake to the clock (press consumed); on the clock
+  // -> home UI; any other screen -> back to the clock.
+  {
+    int pev = pwr_btn.check();
+    if (pev == BUTTON_EVENT_CLICK) {
+      if (_display == NULL || !_display->isOn()) {
+        gotoClockScreen();
+      } else if (curr == lock_screen) {
+        gotoHomeScreen();
+      } else {
+        gotoClockScreen();
+      }
+    }
+  }
+#endif
 #if defined(PIN_USER_BTN_ANA)
   if (abs(millis() - _analogue_pin_read_millis) > 10) {
     ev = analog_btn.check();
@@ -2322,6 +2349,16 @@ void UITask::gotoHomeScreen() {
     Serial.println("[UI] Boot hint activated");
   }
 }
+
+#if defined(LILYGO_TWATCH_S3_PLUS) && defined(MECK_NO_MAPS)
+void UITask::gotoClockScreen() {
+  if (_display != NULL && !_display->isOn()) {
+    _display->turnOn();
+  }
+  setCurrScreen(lock_screen);
+  _auto_off = millis() + AUTO_OFF_MILLIS;
+}
+#endif
 
 bool UITask::isEditingHomeScreen() const {
   return curr == home && ((HomeScreen *) home)->isEditingUTC();

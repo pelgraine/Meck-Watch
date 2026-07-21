@@ -13,6 +13,9 @@
 #ifdef DISPLAY_CLASS
   #include <TWatchS3PlusDisplay.h>
   #include <helpers/ui/MomentaryButton.h>
+  #ifdef MECK_NO_MAPS
+    #include <PMUButton.h>
+  #endif
 #endif
 
 #if HAS_GPS
@@ -37,6 +40,10 @@ extern AutoDiscoverRTCClock rtc_clock;
 #ifdef DISPLAY_CLASS
   extern DISPLAY_CLASS display;
   extern MomentaryButton user_btn;
+  #ifdef MECK_NO_MAPS
+    // Side PWR key (AXP2101 PWRON), separate from the GPIO0 user_btn.
+    extern PMUButton pwr_btn;
+  #endif
 #endif
 
 bool radio_init();
