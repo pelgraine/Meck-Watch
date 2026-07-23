@@ -329,7 +329,7 @@ class TWatchChannelScreen : public UIScreen {
 
     char head[28];
     snprintf(head, sizeof(head), "Heard by: %d", count);   // distinct repeaters
-    d->setRawColor(0x7BEF);
+    d->setRawColor(0xC618);   // pale grey -- matches the hop-path header
     d->printSmallFont(bx + 5, by + 8, head);
 
     if (count == 0 || bph == 0) {
@@ -407,8 +407,26 @@ class TWatchChannelScreen : public UIScreen {
       snprintf(head, sizeof(head), "%d hops, %d-byte",
                m->path_len & 63, (m->path_len >> 6) + 1);
     }
-    d->setRawColor(0x7BEF);
+    d->setRawColor(0xC618);   // pale grey -- 0x7BEF was too dark on black
     d->printSmallFont(bx + 5, by + 8, head);
+
+    // Received time (incoming only -- a sent bubble's timestamp is the send
+    // time, not a receive time). Same local-time convention as the clock
+    // screen: RTC epoch plus the UTC offset pref.
+    int pathY = by + 19;
+    if (!isSent(m) && m->timestamp > 1700000000) {
+      time_t local = (time_t)m->timestamp +
+                     (time_t)the_mesh.getNodePrefs()->utc_offset_hours * 3600;
+      struct tm tmv;
+      gmtime_r(&local, &tmv);
+      static const char* const mons[] = { "Jan","Feb","Mar","Apr","May","Jun",
+                                          "Jul","Aug","Sep","Oct","Nov","Dec" };
+      char rx[28];
+      snprintf(rx, sizeof(rx), "Rx: %d %s %02d:%02d",
+               tmv.tm_mday, mons[tmv.tm_mon], tmv.tm_hour, tmv.tm_min);
+      d->printSmallFont(bx + 5, pathY, rx);
+      pathY += 11;
+    }
 
     if (m->path_len == 0 || m->path_len == 0xFF) return;
 
@@ -419,7 +437,7 @@ class TWatchChannelScreen : public UIScreen {
     // Hex hops in the path-editor format ("3601,2198,..."), wrapped
     // token-wise across small-font lines.
     char line[36];
-    int ll = 0, y = by + 19;
+    int ll = 0, y = pathY;
     d->setRawColor(0xFFFF);
     for (int b = 0; b < byteLen; b += bph) {
       char tok[9];
