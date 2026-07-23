@@ -671,7 +671,16 @@ public:
       sprintf(tmp, "TX: %ddBm", _node_prefs->tx_power_dbm);
       display.print(tmp);
       display.setCursor(0, 53);
-      sprintf(tmp, "Noise floor: %d", radio_driver.getNoiseFloor());
+      // While RX duty cycle is on the radio sleeps between listen windows, so
+      // the noise-floor sampler is skipped and getNoiseFloor() reads a stale 0.
+      // Show the last received packet's RSSI instead -- a real measurement
+      // taken with the receiver awake -- and restore the noise floor row when
+      // duty cycle is off.
+      if (radio_driver.isDutyCycleActive()) {
+        sprintf(tmp, "Last Pkt RSSI: %d", (int)radio_driver.getLastRSSI());
+      } else {
+        sprintf(tmp, "Noise floor: %d", radio_driver.getNoiseFloor());
+      }
       display.print(tmp);
       display.setCursor(0, 64);
       sprintf(tmp, "RX packets: %u", (unsigned)the_mesh.getRxPacketCount());

@@ -266,6 +266,25 @@ static void lastHeardToggleContact() {
           return 'd';  // reading mode: treat as next page
         }
       }
+#if defined(MECK_TWATCH)
+      // Repeater admin: unwind one level rather than leaving the screen, so
+      // the admin session (and password) is kept -- response/error -> command
+      // menu -> category menu, via the screen's own KEY_ADMIN_EXIT routing.
+      // The top-level category menu and the password prompt have no level to
+      // go back to, so those fall through to the home UI below.
+      if (ui_task.isOnRepeaterAdmin()) {
+        RepeaterAdminScreen* admin = (RepeaterAdminScreen*)ui_task.getRepeaterAdminScreen();
+        if (admin) {
+          RepeaterAdminScreen::AdminState astate = admin->getState();
+          if (astate != RepeaterAdminScreen::STATE_CATEGORY_MENU &&
+              astate != RepeaterAdminScreen::STATE_PASSWORD_ENTRY) {
+            admin->handleInput(KEY_ADMIN_EXIT);
+            ui_task.forceRefresh();
+            return 0;
+          }
+        }
+      }
+#endif
       ui_task.gotoHomeScreen();
       return 0;
     }

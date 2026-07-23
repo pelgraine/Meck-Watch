@@ -651,7 +651,11 @@ public:
 
       case STATE_LOGGING_IN:
       case STATE_COMMAND_PENDING:
+#if   defined(MECK_TWATCH)
+        display.print("Tap top: Cancel");
+#else
         display.print("Q:Cancel");
+#endif
         break;
 
       case STATE_CATEGORY_MENU:
@@ -682,16 +686,28 @@ public:
         break;
 
       case STATE_CONFIRM:
+#if   defined(MECK_TWATCH)
+        display.print("Tap top: No");
+        renderFooterRight(display, footerY, "Long Press: Yes");
+#else
         display.print("Q:No");
         renderFooterRight(display, footerY, "Ent:Yes");
+#endif
         break;
 
       case STATE_RESPONSE_VIEW:
       case STATE_ERROR:
+#if   defined(MECK_TWATCH)
+        display.print("Tap top: Back");
+        if (_responseTotalLines > bodyHeight / 9) {
+          renderFooterRight(display, footerY, "Swipe:Scrll");
+        }
+#else
         display.print("Q:Back");
         if (_responseTotalLines > bodyHeight / 9) {
           renderFooterRight(display, footerY, "W/S:Scrll");
         }
+#endif
         break;
     }
 
