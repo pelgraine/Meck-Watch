@@ -1,6 +1,10 @@
 #define RADIOLIB_STATIC_ONLY 1
 #include "RadioLibWrappers.h"
 
+#if defined(MECK_DUTY_DIAG)
+#include <LittleFS.h>   // diag v2 file logger; mounted by main.cpp before the_mesh.begin()
+#endif
+
 #define STATE_IDLE       0
 #define STATE_RX         1
 #define STATE_TX_WAIT    3
@@ -10,7 +14,46 @@
 #define NUM_NOISE_FLOOR_SAMPLES  64
 #define SAMPLING_THRESHOLD  14
 
+// Re-arm watchdog cadence while RX duty-cycle mode is on (see loop()). 60s
+// measured at no detectable power impact by the duty diag v2 discharge logs.
+#define DUTY_REARM_INTERVAL_MS  60000UL
+
 static volatile uint8_t state = STATE_IDLE;
+
+#if defined(MECK_DUTY_DIAG)
+// Temporary diagnostics for the RX duty-cycle drain investigation -- remove
+// once concluded. Enable with -D MECK_DUTY_DIAG on the env. Prints a DDIAG
+// line every 10s; every 6th line (60s) probes the chip's actual operating
+// mode via GetStatus (read-only in v2.1 -- no re-arm).
+// Optional second flag -D MECK_DUTY_DIAG_PULLDOWN adds a weak pulldown on
+// DIO1 -- see begin().
+static volatile uint32_t diag_isr = 0;   // DIO1 interrupts (RxDone + TxDone + phantoms)
+static uint32_t diag_arms = 0;           // armDutyCycleRx() invocations
+static uint32_t diag_fallbacks = 0;      // arms that fell back to continuous RX
+static uint32_t diag_rx_us = 0;          // last computed listen window
+static uint32_t diag_slp_us = 0;         // last computed sleep window (as passed;
+                                         // RadioLib deducts tcxoDelay+1000us internally)
+static int16_t  diag_last_arm_err = 0;   // last startReceiveDutyCycle return code
+static bool     diag_first_arm = true;
+
+// --- diag v2.1: on-battery discharge logger -----------------------------
+// Appends CSV records to LittleFS so an unattended, worn, on-battery run can
+// be read back over serial afterwards (the file is dumped at every boot).
+// Record types: H header, B boot marker, E duty-toggle event, L 60s sample.
+// v2.1: the 60s chip probe is READ-ONLY (v2's forced re-arm removed), so any
+// drain state that only develops under sustained duty cycling can take hold.
+#define DUTY_DIAG_FILE       "/duty_diag.csv"
+#define DUTY_DIAG_MAX_BYTES  65536
+static bool diag_fs_ok = false;
+static int  diag_last_evt_duty = -1;
+
+static void diagAppendLine(const char* line) {
+  if (!diag_fs_ok) return;
+  File f = LittleFS.open(DUTY_DIAG_FILE, FILE_APPEND);
+  if (f) { f.println(line); f.close(); }
+}
+// ------------------------------------------------------------------------
+#endif
 
 // this function is called when a complete packet
 // is transmitted by the module
@@ -19,12 +62,66 @@ static
   ICACHE_RAM_ATTR
 #endif
 void setFlag(void) {
+#if defined(MECK_DUTY_DIAG)
+  diag_isr++;
+#endif
   // we sent a packet, set the flag
   state |= STATE_INT_READY;
 }
 
 void RadioLibWrapper::begin() {
   _radio->setPacketReceivedAction(setFlag);  // this is also SentComplete interrupt
+
+#if defined(MECK_DUTY_DIAG_PULLDOWN) && defined(P_LORA_DIO_1)
+  // Diagnostic: weak pulldown on DIO1. The SX1262's DIOs go high-impedance
+  // during the sleep phase of SetRxDutyCycle, leaving this input floating for
+  // every nap window; if the duty-cycle drain is a floating-input interrupt
+  // storm, this kills it. The chip drives DIO1 push-pull while awake, so real
+  // IRQs are unaffected.
+  pinMode(P_LORA_DIO_1, INPUT_PULLDOWN);
+#endif
+
+#if defined(MECK_DUTY_DIAG)
+  // diag v2 file logger init. LittleFS is mounted by main.cpp (setup, before
+  // the_mesh.begin() reaches here), so only probe it. Dump any existing log
+  // to serial for collection, rotate if oversized, then mark this boot.
+  {
+    File probe = LittleFS.open(DUTY_DIAG_FILE, FILE_READ);
+    if (probe) {
+      size_t sz = probe.size();
+      Serial.printf("=== DUTY_DIAG FILE DUMP BEGIN (%s, %u bytes) ===\n",
+                    DUTY_DIAG_FILE, (unsigned)sz);
+      while (probe.available()) {
+        Serial.write((uint8_t)probe.read());
+      }
+      probe.close();
+      Serial.println("=== DUTY_DIAG FILE DUMP END ===");
+      diag_fs_ok = true;
+      if (sz > DUTY_DIAG_MAX_BYTES) {
+        LittleFS.remove(DUTY_DIAG_FILE);
+        Serial.println("DUTY_DIAG: log exceeded 64KB, rotated (deleted)");
+      }
+    } else {
+      File f = LittleFS.open(DUTY_DIAG_FILE, FILE_WRITE);   // create; also proves FS usable
+      if (f) {
+        f.close();
+        diag_fs_ok = true;
+      } else {
+        Serial.println("DUTY_DIAG: LittleFS unavailable, file logging disabled");
+      }
+    }
+    if (diag_fs_ok) {
+      File chk = LittleFS.open(DUTY_DIAG_FILE, FILE_READ);
+      bool empty = (!chk || chk.size() == 0);
+      if (chk) chk.close();
+      if (empty) diagAppendLine("H,rec,millis,duty,lvl,mV,pct,isr,arms,fb,nrecv,nsent,chip");
+      char line[48];
+      snprintf(line, sizeof(line), "B,%lu", millis());
+      diagAppendLine(line);
+    }
+  }
+#endif
+
   state = STATE_IDLE;
 
   if (_board->getStartupReason() == BD_STARTUP_RX_PACKET) {  // received a LoRa packet (while in deep sleep)
@@ -62,11 +159,92 @@ void RadioLibWrapper::resetAGC() {
 }
 
 void RadioLibWrapper::loop() {
+#if defined(MECK_DUTY_DIAG)
+  static unsigned long diag_next_print = 0;
+  static uint8_t diag_tick = 0;
+  if (millis() >= diag_next_print) {
+    diag_next_print = millis() + 10000;
+    // File log: duty-toggle transitions, checked at 10s resolution so an
+    // unattended run records when the state changed.
+    if ((int)_dutyEnabled != diag_last_evt_duty) {
+      diag_last_evt_duty = (int)_dutyEnabled;
+      char ev[48];
+      snprintf(ev, sizeof(ev), "E,%lu,duty=%d", millis(), (int)_dutyEnabled);
+      diagAppendLine(ev);
+    }
+    char chip[8] = "-";
+    if (++diag_tick >= 6) {   // every 60s: probe the chip's actual mode
+      diag_tick = 0;
+      uint8_t st = 0;
+      int16_t perr = ((SX126x*)_radio)->mod->SPIreadStream(
+          (uint16_t)RADIOLIB_SX126X_CMD_GET_STATUS, &st, 1);
+      if (perr == RADIOLIB_ERR_NONE) {
+        uint8_t mode = (st >> 4) & 0x07;
+        const char* names[8] = { "?0", "?1", "STBY_RC", "STBY_XO", "FS", "RX", "TX", "?7" };
+        snprintf(chip, sizeof(chip), "%s", names[mode]);
+      } else {
+        snprintf(chip, sizeof(chip), "e%d", (int)perr);
+      }
+      // v2.1: probe is read-only -- no forced re-arm. This lets any state
+      // that only develops under sustained, uninterrupted duty cycling
+      // (which v2's 60s re-arm would have kept resetting) take hold.
+      // File log: one full sample per minute, aligned with the chip probe.
+      char rec[160];
+      snprintf(rec, sizeof(rec), "L,%lu,%d,%u,%u,%u,%lu,%lu,%lu,%lu,%lu,%s",
+               millis(), (int)_dutyEnabled, (unsigned)_dutyLevel,
+               (unsigned)_board->getBattMilliVolts(),
+               (unsigned)_board->getBatteryPercent(),
+               (unsigned long)diag_isr, (unsigned long)diag_arms,
+               (unsigned long)diag_fallbacks,
+               (unsigned long)n_recv, (unsigned long)n_sent, chip);
+      diagAppendLine(rec);
+    }
+    Serial.printf("DDIAG t=%lus duty=%d lvl=%u isr=%lu arms=%lu fb=%lu lastErr=%d rx=%luus slp=%luus nrecv=%lu nsent=%lu st=%u chip=%s\n",
+                  millis() / 1000UL, (int)_dutyEnabled, (unsigned)_dutyLevel,
+                  (unsigned long)diag_isr, (unsigned long)diag_arms,
+                  (unsigned long)diag_fallbacks, (int)diag_last_arm_err,
+                  (unsigned long)diag_rx_us, (unsigned long)diag_slp_us,
+                  (unsigned long)n_recv, (unsigned long)n_sent,
+                  (unsigned)state, chip);
+  }
+#endif
 #if defined(MECK_RX_DUTY_CYCLE)
+  // Apply duty-toggle changes immediately: the settings toggle only flips
+  // _dutyEnabled, and without this the newly selected mode would not take
+  // effect until the next packet or TX forces a re-arm -- on a quiet mesh,
+  // potentially hours. Nudging STATE_RX -> STATE_IDLE makes the next
+  // recvRaw() pass re-arm in the new mode; every other state already
+  // converges through a fresh re-arm when it completes. Also covers duty
+  // enabled from saved prefs at boot.
+  {
+    static int last_duty_applied = -1;
+    if ((int)_dutyEnabled != last_duty_applied) {
+      last_duty_applied = (int)_dutyEnabled;
+      if (state == STATE_RX) {
+        state = STATE_IDLE;
+      }
+    }
+  }
   // Duty-cycle RX sleeps the radio between listen windows, so RSSI floor
   // sampling would read garbage. Skip sampling while the toggle is on; when
   // it is off, sample the noise floor normally.
-  if (_dutyEnabled) return;
+  if (_dutyEnabled) {
+    // Re-arm watchdog: a false preamble detect (noise, foreign LoRa traffic,
+    // a failed sync) ends the SX1262's SetRxDutyCycle sequence with
+    // RxTimeout, which is not mapped to DIO1 -- the chip parks deaf in
+    // STDBY_RC with no interrupt to report it. The AGC reset and RX-stuck
+    // watchdog are both disabled in duty mode, so this periodic nudge is the
+    // only recovery path. Cost: one SetRxDutyCycle command per interval,
+    // measured at no detectable power impact (duty diag v2, 60s cadence).
+    static unsigned long next_duty_rearm = 0;
+    if (millis() >= next_duty_rearm) {
+      next_duty_rearm = millis() + DUTY_REARM_INTERVAL_MS;
+      if (state == STATE_RX) {
+        state = STATE_IDLE;
+      }
+    }
+    return;
+  }
 #endif
   if (state == STATE_RX && _num_floor_samples < NUM_NOISE_FLOOR_SAMPLES) {
     if (!isReceivingPacket()) {
@@ -113,6 +291,20 @@ int RadioLibWrapper::armDutyCycleRx() {
   uint32_t sleep_us = tsym_us * MECK_RX_DUTY_SLEEP_SYM[lvl];
 
   int err = r->startReceiveDutyCycle(rx_us, sleep_us);
+#if defined(MECK_DUTY_DIAG)
+  diag_arms++;
+  diag_rx_us = rx_us;
+  diag_slp_us = sleep_us;
+  diag_last_arm_err = err;
+  if (err != RADIOLIB_ERR_NONE) diag_fallbacks++;
+  if (diag_first_arm) {
+    diag_first_arm = false;
+    Serial.printf("DDIAG first arm: sf=%u bw=%ukHz tsym=%uus rx=%uus slp=%uus err=%d%s\n",
+                  (unsigned)sf, (unsigned)bw, (unsigned)tsym_us,
+                  (unsigned)rx_us, (unsigned)sleep_us, (int)err,
+                  (err == RADIOLIB_ERR_NONE) ? " (duty ARMED)" : " (FELL BACK to continuous RX)");
+  }
+#endif
   if (err != RADIOLIB_ERR_NONE) {
     err = r->startReceive();   // window too short for this preset -> continuous RX
   }

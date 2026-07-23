@@ -1833,13 +1833,25 @@ void loop() {
   // false intermittently during a hold. Time guard prevents that from
   // causing repeat fires.
 
-  // Low-power loop throttle -- yield CPU when lock screen is active.
-  // The RTOS idle task executes WFI (wait-for-interrupt) during delay(),
-  // dramatically reducing CPU power draw.  50 ms gives 20 loop cycles/sec
-  // which is ample for LoRa packet reception (radio has hardware FIFO).
+  // Low-power loop throttle -- yield CPU when the display is off (the watch
+  // spends nearly all its life in this state). The RTOS idle task executes
+  // WFI (wait-for-interrupt) during delay(), dramatically reducing CPU power
+  // draw.  50 ms gives 20 loop cycles/sec which is ample for LoRa packet
+  // reception (radio has hardware FIFO).
+  // Previously keyed to ui_task.isLocked(), which nothing on the watch ever
+  // sets (lockScreen()/unlockScreen() were never ported from the T5S3), so
+  // the throttle had never actually run.
 #if defined(MECK_TWATCH)
-  if (ui_task.isLocked()) {
-    delay(50);
+  {
+    bool throttle = !display.isOn();
+#ifdef BLE_PIN_CODE
+    if (serial_interface.isEnabled()) {
+      throttle = false;   // keep BLE frame servicing snappy while Bluetooth is on
+    }
+#endif
+    if (throttle) {
+      delay(50);
+    }
   }
 #endif
 }
