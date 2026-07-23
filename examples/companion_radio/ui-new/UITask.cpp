@@ -2162,13 +2162,17 @@ if (curr) curr->poll();
 #endif
   }
 #if defined(MECK_TWATCH)
+#if !(defined(LILYGO_TWATCH_S3_PLUS) && defined(MECK_NO_MAPS))
   // Raise-to-wake: a wrist-raise (BMA423 tilt) while the display is off turns
   // it back on showing the clock screen and restarts the idle timer.
+  // Excluded on the no-maps Plus builds: there the clock face is woken by a
+  // touch tap only, and dismissed/redisplayed by the PWR key only.
   if (_display != NULL && !_display->isOn() && board.tiltFired()) {
     _display->turnOn();
     setCurrScreen(lock_screen);
     _auto_off = millis() + AUTO_OFF_MILLIS;
   }
+#endif
 
   // Accumulate steps, roll the day over at local midnight, persist periodically.
   updateSteps();
