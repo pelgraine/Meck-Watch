@@ -368,7 +368,9 @@ public:
       display.setCursor(0, y);
       display.print("No contacts");
       display.setCursor(0, y + lineHeight);
-      display.print("A/D: Change filter");
+      display.print("Swipe left/right:");
+      display.setCursor(0, y + lineHeight * 2);
+      display.print("Change filter");
     } else {
       // Center visible window around selected item (TextReaderScreen pattern)
       int maxVisible = (maxY - headerHeight) / lineHeight;

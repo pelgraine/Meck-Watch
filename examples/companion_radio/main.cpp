@@ -69,6 +69,21 @@
   static bool longPressHandled = false;
   static bool swipeHandled = false;
   static bool touchCooldown = false;
+  // Ghost-touch guard. A swipe or long press dispatches while the finger is
+  // still down and may change screen. TOUCH_LIFT_DEBOUNCE_MS (150ms) is short
+  // enough that a run of empty readTouch() polls during a sustained hold can
+  // clear the cooldown early, after which the next real sample is taken as a
+  // fresh touch-down on the newly opened screen -- the source of the stray
+  // keypress and the off-by-one picker row. While this latch is set the
+  // cooldown only releases after a genuinely sustained absence of touch.
+  static bool gestureLatch = false;
+  // Consecutive readTouch() calls that returned nothing. Lift is judged on this
+  // rather than on elapsed time: opening the keyboard renders a full QWERTY
+  // inside UITask::loop(), during which no polling happens at all, so any
+  // wall-clock test would see a "lift" that never occurred and release the
+  // latch with the finger still down.
+  static uint8_t emptyPolls = 0;
+  #define TOUCH_GESTURE_LIFT_POLLS 5
   static unsigned long lastTouchEventMs = 0;
 
 
@@ -587,13 +602,27 @@ static void lastHeardToggleContact() {
     // Path editor screen: tap to select row, tap same to activate
     if (ui_task.isOnPathEditor()) {
       PathEditorScreen* pe = (PathEditorScreen*)ui_task.getPathEditorScreen();
+#if defined(MECK_TWATCH)
+      // Watch: while the mode row is in edit state, a tap cycles the value
+      // (upper/lower halves both step it, matching the settings rows).
+      if (pe && pe->isEditingMode()) {
+        return (vy < 64) ? 'w' : 's';
+      }
+#endif
       if (pe) {
         int result = pe->selectRowAtVY(vy);
         if (result == 1) {
           ui_task.forceRefresh();
           return 0;
         }
+#if defined(MECK_TWATCH)
+        // Watch: the mode row is long-press-to-edit, so a tap on it does
+        // nothing (settings-screen behaviour). Every other row keeps
+        // tap-to-activate.
+        if (result == 2) return pe->isOnModeRow() ? 0 : KEY_ENTER;
+#else
         if (result == 2) return KEY_ENTER;
+#endif
       }
       return 0;
     }
@@ -605,16 +634,21 @@ static void lastHeardToggleContact() {
     // T5S3/T-Deck keep their existing boot-button/keyboard trace handling.
     if (ui_task.isOnTraceScreen()) {
       TraceScreen* ts = (TraceScreen*)ui_task.getTraceScreen();
+      // While the mode row is in edit state, a tap cycles the value
+      // (upper/lower halves both step it, matching the settings rows).
+      if (ts && ts->isEditingMode()) {
+        return (vy < 64) ? 'w' : 's';
+      }
       if (ts) {
         int result = ts->selectRowAtVY(vy);
         if (result == 1) {
           ui_task.forceRefresh();
           return 0;
         }
-        if (result == 2) {
-          if (ts->isOnModeRow()) return 'd';   // toggle 1-byte / 2-byte
-          return KEY_ENTER;                     // Type Path / Add / Remove / Run / Exit / hop
-        }
+        // The mode row is long-press-to-edit, so a tap on it does nothing
+        // (settings-screen behaviour). Every other row keeps tap-to-activate,
+        // including Type Path, which opens the on-screen keyboard.
+        if (result == 2) return ts->isOnModeRow() ? 0 : KEY_ENTER;
       }
       return 0;
     }
@@ -1003,8 +1037,17 @@ static void lastHeardToggleContact() {
       return 'f';
     }
 
-    // Path editor: long press = Enter (select item)
+    // Path editor: long press = Enter (select item). On the watch, aim the
+    // activation at the row under the finger first, as the settings screen
+    // does, so one long-press selects and edits the pressed row.
     if (ui_task.isOnPathEditor()) {
+#if defined(MECK_TWATCH)
+      PathEditorScreen* pe = (PathEditorScreen*)ui_task.getPathEditorScreen();
+      if (pe && !pe->isEditingMode()) {
+        int vx, vy; touchToVirtual(x, y, vx, vy);
+        pe->selectRowAtVY(vy);
+      }
+#endif
       return KEY_ENTER;
     }
 
@@ -1012,6 +1055,13 @@ static void lastHeardToggleContact() {
     // opens the virtual keyboard instead so users can enter a comma-separated
     // hash list without a physical keyboard.
     if (ui_task.isOnTraceScreen()) {
+#if defined(MECK_TWATCH)
+      TraceScreen* ts = (TraceScreen*)ui_task.getTraceScreen();
+      if (ts && !ts->isEditingMode()) {
+        int vx, vy; touchToVirtual(x, y, vx, vy);
+        ts->selectRowAtVY(vy);
+      }
+#endif
       return KEY_ENTER;
     }
 
@@ -1638,15 +1688,22 @@ void loop() {
 
       if (gotPoint) {
         lastTouchSeenMs = now;
+        emptyPolls = 0;
+      } else if (emptyPolls < 255) {
+        emptyPolls++;
       }
 
 
       bool fingerPresent = (now - lastTouchSeenMs) < TOUCH_LIFT_DEBOUNCE_MS;
 
       if (touchCooldown) {
-        if (!fingerPresent && (now - lastTouchEventMs) >= TOUCH_MIN_INTERVAL_MS) {
+        bool lifted = gestureLatch
+                        ? (emptyPolls >= TOUCH_GESTURE_LIFT_POLLS && !fingerPresent)
+                        : !fingerPresent;
+        if (lifted && (now - lastTouchEventMs) >= TOUCH_MIN_INTERVAL_MS) {
           touchCooldown = false;
           touchDown = false;
+          gestureLatch = false;
         }
       }
       else if (gotPoint && !touchDown) {
@@ -1658,6 +1715,8 @@ void loop() {
           ui_task.gotoClockScreen();
           lastTouchEventMs = now;
           touchCooldown = true;
+          gestureLatch = true;   // finger is still down; see the latch note
+          emptyPolls = 0;
         } else
 #endif
         {
@@ -1711,6 +1770,8 @@ void loop() {
           }
           lastTouchEventMs = now;
           touchCooldown = true;
+          gestureLatch = true;   // finger may still be down; see the latch note
+          emptyPolls = 0;
         }
         else if (!longPressHandled && !swipeHandled && dist < TOUCH_SWIPE_THRESHOLD &&
                  (now - touchDownTime) >= TOUCH_LONG_PRESS_MS) {
@@ -1770,6 +1831,8 @@ void loop() {
           }
           lastTouchEventMs = now;
           touchCooldown = true;
+          gestureLatch = true;   // finger may still be down; see the latch note
+          emptyPolls = 0;
         }
       }
       else if (touchDown && !fingerPresent) {

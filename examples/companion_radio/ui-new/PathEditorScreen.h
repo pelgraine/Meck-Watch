@@ -61,6 +61,9 @@ private:
   bool _wantKeyboard = false;  // Set by Add hop -- caller opens the path keyboard
 #endif
   bool _directLocked;          // True = path is explicitly set to direct (0 hops, locked)
+  // Mode-row edit state, matching the settings screen: a long press enters
+  // edit, a tap then cycles the value, a second long press leaves edit.
+  bool _modeEditing = false;
 
   // --- helpers ---
 
@@ -68,6 +71,15 @@ private:
     _hopCount = _pathLen & 0x3F;
     uint8_t mode = (_pathLen >> 6) & 0x03;
     _bytesPerHop = mode + 1;
+  }
+
+  // Step the hops-per-byte mode. Shared by the a/d keys and the watch's
+  // tap-while-editing route so both behave identically.
+  void cycleMode() {
+    if (_directLocked) return;
+    switchMode(_bytesPerHop == 1 ? 2 : 1);
+    _dirty = true;
+    _menuCount = buildMenuCount();
   }
 
   uint8_t encodePath() const {
@@ -304,16 +316,14 @@ public:
         case MENU_MODE:
           if (_directLocked) {
             snprintf(tmp, sizeof(tmp), "%c Mode: DIRECT", prefix);
+          } else if (selected && _modeEditing) {
+            // In edit: bracket the value so the state is visible. Cleared when
+            // a second long press leaves edit.
+            snprintf(tmp, sizeof(tmp), "%c Mode: <%dB/hop>", prefix, _bytesPerHop);
           } else {
             snprintf(tmp, sizeof(tmp), "%c Mode: %dB/hop", prefix, _bytesPerHop);
           }
           display.print(tmp);
-          // Show hint on right
-          if (!_directLocked) {
-            const char* hint = "(A/D)";
-            display.setCursor(display.width() - display.getTextWidth(hint) - 4, y);
-            display.print(hint);
-          }
           break;
 
         case MENU_ADD_HOP:
@@ -540,6 +550,14 @@ public:
   }
 
   bool handleMainInput(char c) {
+    // While the mode row is in edit state, w/s cycle the value instead of
+    // scrolling the list (the watch maps an upper/lower tap to w/s).
+    if (_modeEditing && menuItemAt(_menuSel) == MENU_MODE &&
+        (c == 'w' || c == 'W' || c == 0xF2 || c == 's' || c == 'S' || c == 0xF1)) {
+      cycleMode();
+      return true;
+    }
+
     // W - scroll up
     if (c == 'w' || c == 'W' || c == 0xF2) {
       if (_menuSel > 0) {
@@ -562,14 +580,7 @@ public:
     if (c == 'a' || c == 'A' || c == 'd' || c == 'D') {
       MenuItem item = menuItemAt(_menuSel);
       if (item == MENU_MODE && !_directLocked) {
-        // Toggle between 1-byte and 2-byte
-        if (_bytesPerHop == 1) {
-          switchMode(2);
-        } else {
-          switchMode(1);
-        }
-        _dirty = true;
-        _menuCount = buildMenuCount();
+        cycleMode();
         return true;
       }
       return false;
@@ -581,15 +592,10 @@ public:
 
       switch (item) {
         case MENU_MODE:
-          // Toggle mode on Enter too (no-op if direct locked)
+          // Enter (long press on the watch) toggles mode-edit state. Cycling
+          // the value happens on tap while in edit; see cycleMode().
           if (!_directLocked) {
-            if (_bytesPerHop == 1) {
-              switchMode(2);
-            } else {
-              switchMode(1);
-            }
-            _dirty = true;
-            _menuCount = buildMenuCount();
+            _modeEditing = !_modeEditing;
           }
           return true;
 
@@ -748,6 +754,9 @@ public:
   EditorState getState() const { return _state; }
   bool isDirty() const { return _dirty; }
   bool wantsExit() const { return _wantExit; }
+  // True while the mode row is in edit state (settings-screen pattern).
+  bool isEditingMode() const { return _modeEditing; }
+  bool isOnModeRow() const { return menuItemAt(_menuSel) == MENU_MODE; }
 #if defined(MECK_TWATCH)
   bool wantsKeyboard() const { return _wantKeyboard; }
   void clearWantKeyboard() { _wantKeyboard = false; }
@@ -851,8 +860,15 @@ private:
                      _contactIdx, _contactName);
     }
 
-    // Trigger contact save to SD
-    the_mesh.saveContacts();
+    // Schedule the lazy contact save rather than writing the whole contacts
+    // file inline. DataStore::saveContacts() rewrites every record with twelve
+    // small writes each and blocks the UI until it finishes;
+    // scheduleLazyContactSave() hands the work to the chunked writer that
+    // MyMesh::loop() already drives 20 contacts at a time.
+    unsigned long t0 = millis();
+    the_mesh.scheduleLazyContactSave();
+    Serial.printf("PathEditor: save scheduled in %lums (was a blocking whole-file write)\n",
+                  millis() - t0);
     _dirty = false;
   }
 };

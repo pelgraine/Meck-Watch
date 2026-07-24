@@ -71,6 +71,9 @@ private:
 
   // Inline text editor (for Type Path)
   bool _editing;
+  // Mode-row edit state, matching the settings screen: a long press enters
+  // edit, a tap then cycles the value, a second long press leaves edit.
+  bool _modeEditing = false;
   char _editBuf[TRACE_EDIT_BUF];
   int  _editPos;
 
@@ -308,10 +311,21 @@ public:
 
   bool wantsExit() const { return _wantExit; }
   bool isEditing() const { return _editing; }
+  // True while the mode row is in edit state (settings-screen pattern).
+  bool isEditingMode() const { return _modeEditing; }
 
   // --- Public helpers for T5S3 long-press → virtual keyboard integration ---
 
   // True if the highlighted menu row is the Type Path entry (STATE_BUILD only).
+  // Step the hops-per-byte mode. Shared by the a/d keys and the watch's
+  // tap-while-editing route so both behave identically. Changing the mode
+  // clears the path, since the byte layout differs.
+  void cycleMode() {
+    _bytesPerHop = (_bytesPerHop == 1) ? 2 : 1;
+    _hopCount = 0;
+    memset(_pathBuf, 0, sizeof(_pathBuf));
+  }
+
   bool isOnTypePathRow() const {
     return _state == STATE_BUILD && menuItemAt(_menuSel) == MENU_TYPE_PATH;
   }
@@ -484,13 +498,14 @@ private:
 
       switch (item) {
         case MENU_PATH_SIZE:
-          snprintf(tmp, sizeof(tmp), "%c Mode: %d-byte", prefix, _bytesPerHop);
-          display.print(tmp);
-          if (idx == _menuSel) {
-            const char* hint = "(A/D)";
-            display.setCursor(display.width() - display.getTextWidth(hint) - 4, y);
-            display.print(hint);
+          if (idx == _menuSel && _modeEditing) {
+            // In edit: bracket the value so the state is visible. Cleared when
+            // a second long press leaves edit.
+            snprintf(tmp, sizeof(tmp), "%c Mode: <%d-byte>", prefix, _bytesPerHop);
+          } else {
+            snprintf(tmp, sizeof(tmp), "%c Mode: %d-byte", prefix, _bytesPerHop);
           }
+          display.print(tmp);
           break;
 
         case MENU_TYPE_PATH:
@@ -863,6 +878,14 @@ private:
   bool handleBuildInput(char c) {
     int menuCount = buildMenuCount();
 
+    // While the mode row is in edit state, w/s cycle the value instead of
+    // scrolling the list (the watch maps an upper/lower tap to w/s).
+    if (_modeEditing && menuItemAt(_menuSel) == MENU_PATH_SIZE &&
+        (c == 'w' || c == 'W' || c == 0xF2 || c == 's' || c == 'S' || c == 0xF1)) {
+      cycleMode();
+      return true;
+    }
+
     // W - up
     if (c == 'w' || c == 'W' || c == 0xF2) {
       if (_menuSel > 0) _menuSel--;
@@ -875,10 +898,7 @@ private:
     }
     // A/D - toggle mode on path size row
     if ((c == 'a' || c == 'A' || c == 'd' || c == 'D') && menuItemAt(_menuSel) == MENU_PATH_SIZE) {
-      _bytesPerHop = (_bytesPerHop == 1) ? 2 : 1;
-      // Changing mode clears path (byte layout is different)
-      _hopCount = 0;
-      memset(_pathBuf, 0, sizeof(_pathBuf));
+      cycleMode();
       return true;
     }
     // Shift+Del - exit
@@ -890,6 +910,12 @@ private:
     if (c == '\r' || c == 13) {
       MenuItem item = menuItemAt(_menuSel);
       switch (item) {
+        case MENU_PATH_SIZE:
+          // Enter (long press on the watch) toggles mode-edit state. Cycling
+          // the value happens on tap while in edit; see cycleMode().
+          _modeEditing = !_modeEditing;
+          return true;
+
         case MENU_TYPE_PATH:
           pathToEditBuf();
 #if defined(MECK_TWATCH)

@@ -330,11 +330,11 @@ class TWatchChannelScreen : public UIScreen {
     char head[28];
     snprintf(head, sizeof(head), "Heard by: %d", count);   // distinct repeaters
     d->setRawColor(0xC618);   // pale grey -- matches the hop-path header
-    d->printSmallFont(bx + 5, by + 8, head);
+    d->setCursor(bx + 5, by + 8); d->print(head);
 
     if (count == 0 || bph == 0) {
       d->setRawColor(0xFFFF);
-      d->printSmallFont(bx + 5, by + 19, "No repeater echoes yet");
+      d->setCursor(bx + 5, by + 19); d->print("No repeater echoes yet");
       return;
     }
 
@@ -365,14 +365,14 @@ class TWatchChannelScreen : public UIScreen {
       snprintf(line, sizeof(line), "(%s) %s %d.%ddB",
                hex, nm[0] ? nm : "?", s / 4, ((abs((int)s) % 4) * 10) / 4);
       d->setRawColor(0xFFFF);
-      d->printSmallFont(bx + 5, y, line);
-      y += 9;
+      d->setCursor(bx + 5, y); d->print(line);
+      y += 10;
     }
     if (count > shown) {
       d->setRawColor(0xFFFF);
       char more[16];
       snprintf(more, sizeof(more), "+%d more", count - shown);
-      d->printSmallFont(bx + 5, y, more);
+      d->setCursor(bx + 5, y); d->print(more);
     }
   }
 
@@ -408,7 +408,7 @@ class TWatchChannelScreen : public UIScreen {
                m->path_len & 63, (m->path_len >> 6) + 1);
     }
     d->setRawColor(0xC618);   // pale grey -- 0x7BEF was too dark on black
-    d->printSmallFont(bx + 5, by + 8, head);
+    d->setCursor(bx + 5, by + 8); d->print(head);
 
     // Received time (incoming only -- a sent bubble's timestamp is the send
     // time, not a receive time). Same local-time convention as the clock
@@ -424,7 +424,7 @@ class TWatchChannelScreen : public UIScreen {
       char rx[28];
       snprintf(rx, sizeof(rx), "Rx: %d %s %02d:%02d",
                tmv.tm_mday, mons[tmv.tm_mon], tmv.tm_hour, tmv.tm_min);
-      d->printSmallFont(bx + 5, pathY, rx);
+      d->setCursor(bx + 5, pathY); d->print(rx);
       pathY += 11;
     }
 
@@ -445,15 +445,15 @@ class TWatchChannelScreen : public UIScreen {
       for (int k = 0; k < bph && b + k < byteLen; k++)
         tl += snprintf(tok + tl, sizeof(tok) - tl, "%02x", m->path[b + k]);
       if (b + bph < byteLen) { tok[tl++] = ','; tok[tl] = 0; }
-      if (ll + tl > 26) {
+      if (ll + tl > 18) {
         line[ll] = 0;
-        d->printSmallFont(bx + 5, y, line);
-        y += 9; ll = 0;
-        if (y > by + bh - 8) { d->printSmallFont(bx + 5, y, "..."); return; }
+        d->setCursor(bx + 5, y); d->print(line);
+        y += 10; ll = 0;
+        if (y > by + bh - 8) { d->setCursor(bx + 5, y); d->print("..."); return; }
       }
       memcpy(line + ll, tok, tl); ll += tl;
     }
-    if (ll > 0) { line[ll] = 0; d->printSmallFont(bx + 5, y, line); }
+    if (ll > 0) { line[ll] = 0; d->setCursor(bx + 5, y); d->print(line); }
   }
 
 public:
@@ -674,7 +674,16 @@ public:
     _mask = false;
     _outLen = 0; _outBuf[0] = 0;
     _mode = LOWER;
-    _touchDown = false; _wantsSend = false; _wantsExit = false;
+    // Start "already down". The keyboard is usually opened by a long press
+    // (repeater admin login, Type Path, compose), and poll() reads the panel
+    // directly rather than going through the touch state machine in main.cpp,
+    // so a finger still resting on the glass would otherwise register as a
+    // press on the key under it. poll() acts on release using _downX/_downY,
+    // so those must point somewhere inert: x >= 20 misses the back arrow and
+    // y < GRID_Y lands in the text bar, which returns without doing anything.
+    // The first release therefore does nothing and the next press is normal.
+    _touchDown = true; _downX = 240; _downY = 0;
+    _wantsSend = false; _wantsExit = false;
     _allowEmptySend = false;
   }
 
@@ -686,7 +695,16 @@ public:
     _mask = (purpose == TWKB_ADMIN_PASSWORD);
     _outLen = 0; _outBuf[0] = 0;
     _mode = LOWER;
-    _touchDown = false; _wantsSend = false; _wantsExit = false;
+    // Start "already down". The keyboard is usually opened by a long press
+    // (repeater admin login, Type Path, compose), and poll() reads the panel
+    // directly rather than going through the touch state machine in main.cpp,
+    // so a finger still resting on the glass would otherwise register as a
+    // press on the key under it. poll() acts on release using _downX/_downY,
+    // so those must point somewhere inert: x >= 20 misses the back arrow and
+    // y < GRID_Y lands in the text bar, which returns without doing anything.
+    // The first release therefore does nothing and the next press is normal.
+    _touchDown = true; _downX = 240; _downY = 0;
+    _wantsSend = false; _wantsExit = false;
     _allowEmptySend = false;
   }
 

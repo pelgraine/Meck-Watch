@@ -8,11 +8,11 @@
 #define FIRMWARE_VER_CODE 11
 
 #ifndef FIRMWARE_BUILD_DATE
-#define FIRMWARE_BUILD_DATE "23 July 2026"
+#define FIRMWARE_BUILD_DATE "24 July 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "Meck v0.8"
+#define FIRMWARE_VERSION "Meck v0.9"
 #endif
 
 #if   defined(ESP32)
