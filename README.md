@@ -13,7 +13,8 @@ A fork created specifically to focus on enabling BLE & standalone Meshcore compa
 - [Supported Devices](#supported-devices)
 - [S3 vs S3 Plus at a Glance](#s3-vs-s3-plus-at-a-glance)
 - [No SD Card](#no-sd-card)
-- [Build Variants](#build-variants)
+- [Build Environment Options](#build-environment-options)
+- [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds)
 - [Flashing Firmware](#flashing-firmware)
 - [Home Screen & Navigation](#home-screen--navigation)
 - [The Buttons — S3 vs S3 Plus](#the-buttons--s3-vs-s3-plus)
@@ -67,10 +68,10 @@ The two boards are wired identically at the ESP32-S3 — they differ only in wha
 | GPS | None (no map screen) | Onboard MIA-M10Q GNSS — map screen available |
 | Physical buttons | **One: the side PWR key only** | **Three: PWR key, plus BOOT (GPIO0) and RESET** on the back shell |
 | Button Meck reads | PWR key (via the PMU) | The GPIO0 boot button |
-| Home tile (row 3, right) | **Games** (Trace + Games) | **Maps** (Trace + Maps) |
+| Home tile (row 3, right) | **Games** (Trace + Games) | **Maps** (Trace + Maps); **Games** on the no-maps builds |
 | Battery cell | 470 mAh LiHV (Tewaycell 552530, 3.8 V nom / 4.35 V max) | LiHV (Tewaycell 112530-2P, 3.8 V nom / 4.35 V max) |
-| Estimated runtime | ~7.5–9.5 hours | ~14–16 hours |
-| Firmware version string | `Meck TWatch S3 v0.6` / `Meck TWatch S3 BLE v0.6` | `Meck TWatch v0.6` / `Meck TWatch BLE v0.6` |
+| Measured runtime | 11h14m (standalone, RX duty cycle at Light) | 21h24m (no-maps standalone, 40 MHz cap, GPS off) |
+| Firmware version string | `Meck TWatch S3 v0.9` / `Meck TWatch S3 BLE v0.9` | `Meck TWatch v0.9` / `Meck TWatch BLE v0.9` |
 
 Everything else — the UI, the touch keyboard, step counting, tilt-to-wake, the lock/clock screen, notes, and the whole channel/DM/contacts system — is shared between the two.
 
@@ -87,18 +88,73 @@ Two consequences worth knowing:
 
 ---
 
-## Build Variants
+## Build Environment Options
 
-| Variant | Environment | BLE | GPS | Max Contacts |
-|---------|------------|-----|-----|-------------|
-| S3 Standalone | `meck_twatch_s3_standalone` | — | No | 2,000 |
-| S3 BLE | `meck_twatch_s3_ble` | Yes | No | 2,000 |
-| S3 Plus Standalone | `meck_twatch_s3_plus_standalone` | — | Yes | 2,000 |
-| S3 Plus BLE | `meck_twatch_s3_plus_ble` | Yes | Yes | 2,000 |
+There are six build environments -- three per watch.
 
-**Standalone** builds run the full touch UI with no phone connection — you can send and receive messages, browse contacts, and manage the mesh entirely from the watch. **BLE** builds add the MeshCore companion serial interface so a phone app can connect when you want it. There is no WiFi variant for the watches.
+| Variant | Environment | BLE | Map screen | CPU cap | Max Contacts |
+|---------|------------|-----|-----|-----|-------------|
+| S3 Standalone | `meck_twatch_s3_standalone` | -- | n/a (no GPS) | 40 MHz | 2,000 |
+| S3 BLE | `meck_twatch_s3_ble` | Yes | n/a (no GPS) | 80 MHz | 2,000 |
+| S3 Plus Standalone | `meck_twatch_s3_plus_standalone` | -- | Yes | 80 MHz | 2,000 |
+| S3 Plus BLE | `meck_twatch_s3_plus_ble` | Yes | Yes | 80 MHz | 2,000 |
+| S3 Plus Standalone, No Maps | `meck_twatch_s3_plus_standalone_nomaps` | -- | No | 40 MHz | 2,000 |
+| S3 Plus BLE, No Maps | `meck_twatch_s3_plus_ble_nomaps` | Yes | No | 80 MHz | 2,000 |
 
-All four builds allocate their 2,000-contact arrays in PSRAM, and boot the CPU at 80 MHz (`ESP32_CPU_FREQ=80`) to conserve battery.
+**Standalone** builds run the full touch UI with no phone connection -- you can send and receive messages, browse contacts, and manage the mesh entirely from the watch. **BLE** builds add the MeshCore companion serial interface so a phone app can connect when you want it. There is no WiFi variant for the watches.
+
+**No Maps** builds drop the map screen on the S3 Plus in exchange for the best battery life on that watch, and change how the clock face and buttons behave -- see [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds).
+
+All six builds allocate their 2,000-contact arrays in PSRAM and boot the CPU at 80 MHz (`ESP32_CPU_FREQ=80`). The two standalone builds marked 40 MHz above go further and cap the *running* clock -- both idle and boost -- at 40 MHz. The BLE builds are deliberately left at 80 MHz, because WiFi and Bluetooth will not run below it.
+
+### Files in each release
+
+Each environment ships two files: a merged image for a first flash, and a plain `.bin` for updating a watch that already runs Meck. See [Flashing Firmware](#flashing-firmware) for the addresses.
+
+**T-Watch S3**
+
+| File | Description |
+|---|---|
+| `meck_twatch_s3_ble-merged.bin` | BLE companion build, full-flash image -- recommended first flash for initial setup and backup via the MeshCore app. |
+| `meck_twatch_s3_ble.bin` | BLE companion build, for a watch that already runs Meck. Config is kept. |
+| `meck_twatch_s3_standalone-merged.bin` | Standalone build (no BLE/WiFi, 40 MHz cap -- maximum battery life), full-flash image. |
+| `meck_twatch_s3_standalone.bin` | Standalone build -- flash this after BLE setup to keep your config. |
+
+**T-Watch S3 Plus**
+
+| File | Description |
+|---|---|
+| `meck_twatch_s3_plus_ble-merged.bin` | BLE companion build with maps, full-flash image -- recommended first flash for initial setup and backup via the MeshCore app. |
+| `meck_twatch_s3_plus_ble.bin` | BLE companion build with maps, for a watch that already runs Meck. Config is kept. |
+| `meck_twatch_s3_plus_standalone-merged.bin` | Standalone build with maps, full-flash image. |
+| `meck_twatch_s3_plus_standalone.bin` | Standalone build with maps, for a watch that already runs Meck. Config is kept. |
+
+**T-Watch S3 Plus -- No Maps**
+
+| File | Description |
+|---|---|
+| `meck_twatch_s3_plus_ble_nomaps-merged.bin` | BLE companion build, no maps, full-flash image. |
+| `meck_twatch_s3_plus_ble_nomaps.bin` | BLE companion build, no maps, for a watch that already runs Meck. Config is kept. |
+| `meck_twatch_s3_plus_standalone_nomaps-merged.bin` | Standalone build, no maps, 40 MHz cap, full-flash image. |
+| `meck_twatch_s3_plus_standalone_nomaps.bin` | Standalone build, no maps, 40 MHz cap, for a watch that already runs Meck. Config is kept. |
+
+All six environments share their watch's partition table, so you can move between maps and no-maps on the Plus with an ordinary flash at `0x10000` and keep your config either way.
+
+---
+
+## S3 Plus: No Maps Builds
+
+Maps is the most expensive thing running on the S3 Plus. If you do not use it, the **No Maps** builds are the ones to run: they measured **21h24m** against 15-16 hours before this work, over a run that saw 6167 packets.
+
+What changes:
+
+- **The map screen is gone**, and the **Games** tile takes the Maps slot on the home grid -- the same layout the plain S3 has.
+- **Tap to wake.** With the display off, a touch anywhere wakes the watch to the clock face. That gesture only wakes; it does not activate whatever is under your finger.
+- **The side PWR key moves you around.** A single press on the clock face goes to the home UI, and a single press anywhere else returns you to the clock face. A press of four seconds or more is still a hardware power-off.
+- **Tilt-to-wake is not active.** The wrist-raise wake is excluded on these builds, since the clock face is reached by a tap and moved by the PWR key.
+- **GPS is unchanged.** The GNSS rail still boots off and is still available from Settings; only the map screen is removed.
+
+Everything else -- messaging, contacts, DMs, discovery, repeater admin, trace, notes, steps, the settings screen -- is identical to the maps builds.
 
 ---
 
@@ -109,7 +165,7 @@ Download the latest firmware from the [Releases](https://github.com/pelgraine/Me
 | File Type | When to Use |
 |-----------|-------------|
 | `*-merged.bin` | **First-time flash** — bootloader, partition table, and firmware in one file. Flash at address `0x0`. |
-| `*.bin` (non-merged) | **Upgrading existing firmware** — application image only. Flash at `0x10000`. |
+| `*.bin` (non-merged) | **Upgrading existing firmware** — replaces the firmware and nothing else, so your config is kept. Flash at `0x10000`. |
 
 The watches are ESP32-S3 devices and use the standard `esptool.py` workflow.
 
@@ -141,10 +197,11 @@ On macOS the port is typically `/dev/cu.usbmodem*`; on Windows it will be a COM 
 
 The home screen is a 4×2 grid of tappable tiles. Because the display is rendered in a 120×120 virtual coordinate space (the 240 px panel divided by `UI_ZOOM=2`), the touch targets are large and finger-friendly.
 
-Six tiles are common to both watches — **Messages**, **Contacts**, **Settings**, **Discover**, **Trace**, **Notes**, and **Steps** — with the seventh slot differing by board:
+Seven tiles are common to both watches — **Messages**, **Contacts**, **Settings**, **Discover**, **Trace**, **Notes**, and **Steps** — with the eighth slot differing by build:
 
 - **S3 Plus** shows **Maps** (it has GPS).
 - **S3** shows **Games** (Snake and Minesweeper) in that slot, since it has no GPS to plot.
+- **S3 Plus, No Maps builds** show **Games** as well -- see [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds).
 
 Tap a tile to open its screen. To get back: **tap the top-right corner of the screen to return home from any screen** — this is the universal "go home" gesture across the whole watch UI. A **long press on the home screen** opens the channel picker (see [Channel Messages & the Channel Picker](#channel-messages--the-channel-picker)).
 
@@ -175,6 +232,8 @@ The Plus's **RESET button** simply reboots the watch — it is a hardware reset 
 
 The net effect on navigation: on the **S3**, a short press acts as *Enter/select* (there is no separate page key, so paging is done by touch); on the **Plus**, a short press of the boot button acts as *page/next* and select is done by tapping.
 
+> On the S3 Plus **No Maps** builds the PWR key is also a navigation button: a single press on the clock face goes to the home UI, and a single press from anywhere else returns to the clock face. It remains the power control as well (hold four seconds or more to power off).
+
 ---
 
 ## Touch Gestures
@@ -196,6 +255,8 @@ Text entry — composing messages, notes, admin passwords, typed paths — is do
 ## Tilt-to-Wake & Lock Screen
 
 With the display off, a **wrist-raise** (detected by the BMA423 accelerometer) wakes the watch straight to the clock/lock screen and restarts the idle timer — no button press needed.
+
+On the S3 Plus **No Maps** builds this works differently: tilt-to-wake is not active, and the clock face is woken by **tapping the screen** instead. See [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds).
 
 The lock screen shows the time, battery, and today's step count, and refreshes every 2 minutes while locked to keep the clock current. Unlock with a **long press** of the button (see [The Buttons](#the-buttons--s3-vs-s3-plus)).
 
@@ -225,7 +286,7 @@ A **long press on the home screen** opens the watch channel picker. It lists all
 |---------|--------|
 | Tap a row | Select that channel |
 | Long press a row | Open the channel |
-| Swipe up / down | Scroll the list (when you have more channels than fit on screen) |
+| Swipe up / down | Page the list one screenful at a time (the view moves, your selection stays put), so every channel is reachable however many you have |
 | Tap the back arrow (top-left) | Return home |
 
 Inside a channel, scroll messages by swiping, tap the compose bar at the bottom to write a new message via the touch keyboard, and long-press to go back. Replies and @mentions follow the standard MeshCore conventions.
@@ -257,6 +318,8 @@ Sending a DM opens the touch keyboard; the message is tracked with the standard 
 When you send a channel message, the watch tracks which repeaters re-flooded it. Selecting one of your own outgoing messages opens a **"Heard by"** overlay listing the distinct repeaters that echoed it, along with the signal quality (SNR) heard from each — a quick way to confirm your message is propagating and see which repeaters are carrying it.
 
 On the **S3 Plus** this is reached via the boot button on a selected outgoing message; on the **S3**, via the PWR key.
+
+The same overlay on an **incoming** message shows its route instead: the hop count and hash size, the time it was received (`Rx: 23 Jul 17:24`, in your local time), and the hex hop path. The received-time line also appears on Direct (0 hops) and Flood (no path) messages, and is left off your own sent messages, whose timestamp is a send time rather than a receive time. If the clock has never been set the line is omitted rather than showing a 1970 date.
 
 ---
 
@@ -291,7 +354,13 @@ The **Rx Log** is a packet sniffer, opened from **Settings → Rx Log**. It capt
 
 Long-pressing a repeater or room-server contact opens the **repeater admin** login. Enter the admin password via the touch keyboard to manage the repeater over RF.
 
+Inside repeater admin, **tapping the top of the screen goes back one level** rather than leaving, so your admin session and password survive: a response or error page returns to the command menu, the command menu returns to the category menu, parameter entry and confirmation return to the command menu, and a command still in flight is cancelled. The top-level category menu and the password prompt have nowhere further back, so a tap there returns you to the home UI. The footers tell you what a tap will do on each page -- `Tap top: Cancel`, `Tap top: No` with `Long Press: Yes`, or `Tap top: Back` with `Swipe:Scrll`.
+
 The **path editor** lets you set a manual repeater chain for a contact, for direct routing. Open it from the Contacts screen using the button (short press on the S3, boot button on the Plus) with a contact selected.
+
+Its **Mode** row (1 or 2 bytes per hop) follows the same convention as the settings list: **long press to enter edit, tap to cycle the value, long press again to leave**. While you are editing, the value is bracketed -- `Mode: <2B/hop>` -- so the edit state is visible.
+
+Saving a path returns immediately. The contact record is written out a moment later in the background rather than inline, so the watch no longer freezes while it saves.
 
 ---
 
@@ -299,11 +368,13 @@ The **path editor** lets you set a manual repeater chain for a contact, for dire
 
 The **Trace** tile runs a trace-route across the mesh — pick a contact or type a path, and the watch reports each hop back. Useful for diagnosing routing and confirming which repeaters a path traverses.
 
+Its **Mode** row (1-byte or 2-byte path hashes) works like the path editor's: **long press to enter edit, tap to cycle, long press to leave**, with the value bracketed as `Mode: <2-byte>` while editing.
+
 ---
 
 ## Games
 
-On the **S3**, the **Games** tile (in the slot the Plus uses for Maps) opens a small games menu with **Snake** and **Minesweeper**, both playable by touch.
+On the **S3**, and on the S3 Plus **No Maps** builds, the **Games** tile (in the slot the Plus otherwise uses for Maps) opens a small games menu with **Snake** and **Minesweeper**, both playable by touch.
 
 **Snake** is steered entirely by tapping:
 
@@ -315,7 +386,7 @@ On the **S3**, the **Games** tile (in the slot the Plus uses for Maps) opens a s
 
 ## Maps (S3 Plus only)
 
-The S3 Plus has an onboard MIA-M10Q GNSS receiver, so it carries the **Maps** tile — plotting contacts with known GPS positions on a scrollable map. The S3 has no GPS and shows the Games tile in that slot instead.
+The S3 Plus has an onboard MIA-M10Q GNSS receiver, so it carries the **Maps** tile — plotting contacts with known GPS positions on a scrollable map. The S3 has no GPS and shows the Games tile in that slot instead, as do the S3 Plus **No Maps** builds, which drop the map screen for battery life (see [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds)).
 
 Map tiles are read from the watch's internal LittleFS partition — a dedicated **~9.9 MB `maps` partition** (mounted at `/maps`), so you can hold a useful subset of your local geography across a few zoom levels. Tiles use the **standard OpenStreetMap "slippy map" layout, exactly the same as Ripple and every other MeshCore device**: PNG tiles at `/tiles/{z}/{x}/{y}.png` (on-disk, `/maps/tiles/{z}/{x}/{y}.png`). A `tiles` folder you've already prepared for any other MeshCore device drops straight in — no watch-specific conversion needed.
 
@@ -412,6 +483,10 @@ The Radio Preset picker carries ready-made profiles for common regional configur
 | **Rx Duty Cycle** | On/Off toggle. Persists across reboots. |
 | **Nap Depth** | How deeply the radio naps between listen windows: **Light** (~31% asleep), **Medium** (~50%), or **Aggressive** (~64%). Long-press to cycle. Remembered independently of the toggle, so your chosen depth is restored when you switch the feature back on. |
 
+Toggling it takes effect straight away -- the radio changes mode as soon as you flip the switch, rather than waiting for the next packet.
+
+While the duty cycle is on, the Radio page of the home screen replaces its **Noise floor** row with **Last Pkt RSSI**. The noise-floor sampler cannot run when the radio is asleep between listen windows, so that row would otherwise sit at zero; the last received packet's RSSI is a real measurement taken with the receiver awake.
+
 Both rows only appear at **SF9 and below** — at higher spreading factors the longer symbols gain nothing worth the wake cost, and a **"Rx Duty: SF9 or lower only"** note is shown instead. If a preset's symbols are too short to carve out a safe sleep window, the radio automatically falls back to continuous RX, so the mechanism itself never drops a packet.
 
 **The trade-off:** most mesh networks run a 16-symbol preamble at SF9, and against short preambles the fraction of single transmissions you miss roughly tracks the fraction of time the radio is asleep. In practice flooded channel traffic arrives via multiple repeater copies and direct messages are retried, so the everyday impact is mostly added latency rather than lost messages — but it is a genuine reception-versus-battery trade, which is why it's an opt-in dial rather than a default. Start at **Light** and judge the behaviour on your own network.
@@ -471,6 +546,24 @@ Both watches ship with **LiHV** (high-voltage lithium) cells: 3.8 V nominal, 4.3
 
 Charge over USB-C. The AXP2101 PMU manages charging; a moderate charge current is recommended for cell longevity.
 
+### Runtime
+
+Two changes made a large difference to how long the watches last:
+
+- **The display-off throttle.** While the display is off -- which is nearly all the time -- the firmware yields the CPU so the idle task can drop into a low-power wait. This was present but never actually running until v0.9. On the BLE builds it is skipped while Bluetooth is enabled, to keep the connection responsive.
+- **The 40 MHz cap** on `meck_twatch_s3_standalone` and `meck_twatch_s3_plus_standalone_nomaps`, which holds both the idle and boost clocks down instead of only the idle clock.
+
+Measured results:
+
+| Build | Configuration | Runtime |
+|---|---|---|
+| S3 standalone | throttle + RX duty cycle at Light | 11h14m (was 9h30m) |
+| S3 Plus standalone, no maps | throttle + 40 MHz cap, GPS off, duty cycle off | 21h24m (was 15-16h) |
+
+The S3 Plus figure came from a run that saw 6167 packets, so it is not an idle-bench number. The maps builds have not been re-measured since the throttle fix, and the [RX duty cycle](#experimental-rx-duty-cycle) is a further saving on top of these figures if you choose to turn it on.
+
+> **Reading the battery percentage.** The gauge is markedly non-linear on these LiHV cells. Over the 21h24m run it fell about 0.7%/hour for the first three hours, then 5-12.6%/hour through the middle, then sat almost still between 26% and 19% for nearly three hours before dropping fast. Do not draw conclusions from short percentage deltas, particularly in the 19-26% band.
+
 ---
 
 ## About MeshCore
@@ -516,7 +609,7 @@ For developers:
 
 - Install [PlatformIO](https://docs.platformio.org) in [Visual Studio Code](https://code.visualstudio.com).
 - Clone and open this repository.
-- Build for your target using the environment names in [Build Variants](#build-variants).
+- Build for your target using the environment names in [Build Environment Options](#build-environment-options).
 
 ## 📞 Get Support
 
