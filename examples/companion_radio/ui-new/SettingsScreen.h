@@ -506,7 +506,9 @@ private:
       addRow(ROW_FONT_STYLE);
 #endif
       #ifdef MECK_WIFI_COMPANION
-      addRow(ROW_WIFI_SETUP);
+      #ifndef WIFI_SSID
+      addRow(ROW_WIFI_SETUP);   // on-device config only for runtime-cred builds
+      #endif
       addRow(ROW_WIFI_TOGGLE);
       #endif
 
@@ -850,6 +852,11 @@ public:
   // After WiFi setup exits (connect success or user quit), try to
   // reconnect to saved credentials so the companion TCP server works.
   void wifiReconnectSaved() {
+#ifdef WIFI_SSID
+    // Compile-time credentials: reconnect to the build-flag network (no SD).
+    Serial.printf("Settings: Reconnecting to WiFi '%s'\n", WIFI_SSID);
+    WiFi.begin(WIFI_SSID, WIFI_PWD);
+#else
     File f = SD.open("/web/wifi.cfg", FILE_READ);
     if (f) {
       String ssid = f.readStringUntil('\n'); ssid.trim();
@@ -863,6 +870,7 @@ public:
     } else {
       digitalWrite(SDCARD_CS, HIGH);
     }
+#endif
   }
 
   // Pro physical-keyboard back-out: UITask uses these to send the WiFi

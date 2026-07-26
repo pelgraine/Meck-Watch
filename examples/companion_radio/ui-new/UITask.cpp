@@ -466,15 +466,6 @@ public:
       y += 14;  // Reduced from 18
 #endif
 
-      #if defined(WIFI_SSID) || defined(MECK_WIFI_COMPANION)
-        IPAddress ip = WiFi.localIP();
-        if (ip != IPAddress(0,0,0,0)) {
-          snprintf(tmp, sizeof(tmp), "IP: %d.%d.%d.%d:%d", ip[0], ip[1], ip[2], ip[3], TCP_PORT);
-          display.setTextSize(_node_prefs->smallTextSize());  // Tiny font for IP
-          display.drawTextCentered(display.width() / 2, y, tmp);
-          y += _node_prefs->smallLineH() - 1;
-        }
-      #endif
       #if defined(BLE_PIN_CODE) || defined(WIFI_SSID) || defined(MECK_WIFI_COMPANION)
       if (_task->hasConnection()) {
         display.setColor(DisplayDriver::GREEN);
@@ -745,7 +736,7 @@ public:
         display.drawTextCentered(display.width() / 2, wy, "Not connected");
         wy += wLH + 2;
         display.setColor(DisplayDriver::LIGHT);
-        display.drawTextCentered(display.width() / 2, wy, "Configure in Settings");
+        display.drawTextCentered(display.width() / 2, wy, "Toggle in Settings");
       }
       display.setTextSize(1);
 #endif
