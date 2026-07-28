@@ -24,6 +24,9 @@
 #ifdef MECK_WIFI_COMPANION
   #include <WiFi.h>
   #include <SD.h>
+  #ifdef MECK_TWATCH
+    #include <LittleFS.h>   // watch has no SD; creds persist on the LittleFS partition
+  #endif
 #endif
 
 #ifdef MECK_OTA_UPDATE
@@ -319,6 +322,9 @@ private:
   bool _wantsKb;              // Watch: open the touch keyboard for the selected text row (polled by UITask)
   bool _wantsApplyRxDuty;     // Watch: apply the rx_duty_cycle toggle to radio_driver (polled by UITask)
   bool _wantsApplyRxLevel;    // Watch: apply the rx_duty_level (nap depth) to radio_driver (polled by UITask)
+#ifdef MECK_WIFI_COMPANION
+  bool _wantsWifiPwKb;        // Watch: open the touch keyboard for WiFi password entry (polled by UITask)
+#endif
 #if defined(MECK_TWATCH)
   char _kbInitText[40] = "";  // initial text handed to the touch keyboard for the row being edited
 #endif
@@ -506,9 +512,7 @@ private:
       addRow(ROW_FONT_STYLE);
 #endif
       #ifdef MECK_WIFI_COMPANION
-      #ifndef WIFI_SSID
-      addRow(ROW_WIFI_SETUP);   // on-device config only for runtime-cred builds
-      #endif
+      addRow(ROW_WIFI_SETUP);
       addRow(ROW_WIFI_TOGGLE);
       #endif
 
@@ -697,6 +701,9 @@ public:
       _onboarding(false), _subScreen(SUB_NONE), _savedTopCursor(0),
       _radioChanged(false), _needsTextVKB(false), _wantsWatchChannels(false), _wantsKb(false), _wantsApplyRxDuty(false), _wantsApplyRxLevel(false) {
     memset(_editBuf, 0, sizeof(_editBuf));
+#ifdef MECK_WIFI_COMPANION
+    _wantsWifiPwKb = false;
+#endif
     #ifdef HAS_SDCARD
     _savedExportCursor = 0;
     _exportFlags = 0x1F;  // MECK_EXPORT_ALL
@@ -849,10 +856,84 @@ public:
     _wifiPhase = WIFI_PHASE_SELECT;  // always show overlay (even if 0)
   }
 
+  // Persist the chosen SSID/password and attempt the connection. Called by the
+  // physical-keyboard '\r' path and (on the watch) by submitWifiPassword after
+  // touch-keyboard entry. Assumes _wifiSSIDs[_wifiSSIDSelected] and _wifiPassBuf
+  // are populated.
+  void commitWifiConnect() {
+    _wifiPhase = WIFI_PHASE_CONNECTING;
+
+    // Save credentials so the connection can be restored later.
+#ifdef MECK_TWATCH
+    // Watch: no SD card -- persist on the LittleFS partition.
+    {
+      File f = LittleFS.open("/wifi.cfg", "w");
+      if (f) {
+        f.println(_wifiSSIDs[_wifiSSIDSelected]);
+        f.println(_wifiPassBuf);
+        f.close();
+      }
+    }
+#else
+    // Save credentials to SD first (so web reader can reuse them)
+    if (SD.exists("/web") || SD.mkdir("/web")) {
+      File f = SD.open("/web/wifi.cfg", FILE_WRITE);
+      if (f) {
+        f.println(_wifiSSIDs[_wifiSSIDSelected]);
+        f.println(_wifiPassBuf);
+        f.close();
+      }
+      digitalWrite(SDCARD_CS, HIGH);
+    }
+#endif
+
+    WiFi.disconnect(false);
+    WiFi.begin(_wifiSSIDs[_wifiSSIDSelected].c_str(), _wifiPassBuf);
+
+    // Brief blocking wait -- fine for e-ink (screen won't update during this anyway)
+    unsigned long timeout = millis() + 8000;
+    while (WiFi.status() != WL_CONNECTED && millis() < timeout) {
+      delay(100);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("Settings: WiFi connected to %s, IP: %s\n",
+                    _wifiSSIDs[_wifiSSIDSelected].c_str(),
+                    WiFi.localIP().toString().c_str());
+      _editMode = EDIT_NONE;
+      _wifiPhase = WIFI_PHASE_IDLE;
+      if (_onboarding) _onboarding = false;  // Finish onboarding
+    } else {
+      Serial.println("Settings: WiFi connection failed");
+      // Go back to SSID selection so user can retry
+      _wifiPhase = WIFI_PHASE_SELECT;
+    }
+  }
+
   // After WiFi setup exits (connect success or user quit), try to
   // reconnect to saved credentials so the companion TCP server works.
   void wifiReconnectSaved() {
-#ifdef WIFI_SSID
+#ifdef MECK_TWATCH
+    // Watch: prefer an on-device saved network (LittleFS). If none is stored,
+    // fall back to the compile-time WIFI_SSID/WIFI_PWD default.
+    {
+      File f = LittleFS.open("/wifi.cfg", "r");
+      if (f) {
+        String ssid = f.readStringUntil('\n'); ssid.trim();
+        String pass = f.readStringUntil('\n'); pass.trim();
+        f.close();
+        if (ssid.length() > 0) {
+          Serial.printf("Settings: Reconnecting to saved WiFi '%s'\n", ssid.c_str());
+          WiFi.begin(ssid.c_str(), pass.c_str());
+          return;
+        }
+      }
+    }
+  #ifdef WIFI_SSID
+    Serial.printf("Settings: Reconnecting to default WiFi '%s'\n", WIFI_SSID);
+    WiFi.begin(WIFI_SSID, WIFI_PWD);
+  #endif
+#elif defined(WIFI_SSID)
     // Compile-time credentials: reconnect to the build-flag network (no SD).
     Serial.printf("Settings: Reconnecting to WiFi '%s'\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PWD);
@@ -886,6 +967,48 @@ public:
   bool isInWifiNetworkSelect() const {
     return _editMode == EDIT_WIFI && _wifiPhase == WIFI_PHASE_SELECT;
   }
+
+#ifdef MECK_WIFI_COMPANION
+  // Watch: bridge to open the touch keyboard for WiFi password entry, mirroring
+  // the _wantsKb pattern for text rows. Polled and cleared by UITask, which
+  // opens TWKB_WIFI_PASSWORD.
+  bool wantsWifiPwKeyboard() const { return _wantsWifiPwKb; }
+  void clearWantsWifiPwKeyboard() { _wantsWifiPwKb = false; }
+
+  // Watch: map a tap (128-tall virtual Y) to an SSID row in the select overlay.
+  // Geometry mirrors the render in renderWifiOverlay: box at by=14, first row at
+  // by + 4 + 10 (after the "Select network:" header), each row 8px tall in the
+  // display's logical space. Returns: 0 = miss, 1 = moved selection,
+  // 2 = tapped the already-selected row (caller treats as Enter/confirm).
+  int selectWifiSSIDAtVY(int vy) {
+    if (_editMode != EDIT_WIFI || _wifiPhase != WIFI_PHASE_SELECT) return 0;
+    if (_wifiSSIDCount == 0) return 0;
+    const int by = 14;
+    const int firstRowY = by + 4 + 10;   // header "Select network:" occupies by+4, then wy += 10
+    const int rowH = 8;
+    int ly = (int)((long)vy * _renderScreenH / 128);
+    if (ly < firstRowY) return 0;
+    int row = (ly - firstRowY) / rowH;
+    if (row < 0 || row >= _wifiSSIDCount) return 0;
+    if (row == _wifiSSIDSelected) return 2;  // tapped current -> confirm
+    _wifiSSIDSelected = row;
+    return 1;
+  }
+
+  // Watch: receive the typed password from the touch keyboard, then connect.
+  // Mirrors what the physical-keyboard '\r' path does inline.
+  void submitWifiPassword(const char* pass) {
+    _wifiPassLen = 0;
+    memset(_wifiPassBuf, 0, sizeof(_wifiPassBuf));
+    if (pass) {
+      for (int i = 0; pass[i] && _wifiPassLen < 63; i++) {
+        _wifiPassBuf[_wifiPassLen++] = pass[i];
+      }
+      _wifiPassBuf[_wifiPassLen] = '\0';
+    }
+    commitWifiConnect();
+  }
+#endif
 
 
   #endif
@@ -2360,19 +2483,19 @@ public:
           bool sel = (wi == _wifiSSIDSelected);
           if (sel) {
             display.setColor(DisplayDriver::LIGHT);
-            display.fillRect(bx + 2, wy + 5, bw - 4, 8);
+            display.fillRect(bx + 2, wy + _prefs->smallHighlightOff(), bw - 4, 8);
             display.setColor(DisplayDriver::DARK);
           } else {
             display.setColor(DisplayDriver::LIGHT);
           }
+          // Prefix marker, then the SSID ellipsized to fit the box interior so
+          // long names don't overflow the overlay border (no clip-rect available).
+          const char* prefix = sel ? "> " : "  ";
           display.setCursor(bx + 4, wy);
-          char ssidLine[40];
-          if (sel) {
-            snprintf(ssidLine, sizeof(ssidLine), "> %.33s", _wifiSSIDs[wi].c_str());
-          } else {
-            snprintf(ssidLine, sizeof(ssidLine), "  %.33s", _wifiSSIDs[wi].c_str());
-          }
-          display.print(ssidLine);
+          display.print(prefix);
+          int nameX = bx + 4 + display.getTextWidth(prefix);
+          int nameMaxW = (bx + bw - 2) - nameX;
+          display.drawTextEllipsized(nameX, wy, nameMaxW, _wifiSSIDs[wi].c_str());
           wy += 8;
         }
         }
@@ -2652,9 +2775,9 @@ public:
     } else if (_editMode == EDIT_WIFI) {
       if (_wifiPhase == WIFI_PHASE_SELECT) {
         if (_wifiSSIDCount == 0) {
-          display.print("R/Enter:Rescan Q:Back");
+          display.print("No networks. Button:Rescan");
         } else {
-          display.print("W/S:Pick Enter:Sel R:Rescan");
+          display.print("Hold:Slct Button:Rescan");
         }
       } else if (_wifiPhase == WIFI_PHASE_PASSWORD) {
         display.print("Enter:Connect Sh+Del:Exit");
@@ -2892,6 +3015,28 @@ public:
           performWifiScan();
           return true;
         }
+#if defined(MECK_TWATCH)
+        // Watch: the physical button (PWR=KEY_ENTER on S3, boot=KEY_NEXT on
+        // Plus) rescans; a long-press (KEY_SELECT via mapTouchLongPress) confirms
+        // the highlighted network. A tap only moves the highlight.
+        if (c == KEY_ENTER || c == KEY_NEXT) {
+          performWifiScan();
+          return true;
+        }
+        if (c == KEY_SELECT) {
+          if (_wifiSSIDCount == 0) {
+            performWifiScan();
+            return true;
+          }
+          // Confirm highlighted SSID — move to password entry
+          _wifiPhase = WIFI_PHASE_PASSWORD;
+          _wifiPassLen = 0;
+          memset(_wifiPassBuf, 0, sizeof(_wifiPassBuf));
+          _wifiFormLastChar = 0;
+          _wantsWifiPwKb = true;   // UITask polls and opens the touch keyboard
+          return true;
+        }
+#else
         if (c == '\r' || c == 13) {
           if (_wifiSSIDCount == 0) {
             // No networks — Enter rescans (same as R)
@@ -2905,6 +3050,7 @@ public:
           _wifiFormLastChar = 0;
           return true;
         }
+#endif
         if (c == KEY_CANCEL || c == 'q') {
           _editMode = EDIT_NONE;
           _wifiPhase = WIFI_PHASE_IDLE;
@@ -2917,42 +3063,8 @@ public:
 
       if (_wifiPhase == WIFI_PHASE_PASSWORD) {
         if (c == '\r' || c == 13) {
-          // Attempt connection
           _wifiPassBuf[_wifiPassLen] = '\0';
-          _wifiPhase = WIFI_PHASE_CONNECTING;
-
-          // Save credentials to SD first (so web reader can reuse them)
-          if (SD.exists("/web") || SD.mkdir("/web")) {
-            File f = SD.open("/web/wifi.cfg", FILE_WRITE);
-            if (f) {
-              f.println(_wifiSSIDs[_wifiSSIDSelected]);
-              f.println(_wifiPassBuf);
-              f.close();
-            }
-            digitalWrite(SDCARD_CS, HIGH);
-          }
-
-          WiFi.disconnect(false);
-          WiFi.begin(_wifiSSIDs[_wifiSSIDSelected].c_str(), _wifiPassBuf);
-
-          // Brief blocking wait — fine for e-ink (screen won't update during this anyway)
-          unsigned long timeout = millis() + 8000;
-          while (WiFi.status() != WL_CONNECTED && millis() < timeout) {
-            delay(100);
-          }
-
-          if (WiFi.status() == WL_CONNECTED) {
-            Serial.printf("Settings: WiFi connected to %s, IP: %s\n",
-                          _wifiSSIDs[_wifiSSIDSelected].c_str(),
-                          WiFi.localIP().toString().c_str());
-            _editMode = EDIT_NONE;
-            _wifiPhase = WIFI_PHASE_IDLE;
-            if (_onboarding) _onboarding = false;  // Finish onboarding
-          } else {
-            Serial.println("Settings: WiFi connection failed");
-            // Go back to SSID selection so user can retry
-            _wifiPhase = WIFI_PHASE_SELECT;
-          }
+          commitWifiConnect();
           return true;
         }
         if (c == '\b') {

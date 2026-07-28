@@ -596,7 +596,7 @@ class TWatchKeyboardScreen : public UIScreen {
   uint8_t  _channelIdx;
 
 public:
-  enum Purpose { TWKB_CHANNEL, TWKB_DM, TWKB_ADMIN_PASSWORD, TWKB_ADMIN_CLI, TWKB_PATH, TWKB_NOTE, TWKB_SCOPE, TWKB_TRACE_PATH, TWKB_SETTING };
+  enum Purpose { TWKB_CHANNEL, TWKB_DM, TWKB_ADMIN_PASSWORD, TWKB_ADMIN_CLI, TWKB_PATH, TWKB_NOTE, TWKB_SCOPE, TWKB_TRACE_PATH, TWKB_SETTING, TWKB_WIFI_PASSWORD };
 
 private:
   Purpose  _purpose;
@@ -692,7 +692,7 @@ public:
     _purpose = purpose;
     _contextIdx = contextIdx;
     _channelIdx = 0;
-    _mask = (purpose == TWKB_ADMIN_PASSWORD);
+    _mask = (purpose == TWKB_ADMIN_PASSWORD || purpose == TWKB_WIFI_PASSWORD);
     _outLen = 0; _outBuf[0] = 0;
     _mode = LOWER;
     // Start "already down". The keyboard is usually opened by a long press

@@ -314,6 +314,19 @@ static void lastHeardToggleContact() {
       return 0;  // Cursor moved or miss -- just refresh
     }
 
+#ifdef MECK_WIFI_COMPANION
+    // WiFi network picker: tap only moves the highlight. Long-press (Hold)
+    // confirms the selection; the physical button rescans (see the SELECT
+    // handler and mapTouchLongPress).
+    if (ui_task.isOnSettingsScreen()) {
+      SettingsScreen* ss = (SettingsScreen*)ui_task.getSettingsScreen();
+      if (ss && ss->isInWifiNetworkSelect()) {
+        ss->selectWifiSSIDAtVY(vy);
+        return 0;  // moved highlight or miss -- just refresh, never confirm
+      }
+    }
+#endif
+
     // Snake screen: tap = Enter (start / restart)
     if (ui_task.isOnSnakeScreen()) {
 #if defined(MECK_TWATCH)
@@ -1103,6 +1116,15 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnSettingsScreen()) {
       SettingsScreen* ss = (SettingsScreen*)ui_task.getSettingsScreen();
       if (ss) {
+#if defined(MECK_TWATCH) && defined(MECK_WIFI_COMPANION)
+        // WiFi picker: long-press confirms the highlighted network. Return a
+        // code distinct from the physical button's KEY_ENTER/KEY_NEXT (which
+        // rescan), so Hold and Button stay separable on the S3 where the button
+        // is KEY_ENTER.
+        if (ss->isInWifiNetworkSelect()) {
+          return (char)KEY_SELECT;
+        }
+#endif
 #if defined(MECK_TWATCH)
         // Watch: long-press while editing a number row or the preset picker
         // saves the value.
@@ -1299,7 +1321,50 @@ void setup() {
   radio_driver.setDutyCycleEnabled(the_mesh.getNodePrefs()->rx_duty_cycle != 0);
   radio_driver.setDutyLevel(the_mesh.getNodePrefs()->rx_duty_level);
 
-#ifdef WIFI_SSID
+#if defined(MECK_TWATCH) && defined(MECK_WIFI_COMPANION)
+  {
+    // Watch: prefer an on-device saved network (LittleFS), else fall back to
+    // the compile-time WIFI_SSID/WIFI_PWD default. TCP server starts regardless.
+    MESH_DEBUG_PRINTLN("setup() - WiFi companion mode (watch)");
+    WiFi.mode(WIFI_STA);
+    bool connecting = false;
+    File f = LittleFS.open("/wifi.cfg", "r");
+    if (f) {
+      String ssid = f.readStringUntil('\n'); ssid.trim();
+      String pass = f.readStringUntil('\n'); pass.trim();
+      f.close();
+      if (ssid.length() > 0) {
+        MESH_DEBUG_PRINTLN("setup() - WiFi: connecting to saved '%s'", ssid.c_str());
+        WiFi.begin(ssid.c_str(), pass.c_str());
+        connecting = true;
+      }
+    }
+  #ifdef WIFI_SSID
+    if (!connecting) {
+      MESH_DEBUG_PRINTLN("setup() - WiFi: connecting to default '%s'", WIFI_SSID);
+      WiFi.begin(WIFI_SSID, WIFI_PWD);
+      connecting = true;
+    }
+  #endif
+    if (connecting) {
+      unsigned long timeout = millis() + 3000;  // non-critical; Settings can retry
+      while (WiFi.status() != WL_CONNECTED && millis() < timeout) {
+        yield();
+        delay(50);
+      }
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("WiFi companion: connected, IP: %s\n",
+                      WiFi.localIP().toString().c_str());
+      } else {
+        Serial.println("WiFi companion: auto-connect failed (configure in Settings)");
+      }
+    } else {
+      Serial.println("WiFi companion: no saved network (configure in Settings)");
+    }
+    serial_interface.begin(TCP_PORT);
+    MESH_DEBUG_PRINTLN("setup() - WiFi TCP server started on port %d", TCP_PORT);
+  }
+#elif defined(WIFI_SSID)
   MESH_DEBUG_PRINTLN("setup() - WiFi mode (compile-time credentials)");
   WiFi.begin(WIFI_SSID, WIFI_PWD);
   serial_interface.begin(TCP_PORT);

@@ -1984,6 +1984,14 @@ if (curr) curr->poll();
         if (settings_screen) setCurrScreen(settings_screen);
         else gotoHomeScreen();
         if (!applied) showAlert("Not applied", 1200);
+#ifdef MECK_WIFI_COMPANION
+      } else if (purpose == TWatchKeyboardScreen::TWKB_WIFI_PASSWORD) {
+        SettingsScreen* ss = (SettingsScreen*)settings_screen;
+        if (ss) ss->submitWifiPassword(sendText);
+        kb->clearOutBuf();
+        if (settings_screen) setCurrScreen(settings_screen);
+        else gotoHomeScreen();
+#endif
       } else {  // TWKB_ADMIN_PASSWORD or TWKB_ADMIN_CLI
         RepeaterAdminScreen* admin = (RepeaterAdminScreen*)getRepeaterAdminScreen();
         if (admin) {
@@ -2044,6 +2052,12 @@ if (curr) curr->poll();
         ((TWatchKeyboardScreen*)tw_keyboard)->setAllowEmptySend(true);
       }
     }
+#ifdef MECK_WIFI_COMPANION
+    if (ss->wantsWifiPwKeyboard()) {
+      ss->clearWantsWifiPwKeyboard();
+      openTWatchKeyboard(TWatchKeyboardScreen::TWKB_WIFI_PASSWORD, 0);
+    }
+#endif
     if (ss->wantsWatchChannels()) {
       ss->clearWantsWatchChannels();
       if (watch_channel_cfg_screen) {
