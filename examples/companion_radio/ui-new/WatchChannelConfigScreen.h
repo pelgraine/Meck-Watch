@@ -158,6 +158,15 @@ public:
     if (txt == nullptr) txt = "";
     strncpy(ch.scope_name, txt, sizeof(ch.scope_name));
     ch.scope_name[30] = '\0';
+    // Derive the transport key now, at set time, and store the bytes in the
+    // channel record -- same architecture as the device default region.
+    if (ch.scope_name[0]) {
+      TransportKey key;
+      the_mesh.deriveScopeKey(ch.scope_name, key);
+      memcpy(ch.scope_key, key.key, sizeof(ch.scope_key));
+    } else {
+      memset(ch.scope_key, 0, sizeof(ch.scope_key));
+    }
     the_mesh.setChannel((uint8_t)_detail, ch);
     the_mesh.saveChannels();
     Serial.printf("WatchChannelCfg: Channel %d scope set to '%s'\n",
@@ -386,6 +395,7 @@ public:
     if (ly >= 36 && ly < 54) {               // Clear region
       if (ch.scope_name[0]) {
         ch.scope_name[0] = '\0';
+        memset(ch.scope_key, 0, sizeof(ch.scope_key));
         the_mesh.setChannel((uint8_t)_detail, ch);
         the_mesh.saveChannels();
         Serial.printf("WatchChannelCfg: Channel %d scope cleared\n", _detail);

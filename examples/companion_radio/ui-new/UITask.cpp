@@ -1900,6 +1900,12 @@ if (curr) curr->poll();
     if (cs->wantsCompose()) {
       cs->acknowledgeCompose();
       ((TWatchKeyboardScreen*)tw_keyboard)->activate(cs->getChannelIdx(), cs->getChannelName());
+      if (cs->replyPrefill()[0]) {
+        // Path-overlay Reply: prefill "@[sender] " (same setInitialText
+        // mechanism as the settings keyboard; activate() cleared the buffer).
+        ((TWatchKeyboardScreen*)tw_keyboard)->setInitialText(cs->replyPrefill());
+        cs->clearReplyPrefill();
+      }
       setCurrScreen(tw_keyboard);
     }
     if (cs->wantsExit()) {

@@ -3169,6 +3169,16 @@ public:
           if (the_mesh.getChannel(chIdx, ch)) {
             strncpy(ch.scope_name, _editBuf, sizeof(ch.scope_name));
             ch.scope_name[30] = '\0';
+            // Derive the transport key at set time and store the bytes in the
+            // channel record -- same architecture as the device default. An
+            // empty entry clears both (channel reverts to device default).
+            if (ch.scope_name[0]) {
+              TransportKey key;
+              the_mesh.deriveScopeKey(ch.scope_name, key);
+              memcpy(ch.scope_key, key.key, sizeof(ch.scope_key));
+            } else {
+              memset(ch.scope_key, 0, sizeof(ch.scope_key));
+            }
             the_mesh.setChannel(chIdx, ch);
             the_mesh.saveChannels();
             Serial.printf("Settings: Channel %d scope set to '%s'\n",

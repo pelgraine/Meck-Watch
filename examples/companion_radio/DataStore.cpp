@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "DataStore.h"
+#include <helpers/TransportKeyStore.h>   // scope-key derivation for /channels3 migration
 
 #if defined(EXTRAFS) || defined(QSPIFLASH)
   #define MAX_BLOBRECS 100
@@ -547,6 +548,22 @@ void DataStore::loadChannels(DataStoreHost* host) {
     FILESYSTEM* fs = _getContactsChannelsFS();
 
     // Crash recovery (same pattern as contacts)
+    if (!fs->exists("/channels4") && fs->exists("/channels4.tmp")) {
+      Serial.println("DataStore: recovering channels from .tmp file");
+      fs->rename("/channels4.tmp", "/channels4");
+    }
+    if (fs->exists("/channels4.tmp")) {
+      fs->remove("/channels4.tmp");
+    }
+    if (!fs->exists("/channels3") && fs->exists("/channels3.tmp")) {
+      Serial.println("DataStore: recovering channels from .tmp file");
+      fs->rename("/channels3.tmp", "/channels3");
+    }
+    if (fs->exists("/channels3.tmp")) {
+      fs->remove("/channels3.tmp");
+    }
+    // Legacy /channels2 crash recovery, still honoured for a device whose
+    // last save was on pre-/channels3 firmware.
     if (!fs->exists("/channels2") && fs->exists("/channels2.tmp")) {
       Serial.println("DataStore: recovering channels from .tmp file");
       fs->rename("/channels2.tmp", "/channels2");
@@ -555,7 +572,12 @@ void DataStore::loadChannels(DataStoreHost* host) {
       fs->remove("/channels2.tmp");
     }
 
-    File file = openRead(fs, "/channels2");
+    // Prefer /channels4 (v3 99-byte record + 16-byte scope_key = 115 bytes),
+    // then /channels3 (name only -- key re-derived below), then legacy
+    // /channels2 (no scope on disk). The next saveChannels() writes /channels4.
+    bool v4 = fs->exists("/channels4");
+    bool v3 = !v4 && fs->exists("/channels3");
+    File file = openRead(fs, v4 ? "/channels4" : (v3 ? "/channels3" : "/channels2"));
     if (file) {
       bool full = false;
       uint8_t channel_idx = 0;
@@ -566,6 +588,21 @@ void DataStore::loadChannels(DataStoreHost* host) {
         bool success = (file.read(unused, 4) == 4);
         success = success && (file.read((uint8_t *)ch.name, 32) == 32);
         success = success && (file.read((uint8_t *)ch.channel.secret, 32) == 32);
+        if (v4 || v3) {
+          success = success && (file.read((uint8_t *)ch.scope_name, 31) == 31);
+        }
+        if (v4) {
+          success = success && (file.read((uint8_t *)ch.scope_key, 16) == 16);
+        } else if (v3 && success && ch.scope_name[0]) {
+          // /channels3 stored the name only -- derive the key once here so
+          // the record is complete in RAM; the next save persists it.
+          char tmp[33];
+          snprintf(tmp, sizeof(tmp), "#%s", ch.scope_name);
+          TransportKeyStore ks;
+          TransportKey key;
+          ks.getAutoKeyFor(0, tmp, key);
+          memcpy(ch.scope_key, key.key, sizeof(ch.scope_key));
+        }
 
         if (!success) break; // EOF
 
@@ -581,8 +618,8 @@ void DataStore::loadChannels(DataStoreHost* host) {
 
 void DataStore::saveChannels(DataStoreHost* host) {
   FILESYSTEM* fs = _getContactsChannelsFS();
-  const char* finalPath = "/channels2";
-  const char* tmpPath   = "/channels2.tmp";
+  const char* finalPath = "/channels4";
+  const char* tmpPath   = "/channels4.tmp";
 
   File file = openWrite(fs, tmpPath);
   if (!file) {
@@ -600,6 +637,8 @@ void DataStore::saveChannels(DataStoreHost* host) {
     bool success = (file.write(unused, 4) == 4);
     success = success && (file.write((uint8_t *)ch.name, 32) == 32);
     success = success && (file.write((uint8_t *)ch.channel.secret, 32) == 32);
+    success = success && (file.write((uint8_t *)ch.scope_name, 31) == 31);
+    success = success && (file.write((uint8_t *)ch.scope_key, 16) == 16);
 
     if (!success) {
       writeOk = false;
@@ -612,7 +651,7 @@ void DataStore::saveChannels(DataStoreHost* host) {
   file.close();
 
   // Reopen read-only to get true on-disk size (SPIFFS file.size() is unreliable before close)
-  size_t expectedBytes = channel_idx * 68;  // 4 + 32 + 32 = 68 bytes per channel
+  size_t expectedBytes = channel_idx * 115;  // 4 + 32 + 32 + 31 + 16 = 115 bytes per channel
   File verify = openRead(fs, tmpPath);
   size_t bytesWritten = verify ? verify.size() : 0;
   if (verify) verify.close();

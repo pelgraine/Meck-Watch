@@ -449,31 +449,9 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path
     p->path_len = mesh::Packet::copyPath(p->path, path, path_len);
   }
 
-  // Buffer for on-device discovery UI
-  if (_discoveryActive && _discoveredCount < MAX_DISCOVERED_NODES) {
-    bool dup = false;
-    for (int i = 0; i < _discoveredCount; i++) {
-      if (contact.id.matches(_discovered[i].contact.id)) {
-        // Update existing entry with fresher data
-        _discovered[i].contact = contact;
-        _discovered[i].path_len = path_len;
-        _discovered[i].already_in_contacts = !is_new;
-        // Preserve snr if already set by active discovery response
-        dup = true;
-        Serial.printf("[Discovery] Updated: %s (hops=%d)\n", contact.name, path_len);
-        break;
-      }
-    }
-    if (!dup) {
-      _discovered[_discoveredCount].contact = contact;
-      _discovered[_discoveredCount].path_len = path_len;
-      _discovered[_discoveredCount].snr = 0;  // no SNR from passive advert
-      _discovered[_discoveredCount].already_in_contacts = !is_new;
-      _discoveredCount++;
-      Serial.printf("[Discovery] Found: %s (hops=%d, is_new=%d, total=%d)\n",
-                    contact.name, path_len, is_new, _discoveredCount);
-    }
-  }
+  // Discovery list is strictly tag-validated CTL_TYPE_NODE_DISCOVER_RESP
+  // entries (see onControlDataRecv). Passive adverts heard during the scan
+  // window are not listed.
 
   if (!is_new) dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY); // only schedule lazy write for contacts that are in contacts[]
 }
@@ -725,6 +703,23 @@ void MyMesh::sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, ui
   memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
   sendFloodScoped(default_scope, pkt, delay_millis);
 }
+// Copy-out lookup for the per-channel scope key: finds the named channel
+// whose secret matches and copies its set-time-derived scope_key bytes.
+// Returns false when no named channel matches. No string or pointer
+// lifetime is involved at send time.
+static bool getChannelScopeKey(BaseChatMesh* mesh, const mesh::GroupChannel& channel, TransportKey& out) {
+  ChannelDetails ch;
+  for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
+    if (mesh->getChannel(i, ch) && ch.name[0] != '\0') {
+      if (memcmp(ch.channel.secret, channel.secret, sizeof(channel.secret)) == 0) {
+        memcpy(out.key, ch.scope_key, sizeof(out.key));
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 void MyMesh::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis) {
   // Capture payload fingerprint for repeat tracking before sending
   if (pkt->payload_len >= SENT_FINGERPRINT_SIZE) {
@@ -745,9 +740,12 @@ void MyMesh::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pk
     // BLE app has set a scope via CMD 54 — use it (highest priority)
     memcpy(scope.key, send_scope.key, sizeof(scope.key));
   } else {
-    const char* ch_scope = getChannelScopeName(channel);
-    if (ch_scope && ch_scope[0]) {
-      deriveScopeKey(ch_scope, scope);
+    // Per-channel scope: set-time-derived key bytes from the channel record
+    // (same architecture as the device default -- a plain byte copy here).
+    TransportKey ch_key;
+    if (getChannelScopeKey(this, channel, ch_key) && !ch_key.isNull()) {
+      memcpy(scope.key, ch_key.key, sizeof(scope.key));
+      Serial.println("[scope] using per-channel key");
     } else {
       memcpy(scope.key, _prefs.default_scope_key, sizeof(scope.key));
     }
@@ -770,7 +768,11 @@ bool MyMesh::deriveScopeKey(const char* scopeName, TransportKey& keyOut) {
 }
 
 const char* MyMesh::getChannelScopeName(const mesh::GroupChannel& channel) {
-  ChannelDetails ch;
+  // static: the returned pointer aims into this object, so it must outlive
+  // the call (a plain local here returned a dangling pointer -- the caller
+  // read a dead stack frame and per-channel scopes silently fell through
+  // to the device default).
+  static ChannelDetails ch;
   for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
     if (getChannel(i, ch) && ch.name[0] != '\0') {
       if (memcmp(ch.channel.secret, channel.secret, sizeof(channel.secret)) == 0) {
@@ -3351,9 +3353,13 @@ void MyMesh::checkCLIRescueCmd() {
           if (getChannel(idx, ch) && ch.name[0] != '\0') {
             if (strcmp(rest, "none") == 0 || strcmp(rest, "clear") == 0) {
               memset(ch.scope_name, 0, sizeof(ch.scope_name));
+              memset(ch.scope_key, 0, sizeof(ch.scope_key));
             } else if (strlen(rest) < 31) {
               strncpy(ch.scope_name, rest, sizeof(ch.scope_name));
               ch.scope_name[30] = '\0';
+              TransportKey key;
+              deriveScopeKey(ch.scope_name, key);
+              memcpy(ch.scope_key, key.key, sizeof(ch.scope_key));
             } else {
               Serial.println("  Error: scope name too long (max 29 chars)");
               cli_command[0] = 0;

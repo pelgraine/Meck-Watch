@@ -244,6 +244,7 @@ class TWatchChannelScreen : public UIScreen {
   uint32_t      _lastNewestTs;    //   (a change dismisses the ticker)
   bool          _showPath;        // hop-path overlay visible
   int           _pathMsgN;        // recency index the overlay describes
+  char          _replyPrefill[40] = "";  // "@[sender] " armed by the overlay's Reply button
 
   static const int HEADER_H      = 14;
   static const int COMPOSE_BAR_H = 18;
@@ -269,6 +270,21 @@ class TWatchChannelScreen : public UIScreen {
   bool isSent(const ChannelScreen::ChannelMessage* m) const {
     return m->path_len == 0 && _selfPrefix[0] != 0 &&
            strncmp(m->text, _selfPrefix, strlen(_selfPrefix)) == 0;
+  }
+
+  // Reply eligibility for the path overlay: a received message on a real
+  // channel (not the DMs pseudo-channel 0xFF) whose "sender: " prefix parses
+  // to a non-empty name. Mirrors the Meck-P4 path-popup rule (received
+  // channel bubbles only; prefill uses the bracketed "@[name] " tag form).
+  bool replySenderFor(const ChannelScreen::ChannelMessage* m, char* out, int outsz) const {
+    if (_channelIdx == 0xFF || isSent(m)) return false;
+    const char* colon = strstr(m->text, ": ");
+    if (!colon || colon == m->text) return false;
+    int n = (int)(colon - m->text);
+    if (n >= outsz) n = outsz - 1;
+    memcpy(out, m->text, n);
+    out[n] = 0;
+    return true;
   }
 
   void drawMsgLine(DisplayDriver& display, int y, const char* text, bool sent) {
@@ -347,23 +363,10 @@ class TWatchChannelScreen : public UIScreen {
       if (bph == 1) snprintf(hex, sizeof(hex), "%02x", hashes[off]);
       else          snprintf(hex, sizeof(hex), "%02x%02x", hashes[off], hashes[off + 1]);
 
-      char nm[16]; nm[0] = 0;
-      uint32_t numC = the_mesh.getNumContacts();
-      ContactInfo c;
-      for (int pass = 0; pass < 2 && nm[0] == 0; pass++) {
-        for (uint32_t ci = 0; ci < numC; ci++) {
-          if (!the_mesh.getContactByIdx(ci, c)) continue;
-          if (memcmp(c.id.pub_key, &hashes[off], bph) != 0) continue;
-          if (pass == 0 && c.type != ADV_TYPE_REPEATER) continue;
-          strncpy(nm, c.name, sizeof(nm) - 1); nm[sizeof(nm) - 1] = 0;
-          break;
-        }
-      }
-
       int8_t s = snrs[i];
       char line[40];
-      snprintf(line, sizeof(line), "(%s) %s %d.%ddB",
-               hex, nm[0] ? nm : "?", s / 4, ((abs((int)s) % 4) * 10) / 4);
+      snprintf(line, sizeof(line), "(%s) %d.%ddB",
+               hex, s / 4, ((abs((int)s) % 4) * 10) / 4);
       d->setRawColor(0xFFFF);
       d->setCursor(bx + 5, y); d->print(line);
       y += 10;
@@ -428,6 +431,15 @@ class TWatchChannelScreen : public UIScreen {
       pathY += 11;
     }
 
+    // Reply button (received channel messages only): bottom-right corner of
+    // the box. Prefills the composer with "@[sender] " -- hit-test in poll().
+    char rnm[33];
+    bool canReply = replySenderFor(m, rnm, sizeof(rnm));
+    if (canReply) {
+      d->setRawColor(0x231D);
+      d->drawTextRightAlign(bx + bw - 4, by + bh - 10, "[Reply]");
+    }
+
     if (m->path_len == 0 || m->path_len == 0xFF) return;
 
     int byteLen = (int)mesh::Packet::getPathByteLenFor(m->path_len);
@@ -449,7 +461,7 @@ class TWatchChannelScreen : public UIScreen {
         line[ll] = 0;
         d->setCursor(bx + 5, y); d->print(line);
         y += 10; ll = 0;
-        if (y > by + bh - 8) { d->setCursor(bx + 5, y); d->print("..."); return; }
+        if (y > by + bh - (canReply ? 20 : 8)) { d->setCursor(bx + 5, y); d->print("..."); return; }
       }
       memcpy(line + ll, tok, tl); ll += tl;
     }
@@ -486,6 +498,7 @@ public:
     _touchDown = false; _wantsCompose = false; _wantsExit = false;
     _selectedN = -1;
     _showPath = false;
+    _replyPrefill[0] = 0;
     _lastNewest = nullptr; _lastNewestTs = 0;
     if (_store) _store->markChannelRead(_channelIdx);
   }
@@ -495,6 +508,8 @@ public:
 
   bool wantsCompose() const { return _wantsCompose; }
   void acknowledgeCompose() { _wantsCompose = false; }
+  const char* replyPrefill() const { return _replyPrefill; }
+  void clearReplyPrefill() { _replyPrefill[0] = 0; }
   bool wantsExit() const { return _wantsExit; }
   void acknowledgeExit() { _wantsExit = false; }
 
@@ -523,7 +538,22 @@ public:
     } else if (!now && _touchDown) {
       _touchDown = false;
       int H = _display->height();
-      if (_showPath) { _showPath = false; return; }   // any tap dismisses the path overlay
+      if (_showPath) {
+        // Reply button hit-test: bottom-right of the overlay box (drawn by
+        // drawPathOverlay at by=18, bh=76). Arms an "@[sender] " compose;
+        // any other tap dismisses the overlay as before.
+        const ChannelScreen::ChannelMessage* pm =
+            _store ? _store->getChannelMsgByRecency(_channelIdx, _pathMsgN) : nullptr;
+        char rnm[33];
+        if (pm && _downX >= _display->width() - 56 && _downY >= 18 + 76 - 16 &&
+            replySenderFor(pm, rnm, sizeof(rnm))) {
+          snprintf(_replyPrefill, sizeof(_replyPrefill), "@[%s] ", rnm);
+          _showPath = false;
+          _wantsCompose = true;
+          return;
+        }
+        _showPath = false; return;   // any tap dismisses the path overlay
+      }
       if (_downX < 20 && _downY < HEADER_H) { _selectedN = -1; _wantsExit = true; return; }   // back arrow
       if (_downY >= H - COMPOSE_BAR_H) { _selectedN = -1; _wantsCompose = true; return; }      // compose bar
       // message area -> tap to open/close ticker
@@ -596,7 +626,7 @@ class TWatchKeyboardScreen : public UIScreen {
   uint8_t  _channelIdx;
 
 public:
-  enum Purpose { TWKB_CHANNEL, TWKB_DM, TWKB_ADMIN_PASSWORD, TWKB_ADMIN_CLI, TWKB_PATH, TWKB_NOTE, TWKB_SCOPE, TWKB_TRACE_PATH, TWKB_SETTING, TWKB_WIFI_PASSWORD };
+  enum Purpose { TWKB_CHANNEL, TWKB_DM, TWKB_ADMIN_PASSWORD, TWKB_ADMIN_CLI, TWKB_PATH, TWKB_NOTE, TWKB_SCOPE, TWKB_TRACE_PATH, TWKB_SETTING };
 
 private:
   Purpose  _purpose;
@@ -692,7 +722,7 @@ public:
     _purpose = purpose;
     _contextIdx = contextIdx;
     _channelIdx = 0;
-    _mask = (purpose == TWKB_ADMIN_PASSWORD || purpose == TWKB_WIFI_PASSWORD);
+    _mask = (purpose == TWKB_ADMIN_PASSWORD);
     _outLen = 0; _outBuf[0] = 0;
     _mode = LOWER;
     // Start "already down". The keyboard is usually opened by a long press
