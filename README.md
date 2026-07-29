@@ -1,6 +1,6 @@
 ## Meshcore + Fork = Meck (T-Watch Edition)
 
-A fork created specifically to focus on enabling BLE & standalone Meshcore companion firmware for the **LilyGo T-Watch S3** and **T-Watch S3 Plus**. This is the watch-only build of Meck; the multi-device Meck firmware (T-Deck Pro, T-Deck Max, T5S3 E-Paper Pro, Heltec repeaters) lives in the [main Meck repository](https://github.com/pelgraine/Meck). 100% vibecoded. Created with Claude AI on MeshCore v1.11 code.
+A fork created specifically to focus on enabling BLE, WiFi & standalone Meshcore companion firmware for the **LilyGo T-Watch S3** and **T-Watch S3 Plus**. This is the watch-only build of Meck; the multi-device Meck firmware (T-Deck Pro, T-Deck Max, T5S3 E-Paper Pro, Heltec repeaters) lives in the [main Meck repository](https://github.com/pelgraine/Meck). 100% vibecoded. Created with Claude AI on MeshCore v1.11 code.
 
 [Check out the Meck discussion channel on the MeshCore Discord](https://discord.com/channels/1495203904898728149/1496789639556501614)
 
@@ -38,6 +38,7 @@ A fork created specifically to focus on enabling BLE & standalone Meshcore compa
 - [Region Scope](#region-scope)
 - [Channels: Public, Private & Sharing](#channels-public-private--sharing)
 - [Bluetooth (BLE)](#bluetooth-ble)
+- [WiFi Companion](#wifi-companion)
 - [Battery & Charging](#battery--charging)
 - [About MeshCore](#about-meshcore)
 - [MeshCore Clients](#meshcore-clients)
@@ -70,8 +71,8 @@ The two boards are wired identically at the ESP32-S3 — they differ only in wha
 | Button Meck reads | PWR key (via the PMU) | The GPIO0 boot button |
 | Home tile (row 3, right) | **Games** (Trace + Games) | **Maps** (Trace + Maps); **Games** on the no-maps builds |
 | Battery cell | 470 mAh LiHV (Tewaycell 552530, 3.8 V nom / 4.35 V max) | LiHV (Tewaycell 112530-2P, 3.8 V nom / 4.35 V max) |
-| Measured runtime | 11h14m (standalone, RX duty cycle at Light) | 21h24m (no-maps standalone, 40 MHz cap, GPS off) |
-| Firmware version string | `Meck TWatch S3 v0.9` / `Meck TWatch S3 BLE v0.9` | `Meck TWatch v0.9` / `Meck TWatch BLE v0.9` |
+| Measured runtime | 14h27m (standalone, 40 MHz cap, duty cycle off) | 21h24m (no-maps standalone, 40 MHz cap, GPS off) |
+| Firmware version string | `Meck TWatch S3 v1.0` / `Meck TWatch S3 BLE v1.0` / `Meck TWatch S3 WiFi v1.0` | `Meck TWatch v1.0` / `Meck TWatch BLE v1.0` / `Meck TWatch WiFi v1.0` |
 
 Everything else — the UI, the touch keyboard, step counting, tilt-to-wake, the lock/clock screen, notes, and the whole channel/DM/contacts system — is shared between the two.
 
@@ -90,22 +91,24 @@ Two consequences worth knowing:
 
 ## Build Environment Options
 
-There are six build environments -- three per watch.
+There are eight build environments -- three for the S3, five for the S3 Plus.
 
-| Variant | Environment | BLE | Map screen | CPU cap | Max Contacts |
+| Variant | Environment | BLE / WiFi | Map screen | CPU cap | Max Contacts |
 |---------|------------|-----|-----|-----|-------------|
 | S3 Standalone | `meck_twatch_s3_standalone` | -- | n/a (no GPS) | 40 MHz | 2,000 |
-| S3 BLE | `meck_twatch_s3_ble` | Yes | n/a (no GPS) | 80 MHz | 2,000 |
+| S3 BLE | `meck_twatch_s3_ble` | BLE | n/a (no GPS) | 80 MHz | 2,000 |
+| S3 WiFi | `meck_twatch_s3_wifi` | WiFi | n/a (no GPS) | 80 MHz | 2,000 |
 | S3 Plus Standalone | `meck_twatch_s3_plus_standalone` | -- | Yes | 80 MHz | 2,000 |
-| S3 Plus BLE | `meck_twatch_s3_plus_ble` | Yes | Yes | 80 MHz | 2,000 |
+| S3 Plus BLE | `meck_twatch_s3_plus_ble` | BLE | Yes | 80 MHz | 2,000 |
+| S3 Plus WiFi | `meck_twatch_s3_plus_wifi` | WiFi | Yes | 80 MHz | 2,000 |
 | S3 Plus Standalone, No Maps | `meck_twatch_s3_plus_standalone_nomaps` | -- | No | 40 MHz | 2,000 |
-| S3 Plus BLE, No Maps | `meck_twatch_s3_plus_ble_nomaps` | Yes | No | 80 MHz | 2,000 |
+| S3 Plus BLE, No Maps | `meck_twatch_s3_plus_ble_nomaps` | BLE | No | 80 MHz | 2,000 |
 
-**Standalone** builds run the full touch UI with no phone connection -- you can send and receive messages, browse contacts, and manage the mesh entirely from the watch. **BLE** builds add the MeshCore companion serial interface so a phone app can connect when you want it. There is no WiFi variant for the watches.
+**Standalone** builds run the full touch UI with no phone connection -- you can send and receive messages, browse contacts, and manage the mesh entirely from the watch. **BLE** builds add the MeshCore companion serial interface so a phone app can connect when you want it. **WiFi** builds instead expose the MeshCore companion interface over TCP on port 5000, so a client on your local network can connect -- see [WiFi Companion](#wifi-companion).
 
 **No Maps** builds drop the map screen on the S3 Plus in exchange for the best battery life on that watch, and change how the clock face and buttons behave -- see [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds).
 
-All six builds allocate their 2,000-contact arrays in PSRAM and boot the CPU at 80 MHz (`ESP32_CPU_FREQ=80`). The two standalone builds marked 40 MHz above go further and cap the *running* clock -- both idle and boost -- at 40 MHz. The BLE builds are deliberately left at 80 MHz, because WiFi and Bluetooth will not run below it.
+All eight builds allocate their 2,000-contact arrays in PSRAM and boot the CPU at 80 MHz (`ESP32_CPU_FREQ=80`). The two standalone builds marked 40 MHz above go further and cap the *running* clock -- both idle and boost -- at 40 MHz. The BLE and WiFi builds are deliberately left at 80 MHz, because WiFi and Bluetooth will not run below it.
 
 ### Files in each release
 
@@ -117,6 +120,8 @@ Each environment ships two files: a merged image for a first flash, and a plain 
 |---|---|
 | `meck_twatch_s3_ble-merged.bin` | BLE companion build, full-flash image -- recommended first flash for initial setup and backup via the MeshCore app. |
 | `meck_twatch_s3_ble.bin` | BLE companion build, for a watch that already runs Meck. Config is kept. |
+| `meck_twatch_s3_wifi-merged.bin` | WiFi companion build (TCP port 5000), full-flash image. |
+| `meck_twatch_s3_wifi.bin` | WiFi companion build, for a watch that already runs Meck. Config is kept. |
 | `meck_twatch_s3_standalone-merged.bin` | Standalone build (no BLE/WiFi, 40 MHz cap -- maximum battery life), full-flash image. |
 | `meck_twatch_s3_standalone.bin` | Standalone build -- flash this after BLE setup to keep your config. |
 
@@ -126,6 +131,8 @@ Each environment ships two files: a merged image for a first flash, and a plain 
 |---|---|
 | `meck_twatch_s3_plus_ble-merged.bin` | BLE companion build with maps, full-flash image -- recommended first flash for initial setup and backup via the MeshCore app. |
 | `meck_twatch_s3_plus_ble.bin` | BLE companion build with maps, for a watch that already runs Meck. Config is kept. |
+| `meck_twatch_s3_plus_wifi-merged.bin` | WiFi companion build with maps (TCP port 5000), full-flash image. |
+| `meck_twatch_s3_plus_wifi.bin` | WiFi companion build with maps, for a watch that already runs Meck. Config is kept. |
 | `meck_twatch_s3_plus_standalone-merged.bin` | Standalone build with maps, full-flash image. |
 | `meck_twatch_s3_plus_standalone.bin` | Standalone build with maps, for a watch that already runs Meck. Config is kept. |
 
@@ -138,7 +145,7 @@ Each environment ships two files: a merged image for a first flash, and a plain 
 | `meck_twatch_s3_plus_standalone_nomaps-merged.bin` | Standalone build, no maps, 40 MHz cap, full-flash image. |
 | `meck_twatch_s3_plus_standalone_nomaps.bin` | Standalone build, no maps, 40 MHz cap, for a watch that already runs Meck. Config is kept. |
 
-All six environments share their watch's partition table, so you can move between maps and no-maps on the Plus with an ordinary flash at `0x10000` and keep your config either way.
+All eight environments share their watch's partition table, so you can move between standalone, BLE, WiFi and (on the Plus) maps and no-maps with an ordinary flash at `0x10000` and keep your config either way.
 
 ---
 
@@ -315,11 +322,11 @@ Sending a DM opens the touch keyboard; the message is tracked with the standard 
 
 ## "Heard By" on Sent Messages
 
-When you send a channel message, the watch tracks which repeaters re-flooded it. Selecting one of your own outgoing messages opens a **"Heard by"** overlay listing the distinct repeaters that echoed it, along with the signal quality (SNR) heard from each — a quick way to confirm your message is propagating and see which repeaters are carrying it.
+When you send a channel message, the watch tracks which repeaters re-flooded it. Selecting one of your own outgoing messages opens a **"Heard by"** overlay listing the distinct repeaters that echoed it, along with the signal quality (SNR) heard from each — a quick way to confirm your message is propagating and see which repeaters are carrying it. Each entry shows the repeater's hash and the SNR it heard you at, one per line: `(36e2) 10.7dB`.
 
 On the **S3 Plus** this is reached via the boot button on a selected outgoing message; on the **S3**, via the PWR key.
 
-The same overlay on an **incoming** message shows its route instead: the hop count and hash size, the time it was received (`Rx: 23 Jul 17:24`, in your local time), and the hex hop path. The received-time line also appears on Direct (0 hops) and Flood (no path) messages, and is left off your own sent messages, whose timestamp is a send time rather than a receive time. If the clock has never been set the line is omitted rather than showing a 1970 date.
+The same overlay on an **incoming** message shows its route instead: the hop count and hash size, the time it was received (`Rx: 23 Jul 17:24`, in your local time), and the hex hop path. It also carries a **`[Reply]`** button in its bottom-right corner: tap it to open the composer pre-filled with `@[sender] `, the bracketed tag form other MeshCore devices and the companion app recognise. Reply is offered on received channel messages only -- not on your own sent messages, and not in the DM inbox. Any other tap dismisses the overlay as before. The received-time line also appears on Direct (0 hops) and Flood (no path) messages, and is left off your own sent messages, whose timestamp is a send time rather than a receive time. If the clock has never been set the line is omitted rather than showing a 1970 date.
 
 ---
 
@@ -335,7 +342,7 @@ Notes are entered through the touch keyboard, so each note is capped at **133 ch
 
 ## Discovery & Last Heard
 
-- **Discovery** runs an active scan for nearby nodes. Swipe to scroll results, tap to add a node to contacts, long-press to rescan.
+- **Discovery** runs an active scan for nearby nodes: the watch transmits a discover request, and repeaters and room servers answer it directly. The list holds **only those responses**, each with the SNR it was heard at -- adverts that happen to arrive while the scan is running are not listed. Swipe to scroll results, tap to add a node to contacts, long-press to rescan.
 - **Last Heard** is a passive advert history — a running list of every node the watch has heard, even long after the advert arrived. Tap an entry to add it to contacts (or remove it). This is especially useful when auto-add is off, as it gives you a catalogue of everything heard on the network.
 
 ---
@@ -408,6 +415,7 @@ Open **Settings** from its home tile. The watch settings screen exposes:
 - **Default region scope** (see [Region Scope](#region-scope))
 - **Channels** submenu — add, edit, and manage channels including private ones (see [Channels](#channels-public-private--sharing))
 - **Rx Log** — the packet sniffer (see [Rx Log](#rx-log))
+- **WiFi** — network setup and a radio on/off toggle (WiFi builds only, see [WiFi Companion](#wifi-companion))
 - **Experimental Features** submenu — the RX duty cycle battery saver (see [Experimental: RX Duty Cycle](#experimental-rx-duty-cycle))
 
 ### Navigating the settings list
@@ -476,6 +484,8 @@ The Radio Preset picker carries ready-made profiles for common regional configur
 
 ## Experimental: RX Duty Cycle
 
+> **Known issue in v1.0 -- leave this off.** On the S3 the feature currently does the opposite of what it is meant to. With Nap Depth at Light an S3 standalone runs flat in roughly 6 hours; the same watch on the same build with the duty cycle off measured **14h27m**. The drain is far larger than the radio itself can account for and is still under investigation. It remains off by default.
+
 **Settings → Experimental Features** holds an opt-in battery saver: instead of listening continuously, the SX1262 duty-cycles its receive window using the chip's own hardware listen/sleep mechanism. It is **off by default**, and nothing changes until you turn it on.
 
 | Row | What it does |
@@ -520,7 +530,9 @@ Regions limit how far your flood messages propagate through the mesh. When you s
 Meck does not pre-set any region on a fresh flash. Region names are determined by your local mesh community — check with your local group for the names in use. Common patterns follow ISO 3166 country/subdivision codes (e.g. `au`, `gb-eng`, `us-ca`), but communities may use custom names. Region names must be lowercase alphanumeric and hyphens only, max 29 characters.
 
 - **Device-wide default:** Set in **Settings → Default Region** (default scope) — a long press opens the touch keyboard. Applies to all channels and DMs unless a channel overrides it. To remove a region, clear the text and press OK: the device reverts to unscoped.
-- **Per-channel:** In the Channels submenu, a channel can carry its own scope, overriding the device default for that channel only.
+- **Per-channel:** In the Channels submenu, a channel can carry its own scope, overriding the device default for that channel only. Set it from the channel configuration screen, from the Channels submenu, or over serial with `set channel.scope <index> <region>` (the index is the number shown by `get channels`, with no angle brackets).
+
+Both are stored as the derived transport key at the moment you set them, so sending never re-derives anything. Per-channel scopes persist across reboots from v1.0 onward -- earlier firmware saved the channel name and secret only, so a per-channel scope silently reverted to the device default on every restart.
 
 ---
 
@@ -535,6 +547,25 @@ Private channels and channel sharing follow the standard Meck/MeshCore model —
 ## Bluetooth (BLE)
 
 On the **BLE** builds, BLE is disabled by default at boot, consistent with the other Meck devices and standalone-first operation. Enable it to connect the MeshCore companion app or the [Meck-Mycelium web app](https://pelgraine.github.io/Meck-Mycelium). **Standalone** builds omit BLE entirely and run fully self-contained — no phone required for any function.
+
+---
+
+## WiFi Companion
+
+The **WiFi** builds (`meck_twatch_s3_wifi`, `meck_twatch_s3_plus_wifi`) expose the MeshCore companion interface over TCP on **port 5000**, so the [web app](https://app.meshcore.nz), meshcore.js, or the Python CLI can connect over your local network — the same interface the T-Deck WiFi variants provide. The full touch UI is unchanged; the network connection is in addition to it, not instead of it.
+
+**Setting up WiFi on the watch.** Settings carries two WiFi rows on these builds:
+
+| Row | What it does |
+|-----|--------------|
+| **WiFi** | Shows the connected SSID, or `(not connected)`. Activating it scans for networks and walks scan → pick an SSID (up to 10 listed) → type the password on the touch keyboard → connect. |
+| **WiFi Radio** | On/off toggle for the radio itself. |
+
+Credentials are saved to `/wifi.cfg` on the internal LittleFS partition, so the watch reconnects on its own after a reboot and the settings survive a firmware update. The `WIFI_SSID` / `WIFI_PWD` build flags remain available as compile-time defaults if you would rather bake credentials into the image.
+
+Once connected, the WiFi home page shows the SSID, the watch's IP address, the port, and whether a client is attached. Point your client at `<watch IP>:5000`.
+
+> **Battery:** the WiFi radio is expensive on a watch-sized cell, and these builds also stay at 80 MHz. Use a WiFi build for setup, backups and desk work; wear a standalone build.
 
 ---
 
@@ -557,10 +588,10 @@ Measured results:
 
 | Build | Configuration | Runtime |
 |---|---|---|
-| S3 standalone | throttle + RX duty cycle at Light | 11h14m (was 9h30m) |
+| S3 standalone | throttle + 40 MHz cap, duty cycle off | 14h27m (was 9h30m) |
 | S3 Plus standalone, no maps | throttle + 40 MHz cap, GPS off, duty cycle off | 21h24m (was 15-16h) |
 
-The S3 Plus figure came from a run that saw 6167 packets, so it is not an idle-bench number. The maps builds have not been re-measured since the throttle fix, and the [RX duty cycle](#experimental-rx-duty-cycle) is a further saving on top of these figures if you choose to turn it on.
+The S3 Plus figure came from a run that saw 6167 packets, so it is not an idle-bench number. The maps builds have not been re-measured since the throttle fix. Both figures were measured with the [RX duty cycle](#experimental-rx-duty-cycle) **off** -- see the known issue in that section before turning it on.
 
 > **Reading the battery percentage.** The gauge is markedly non-linear on these LiHV cells. Over the 21h24m run it fell about 0.7%/hour for the first three hours, then 5-12.6%/hour through the middle, then sat almost still between 26% and 19% for nearly three hours before dropping fast. Do not draw conclusions from short percentage deltas, particularly in the 19-26% band.
 
