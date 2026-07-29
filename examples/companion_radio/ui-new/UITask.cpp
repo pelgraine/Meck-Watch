@@ -162,6 +162,9 @@ class HomeScreen : public UIScreen {
 #if ENV_INCLUDE_GPS == 1
     GPS,
 #endif
+#if defined(MECK_TWATCH)
+    CLOCKS,
+#endif
 #if UI_SENSORS_PAGE == 1
     SENSORS,
 #endif
@@ -183,6 +186,12 @@ class HomeScreen : public UIScreen {
   bool _poweroff_msg_shown;    // true = "powering off..." already displayed once
   bool _editing_utc;
   int8_t _saved_utc_offset;  // for cancel/undo
+#if defined(MECK_TWATCH)
+  // Declared after _saved_utc_offset to match the constructor's init order
+  // (a mismatch trips -Wreorder).
+  int _clock_edit_row;        // -1 = not editing, else 0..2 (world clock page)
+  int8_t _clock_saved_offset; // pre-edit value, restored on cancel
+#endif
 
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 
@@ -282,9 +291,66 @@ public:
   HomeScreen(UITask* task, mesh::RTCClock* rtc, SensorManager* sensors, NodePrefs* node_prefs)
      : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0), 
        _shutdown_init(false), _shutdown_at(0), _poweroff_selected(false), _poweroff_confirm(false),
-       _poweroff_msg_shown(false), _editing_utc(false), _saved_utc_offset(0), sensors_lpp(200) {  }
+       _poweroff_msg_shown(false), _editing_utc(false), _saved_utc_offset(0),
+#if defined(MECK_TWATCH)
+       _clock_edit_row(-1), _clock_saved_offset(0),
+#endif
+       sensors_lpp(200) {  }
 
   bool isEditingUTC() const { return _editing_utc; }
+
+#if defined(MECK_TWATCH)
+  // --- World clock page -------------------------------------------------
+  // Row 0 = Home (device utc_offset_hours), rows 1/2 = the two saved slots.
+  // Each row is CLOCK_ROW_H tall starting at CLOCK_TOP.
+  static const int CLOCK_TOP = 20;
+  static const int CLOCK_ROW_H = 32;
+
+  bool isOnClocksPage() const { return _page == HomePage::CLOCKS; }
+  bool isEditingClock() const { return _clock_edit_row >= 0; }
+
+  int8_t clockRowOffset(int r) const {
+    if (r == 1) return _node_prefs->clock_slot_a;
+    if (r == 2) return _node_prefs->clock_slot_b;
+    return _node_prefs->utc_offset_hours;
+  }
+  void setClockRowOffset(int r, int8_t v) {
+    if (r == 1)      _node_prefs->clock_slot_a = v;
+    else if (r == 2) _node_prefs->clock_slot_b = v;
+    else             _node_prefs->utc_offset_hours = v;
+  }
+  static const char* clockRowLabel(int r) {
+    return (r == 1) ? "Zone 1" : (r == 2) ? "Zone 2" : "Home";
+  }
+  // Three cities per offset, indexed [utc + 12] over -12..+14. Chosen to
+  // avoid DST where a well-known non-DST city exists, so the label stays
+  // correct year-round; offsets with no such city use recognisable ones.
+  static const char* clockCities(int8_t off) {
+    static const char* const CITIES[27] = {
+      "BIT/HWL",      /* -12 */  "PPG/NIU/MDY",  /* -11 */  "HNL/PPT/RAR",  /* -10 */
+      "ANC/JNU",      /*  -9 */  "LAX/VAN/SEA",  /*  -8 */  "PHX/HMO/MZT",  /*  -7 */
+      "MEX/REG/GUA",  /*  -6 */  "BOG/LIM/PTY",  /*  -5 */  "CCS/LPB/SDQ",  /*  -4 */
+      "BUE/SAO/MVD",  /*  -3 */  "FEN/SGS",      /*  -2 */  "RAI/PDL",      /*  -1 */
+      "REY/ACC/DKR",  /*   0 */  "LOS/ALG/TUN",  /*  +1 */  "JNB/KRT/HRE",  /*  +2 */
+      "NBO/MOW/ADD",  /*  +3 */  "DXB/BAK/TBS",  /*  +4 */  "KHI/TAS/SVX",  /*  +5 */
+      "DAC/ALA/OMS",  /*  +6 */  "BKK/JKT/HAN",  /*  +7 */  "PER/BEI/HKG",  /*  +8 */
+      "TYO/SEL/YKS",  /*  +9 */  "BNE/POM/VLA",  /* +10 */  "NOU/HIR/VLI",  /* +11 */
+      "SUV/TRW/MAJ",  /* +12 */  "TBU/APW",      /* +13 */  "CXI"           /* +14 */
+    };
+    int i = (int)off + 12;
+    if (i < 0 || i > 26) return "";
+    return CITIES[i];
+  }
+  // Long press hit-test: pick the row under the given virtual Y and open its
+  // offset picker. Called from mapTouchLongPress (main.cpp).
+  void beginClockEditAtVY(int vy) {
+    int r = (vy - CLOCK_TOP) / CLOCK_ROW_H;
+    if (r < 0) r = 0;
+    if (r > 2) r = 2;
+    _clock_edit_row = r;
+    _clock_saved_offset = clockRowOffset(r);
+  }
+#endif
   bool isFirstPage() const { return _page == HomePage::FIRST; }
   bool isOnRecentPage() const { return _page == HomePage::RECENT; }
 #if defined(MECK_TWATCH)
@@ -838,6 +904,64 @@ public:
       }
 
 #endif
+#if defined(MECK_TWATCH)
+    } else if (_page == HomePage::CLOCKS) {
+      LGFXDisplay* d = (LGFXDisplay*)&display;
+      uint32_t now = _rtc->getCurrentTime();
+      if (now <= 1700000000) {           // same validity test as the other pages
+        display.setColor(DisplayDriver::LIGHT);
+        display.setTextSize(1);
+        display.drawTextCentered(display.width() / 2, 50, "Clock not set");
+      } else if (_clock_edit_row >= 0) {
+        // Offset picker for the long-pressed row.
+        char pbuf[24];
+        display.setColor(DisplayDriver::LIGHT);
+        display.setTextSize(1);
+        display.drawTextCentered(display.width() / 2, 22, clockRowLabel(_clock_edit_row));
+        display.setTextSize(2);
+        snprintf(pbuf, sizeof(pbuf), "UTC%+d", clockRowOffset(_clock_edit_row));
+        display.drawTextCentered(display.width() / 2, 46, pbuf);
+        display.setTextSize(1);
+        d->printSmallFont(4, 74, clockCities(clockRowOffset(_clock_edit_row)));
+        display.setColor(DisplayDriver::YELLOW);
+        d->printSmallFont(4, 96, "Tap up/dn:adj  Hold:Save");
+        display.setColor(DisplayDriver::LIGHT);
+      } else {
+        int32_t home_local = (int32_t)now + ((int32_t)_node_prefs->utc_offset_hours * 3600);
+        for (int r = 0; r < 3; r++) {
+          int y = CLOCK_TOP + r * CLOCK_ROW_H;
+          int8_t off = clockRowOffset(r);
+          int32_t local = (int32_t)now + ((int32_t)off * 3600);
+          int hrs = (local / 3600) % 24;  if (hrs < 0) hrs += 24;
+          int mins = (local / 60) % 60;   if (mins < 0) mins += 60;
+
+          char hdr[24];
+          snprintf(hdr, sizeof(hdr), "%s  UTC%+d", clockRowLabel(r), off);
+          display.setColor(DisplayDriver::LIGHT);
+          // y+1 rather than y+4: the row header is ~5 units tall and the clock
+          // starts at y+8, so y+4 overlapped it. Also brings row 0 up under the
+          // page indicator dots, which end at y=19 on non-first pages.
+          d->printSmallFont(4, y + 1, hdr);
+
+          // Day marker relative to Home, e.g. a -5 slot reading yesterday.
+          int dayDiff = (int)((local / 86400) - (home_local / 86400));
+          char tbuf[8];
+          snprintf(tbuf, sizeof(tbuf), "%02d:%02d", hrs, mins);
+          int cx = display.width() / 2;
+          if (dayDiff != 0) cx -= 8;      // shift left to make room for the marker
+          int cw = d->printBoldFont(cx, y + 8, tbuf);
+          if (dayDiff != 0) {
+            char dm[6];
+            snprintf(dm, sizeof(dm), "%+dD", dayDiff);
+            // Sit the marker just past the clock's measured right edge.
+            d->printSmallFont(cx + cw / 2 + 3, y + 18, dm);
+          }
+          const char* cities = clockCities(off);
+          d->printSmallFont(display.width() - d->smallTextWidth(cities) - 2,
+                            y + 26, cities);
+        }
+      }
+#endif
 #if UI_SENSORS_PAGE == 1
     } else if (_page == HomePage::SENSORS) {
       int y = 18;
@@ -935,6 +1059,10 @@ public:
       }
     }
 #endif
+#if defined(MECK_TWATCH)
+    if (_clock_edit_row >= 0) return 700;
+    if (_page == HomePage::CLOCKS) return 2000;   // keep the clocks current
+#endif
     return _editing_utc ? 700 : 5000;
   }
 
@@ -972,6 +1100,34 @@ public:
       }
       return true;  // Consume all other keys while editing
     }
+
+#if defined(MECK_TWATCH)
+    // World clock offset picker -- intercept all keys while a row is open.
+    if (_clock_edit_row >= 0) {
+      if (c == 'w' || c == KEY_PREV) {
+        int8_t v = clockRowOffset(_clock_edit_row);
+        if (v < 14) setClockRowOffset(_clock_edit_row, v + 1);
+        return true;
+      }
+      if (c == 's' || c == KEY_NEXT) {
+        int8_t v = clockRowOffset(_clock_edit_row);
+        if (v > -12) setClockRowOffset(_clock_edit_row, v - 1);
+        return true;
+      }
+      if (c == KEY_ENTER) {
+        the_mesh.savePrefs();
+        _clock_edit_row = -1;
+        _task->showAlert("Saved", 800);
+        return true;
+      }
+      if (c == 'q') {                      // cancel -- restore the pre-edit value
+        setClockRowOffset(_clock_edit_row, _clock_saved_offset);
+        _clock_edit_row = -1;
+        return true;
+      }
+      return true;
+    }
+#endif
 
 #if !defined(MECK_TWATCH)
     // SHUTDOWN page -- intercept up/down and Enter before page cycling
@@ -2391,6 +2547,20 @@ bool UITask::isEditingHomeScreen() const {
 bool UITask::isHomeOnRecentPage() const {
   return curr == home && ((HomeScreen *) home)->isOnRecentPage();
 }
+
+#if defined(MECK_TWATCH)
+bool UITask::isHomeOnClocksPage() const {
+  return curr == home && ((HomeScreen *) home)->isOnClocksPage();
+}
+
+bool UITask::isEditingClockSlot() const {
+  return curr == home && ((HomeScreen *) home)->isEditingClock();
+}
+
+void UITask::beginHomeClockEdit(int vy) {
+  if (curr == home) ((HomeScreen *) home)->beginClockEditAtVY(vy);
+}
+#endif
 
 bool UITask::isHomeOnShutdownPage() const {
   return curr == home && ((HomeScreen *) home)->isOnShutdownPage();

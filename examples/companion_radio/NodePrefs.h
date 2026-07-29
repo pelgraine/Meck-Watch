@@ -98,6 +98,13 @@ struct NodePrefs {  // persisted to file
   // default.
   uint8_t rx_duty_level;           // 0 = Light (default), 1 = Medium, 2 = Aggressive
 
+  // --- World clock slots (T-Watch) ---
+  // Two extra UTC offsets shown on the world clock home page beside Home
+  // (which uses utc_offset_hours). Whole hours, -12..+14. Older prefs files
+  // short-read these final fields and keep the memset-0 default (UTC+0).
+  int8_t clock_slot_a;             // Zone 1 UTC offset, default 0
+  int8_t clock_slot_b;             // Zone 2 UTC offset, default 0
+
   // --- Font helpers (inline, no overhead) ---
   // Returns the DisplayDriver text-size index for "small/body" text.
   // T-Deck Pro: 0 = built-in 6×8 (or 7pt with custom fonts), 1 = 9pt.

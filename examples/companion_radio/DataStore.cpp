@@ -214,6 +214,12 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     if (file.read((uint8_t *)&_prefs.rx_duty_level, sizeof(_prefs.rx_duty_level)) != sizeof(_prefs.rx_duty_level)) {
       _prefs.rx_duty_level = 0;  // default: Light
     }
+    if (file.read((uint8_t *)&_prefs.clock_slot_a, sizeof(_prefs.clock_slot_a)) != sizeof(_prefs.clock_slot_a)) {
+      _prefs.clock_slot_a = 0;  // default: UTC+0
+    }
+    if (file.read((uint8_t *)&_prefs.clock_slot_b, sizeof(_prefs.clock_slot_b)) != sizeof(_prefs.clock_slot_b)) {
+      _prefs.clock_slot_b = 0;  // default: UTC+0
+    }
 
     // Clamp to valid ranges
     if (_prefs.dark_mode > 1) _prefs.dark_mode = 0;
@@ -297,6 +303,8 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.kb_backlight_pct, sizeof(_prefs.kb_backlight_pct));            // 176
     file.write((uint8_t *)&_prefs.rx_duty_cycle, sizeof(_prefs.rx_duty_cycle));                  // 177
     file.write((uint8_t *)&_prefs.rx_duty_level, sizeof(_prefs.rx_duty_level));                  // 178
+    file.write((uint8_t *)&_prefs.clock_slot_a, sizeof(_prefs.clock_slot_a));                    // 179
+    file.write((uint8_t *)&_prefs.clock_slot_b, sizeof(_prefs.clock_slot_b));                    // 180
 
     file.close();
   }

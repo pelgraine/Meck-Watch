@@ -384,7 +384,13 @@ static void lastHeardToggleContact() {
     // Watch: tiles open on long-press and pages change on swipe, so a plain tap
     // on any home page does nothing -- skip the T5S3 tile hit-test below (wrong
     // geometry for the 2-column watch grid) and the left/right page cycling.
+    // Exception: while a world clock row's offset picker is open, an upper-half
+    // tap increments and a lower-half tap decrements, matching the settings
+    // screen's number-row convention.
     if (ui_task.isOnHomeScreen()) {
+      if (ui_task.isEditingClockSlot()) {
+        return (vy < 64) ? 'w' : 's';
+      }
       return 0;
     }
 #endif
@@ -942,6 +948,20 @@ static void lastHeardToggleContact() {
     // (On the S3 the PWR key's short press also delivers KEY_ENTER here.)
     if (ui_task.isOnStepsScreen()) {
       return (char)KEY_ENTER;
+    }
+#endif
+
+#if defined(MECK_TWATCH)
+    // World clock page: a long press on a row opens that row's offset picker
+    // (Home edits the device UTC offset); while a picker is open, a long press
+    // saves and closes it. Taps are otherwise swallowed on home pages, so the
+    // row is identified here, where the touch coordinates are available.
+    if (ui_task.isOnHomeScreen() && ui_task.isHomeOnClocksPage()) {
+      if (ui_task.isEditingClockSlot()) return (char)KEY_ENTER;
+      int cvx, cvy;
+      touchToVirtual(x, y, cvx, cvy);
+      ui_task.beginHomeClockEdit(cvy * display.width() / 128);
+      return 0;
     }
 #endif
 

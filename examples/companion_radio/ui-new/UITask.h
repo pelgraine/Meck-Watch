@@ -313,6 +313,13 @@ public:
   // Check if home screen is showing the Recent Adverts page
   bool isHomeOnRecentPage() const;
   bool isHomeOnShutdownPage() const;
+#if defined(MECK_TWATCH)
+  // World clock page: row hit-test + offset picker state (see main.cpp touch
+  // handlers -- a long press on a row opens that row's picker).
+  bool isHomeOnClocksPage() const;
+  bool isEditingClockSlot() const;
+  void beginHomeClockEdit(int vy);
+#endif
 
   // Inject a key press from external source (e.g., keyboard)
   void injectKey(char c);

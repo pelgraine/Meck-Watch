@@ -79,6 +79,29 @@ public:
     buffer.setFont(&fonts::Font0);   // restore default 6x8 GLCD font
     buffer.setTextSize(1);
   }
+  // As printClockFont but in FreeSansBold 9pt -- sized for the world clock
+  // page, where three HH:MM rows share the 120-unit sprite (24pt is roughly
+  // the height of one whole row). Returns the width drawn so the caller can
+  // place anything beside it.
+  int printBoldFont(int mid_x, int y, const char* str) {
+    buffer.setFont(&fonts::FreeSansBold9pt7b);
+    buffer.setTextColor(_color);
+    buffer.setTextSize(1);
+    int w = buffer.textWidth(str);
+    buffer.setCursor(mid_x - w / 2, y);
+    buffer.print(str);
+    buffer.setFont(&fonts::Font0);   // restore default 6x8 GLCD font
+    buffer.setTextSize(1);
+    return w;
+  }
+  // Width of a string in the FreeSansBold 9pt face, for layout done before
+  // drawing. Restores the default font afterwards.
+  uint16_t boldTextWidth(const char* str) {
+    buffer.setFont(&fonts::FreeSansBold9pt7b);
+    uint16_t w = buffer.textWidth(str);
+    buffer.setFont(&fonts::Font0);
+    return w;
+  }
 #endif
   void setCursor(int x, int y) override;
   void print(const char* str) override;
