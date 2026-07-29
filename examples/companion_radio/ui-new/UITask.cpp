@@ -922,9 +922,15 @@ public:
         snprintf(pbuf, sizeof(pbuf), "UTC%+d", clockRowOffset(_clock_edit_row));
         display.drawTextCentered(display.width() / 2, 46, pbuf);
         display.setTextSize(1);
-        d->printSmallFont(4, 74, clockCities(clockRowOffset(_clock_edit_row)));
+        // City line and hint at the Zone label's size (Font0 size 1) rather
+        // than the tiny font. "Tap:+/-" (42) + "Hold:Save" (54) leaves 24 of
+        // the 120 units clear between them, and matches the wording the
+        // settings screen already uses while editing a number row.
+        display.setTextSize(1);
+        display.drawTextLeftAlign(4, 74, clockCities(clockRowOffset(_clock_edit_row)));
         display.setColor(DisplayDriver::YELLOW);
-        d->printSmallFont(4, 96, "Tap up/dn:adj  Hold:Save");
+        display.drawTextLeftAlign(4, 96, "Tap:+/-");
+        display.drawTextRightAlign(display.width() - 4, 96, "Hold:Save");
         display.setColor(DisplayDriver::LIGHT);
       } else {
         int32_t home_local = (int32_t)now + ((int32_t)_node_prefs->utc_offset_hours * 3600);
@@ -948,12 +954,13 @@ public:
           char tbuf[8];
           snprintf(tbuf, sizeof(tbuf), "%02d:%02d", hrs, mins);
           int cx = display.width() / 2;
-          if (dayDiff != 0) cx -= 8;      // shift left to make room for the marker
           int cw = d->printBoldFont(cx, y + 8, tbuf);
           if (dayDiff != 0) {
             char dm[6];
             snprintf(dm, sizeof(dm), "%+dD", dayDiff);
-            // Sit the marker just past the clock's measured right edge.
+            // The clock stays centred on every row whether or not a marker is
+            // present; the marker uses the empty space to its right. HH:MM is
+            // always five characters, so this lands at the same x on each row.
             d->printSmallFont(cx + cw / 2 + 3, y + 18, dm);
           }
           const char* cities = clockCities(off);
