@@ -20,6 +20,7 @@ extern MyMesh the_mesh;
 #define CMDF_CONFIRM          0x02  // Needs y/n confirmation before send
 #define CMDF_EXPECT_TIMEOUT   0x04  // Timeout is expected success (reboot/OTA)
 #define CMDF_PARSE_NEIGHBORS  0x08  // Response should be parsed as neighbor list
+#define CMDF_BOOL             0x10  // on/off command: pick from two rows, no keyboard
 
 // --- Single command definition ---
 struct AdminCmdDef {
@@ -44,9 +45,13 @@ static const AdminCmdDef CMD_OPERATIONAL[] = {
 // --- Neighbors ---
 static const AdminCmdDef CMD_NEIGHBORS[] = {
   { "View Neighbors",  "neighbors",        nullptr,               CMDF_PARSE_NEIGHBORS },
+  // Asks the repeater to broadcast a zero-hop discover request. It replies
+  // "OK - Discover sent" straight away; responses land in its neighbour table
+  // over the following 60s, so re-run View Neighbors to see them.
+  { "Discover Neighbors", "discover.neighbors", nullptr,            0 },
   { "Remove Neighbor", "neighbor.remove ",  "Pubkey hex prefix:",  CMDF_PARAM },
 };
-#define CMD_NEIGHBORS_COUNT 2
+#define CMD_NEIGHBORS_COUNT 3
 
 // --- Info ---
 static const AdminCmdDef CMD_INFO[] = {
@@ -82,7 +87,7 @@ static const AdminCmdDef CMD_SET_CONFIG[] = {
   { "Set Name",             "set name ",                  "Name:",                 CMDF_PARAM },
   { "Set TX Power",         "set tx ",                    "TX power (dBm):",       CMDF_PARAM },
   { "Set AF",               "set af ",                    "Airtime factor:",       CMDF_PARAM },
-  { "Set Repeat",           "set repeat ",                "on/off:",               CMDF_PARAM },
+  { "Set Repeat",           "set repeat ",                nullptr,                 CMDF_BOOL },
   { "Set Flood Max",        "set flood.max ",             "Max hops (0-64):",      CMDF_PARAM },
   { "Set Flood Max Unscoped", "set flood.max.unscoped ",  "Max hops (64=off):",    CMDF_PARAM },
   { "Set Flood Adv Max",    "set flood.max.advert ",      "Max hops (def 8):",     CMDF_PARAM },
@@ -160,6 +165,7 @@ public:
     STATE_CATEGORY_MENU,    // Top-level category selection
     STATE_COMMAND_MENU,     // Commands within selected category
     STATE_PARAM_ENTRY,      // Typing parameter for a set command
+    STATE_BOOL_SELECT,      // Picking On/Off for a CMDF_BOOL command
     STATE_CONFIRM,          // Confirmation prompt for destructive commands
     STATE_COMMAND_PENDING,  // Waiting for CLI response
     STATE_RESPONSE_VIEW,    // Displaying CLI response
@@ -190,6 +196,7 @@ private:
   char _paramBuf[ADMIN_PARAM_MAX];
   int _paramLen;
   const AdminCmdDef* _pendingCmd;  // The command awaiting parameter / confirmation
+  int _boolSel;                    // CMDF_BOOL picker: 0 = On, 1 = Off
 
   // Response buffer
   char _response[ADMIN_RESPONSE_MAX];
@@ -429,7 +436,7 @@ public:
       _contactIdx(-1), _permissions(0), _serverTime(0),
       _pwdLen(0), _lastCharAt(0),
       _catSel(0), _cmdSel(0), _scrollOffset(0),
-      _paramLen(0), _pendingCmd(nullptr),
+      _paramLen(0), _pendingCmd(nullptr), _boolSel(0),
       _responseLen(0), _responseScroll(0), _responseTotalLines(0),
       _cmdSentAt(0), _loginTimeoutMs(ADMIN_TIMEOUT_MS), _waitingForLogin(false), _pwdCacheCount(0),
       _telemVoltage(0), _telemTempC(0),
@@ -460,6 +467,7 @@ public:
     _pendingCmd = nullptr;
     _paramLen = 0;
     _paramBuf[0] = '\0';
+    _boolSel = 0;
     _telemHasVoltage = false;
     _telemHasTemp = false;
     _telemRequested = false;
@@ -496,6 +504,15 @@ public:
       if (row == _catSel) return 2;
       _catSel = row;
       return 1;
+    }
+
+    if (_state == STATE_BOOL_SELECT) {
+      int bodyTop = headerH + lineH + 2;   // command label line
+      if (vy < bodyTop || vy >= 128 - footerH) return 0;
+      int row = (vy - bodyTop) / lineH;
+      if (row < 0 || row > 1) return 0;
+      _boolSel = row;
+      return 2;   // the row IS the action -- one tap sends
     }
 
     if (_state == STATE_COMMAND_MENU) {
@@ -627,6 +644,7 @@ public:
       case STATE_CATEGORY_MENU:   renderCategoryMenu(display, bodyY, bodyHeight); break;
       case STATE_COMMAND_MENU:    renderCommandMenu(display, bodyY, bodyHeight); break;
       case STATE_PARAM_ENTRY:     renderParamEntry(display, bodyY); break;
+      case STATE_BOOL_SELECT:     renderBoolSelect(display, bodyY); break;
       case STATE_CONFIRM:         renderConfirm(display, bodyY); break;
       case STATE_COMMAND_PENDING: renderWaiting(display, bodyY, "Waiting..."); break;
       case STATE_RESPONSE_VIEW:   renderResponse(display, bodyY, bodyHeight); break;
@@ -685,6 +703,15 @@ public:
 #endif
         break;
 
+      case STATE_BOOL_SELECT:
+#if   defined(MECK_TWATCH)
+        display.print("Tap: On/Off");
+#else
+        display.print("Q:Back");
+        renderFooterMidRight(display, footerY, "Q:Back", "Ent:Run", "W/S:Sel");
+#endif
+        break;
+
       case STATE_CONFIRM:
 #if   defined(MECK_TWATCH)
         display.print("Tap top: No");
@@ -739,6 +766,7 @@ public:
       case STATE_CATEGORY_MENU:   return handleCategoryInput(c);
       case STATE_COMMAND_MENU:    return handleCommandInput(c);
       case STATE_PARAM_ENTRY:     return handleParamInput(c);
+      case STATE_BOOL_SELECT:     return handleBoolInput(c);
       case STATE_CONFIRM:         return handleConfirmInput(c);
       case STATE_RESPONSE_VIEW:
       case STATE_ERROR:           return handleResponseInput(c);
@@ -973,6 +1001,15 @@ private:
   bool initiateCommand(const AdminCmdDef* cmd) {
     _pendingCmd = cmd;
 
+    // on/off commands get a two-row picker instead of the keyboard
+    if (cmd->flags & CMDF_BOOL) {
+      _boolSel = 0;
+      _paramLen = 0;
+      _paramBuf[0] = '\0';
+      _state = STATE_BOOL_SELECT;
+      return true;
+    }
+
     // If it needs parameter input, go to param entry first
     if (cmd->flags & CMDF_PARAM) {
       _paramLen = 0;
@@ -1047,6 +1084,56 @@ private:
     char fullCmd[160];
     snprintf(fullCmd, sizeof(fullCmd), "%s%s", _pendingCmd->cmd, _paramBuf);
     return sendCommand(fullCmd);
+  }
+
+  // =====================================================================
+  // On/Off picker (CMDF_BOOL)
+  // =====================================================================
+
+  void renderBoolSelect(DisplayDriver& display, int y) {
+    display.setTextSize(the_mesh.getNodePrefs()->smallTextSize());
+    int lineHeight = the_mesh.getNodePrefs()->smallLineH();
+
+    display.setColor(DisplayDriver::GREEN);
+    display.setCursor(0, y);
+    if (_pendingCmd) display.print(_pendingCmd->label);
+    y += lineHeight + 2;
+
+    renderMenuItem(display, y, lineHeight, _boolSel == 0, "On", false);
+    y += lineHeight;
+    renderMenuItem(display, y, lineHeight, _boolSel == 1, "Off", false);
+
+    display.setTextSize(1);
+  }
+
+  bool handleBoolInput(char c) {
+    if (c == 'w' || c == 'W' || c == 0xF2) {
+      if (_boolSel > 0) _boolSel--;
+      return true;
+    }
+    if (c == 's' || c == 'S' || c == 0xF1) {
+      if (_boolSel < 1) _boolSel++;
+      return true;
+    }
+    if (c == '\r' || c == '\n' || c == KEY_ENTER) {
+      return sendBoolCommand();
+    }
+    if (c == KEY_ADMIN_EXIT) {
+      _state = STATE_COMMAND_MENU;
+      return true;
+    }
+    return false;
+  }
+
+  // Fills _paramBuf with the chosen value and reuses the normal param send
+  // path, so a CMDF_BOOL command could also carry CMDF_CONFIRM if ever needed.
+  bool sendBoolCommand() {
+    if (!_pendingCmd) return false;
+    const char* val = (_boolSel == 0) ? "on" : "off";
+    strncpy(_paramBuf, val, ADMIN_PARAM_MAX - 1);
+    _paramBuf[ADMIN_PARAM_MAX - 1] = '\0';
+    _paramLen = strlen(_paramBuf);
+    return sendParamCommand();
   }
 
   // =====================================================================

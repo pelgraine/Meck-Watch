@@ -751,7 +751,8 @@ static void lastHeardToggleContact() {
       if (admin) {
         RepeaterAdminScreen::AdminState astate = admin->getState();
         if (astate == RepeaterAdminScreen::STATE_CATEGORY_MENU ||
-            astate == RepeaterAdminScreen::STATE_COMMAND_MENU) {
+            astate == RepeaterAdminScreen::STATE_COMMAND_MENU ||
+            astate == RepeaterAdminScreen::STATE_BOOL_SELECT) {
           int result = admin->selectRowAtVY(vy);
           if (result == 1) { ui_task.forceRefresh(); return 0; }
           if (result == 2) return KEY_ENTER;   // tapped current row -- activate
