@@ -2135,7 +2135,11 @@ if (curr) curr->poll();
         if (nerr) showAlert(nerr, 1200);
       } else if (purpose == TWatchKeyboardScreen::TWKB_SCOPE) {
         WatchChannelConfigScreen* wc = (WatchChannelConfigScreen*)watch_channel_cfg_screen;
-        const char* serr = wc ? wc->applyComposedScope(sendText) : "No channel cfg";
+        // The same keyboard purpose serves both the scope edit and the
+        // "+ Add Channel" row; the screen flags which one is pending.
+        const char* serr = !wc ? "No channel cfg"
+                         : wc->wantsAddChannel() ? wc->applyComposedNewChannel(sendText)
+                         : wc->applyComposedScope(sendText);
         kb->clearOutBuf();
         if (watch_channel_cfg_screen) setCurrScreen(watch_channel_cfg_screen);
         else gotoHomeScreen();

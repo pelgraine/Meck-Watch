@@ -54,7 +54,10 @@ private:
   UITask*    _task;
   NodePrefs* _node_prefs;
 
-  uint8_t _chIdx[MAX_GROUP_CHANNELS + 1];   // DMs pseudo-row + populated channel slots, in order
+  // 0xFF = DMs pseudo-row, 0xFE = "+ Add Channel" pseudo-row (always last).
+  static const uint8_t WCC_ROW_DMS = 0xFF;
+  static const uint8_t WCC_ROW_ADD = 0xFE;
+  uint8_t _chIdx[MAX_GROUP_CHANNELS + 2];   // DMs + populated slots + Add row
   int     _numCh = 0;
 
   Mode _mode = LIST;
@@ -69,6 +72,7 @@ private:
   bool _wantKeyboard = false;
   bool _wantExit = false;
   char _editScope[31];    // pre-fill text handed to the keyboard
+  bool _addingChannel = false;  // pending keyboard result is a new channel name
 
   // Layout (logical pixels)
   static const int HEADER_H = 14;
@@ -80,13 +84,17 @@ private:
     // the companion app may write non-contiguously, and gaps can appear
     // after deletion (same scan as SettingsScreen).
     _numCh = 0;
-    _chIdx[_numCh++] = 0xFF;
+    _chIdx[_numCh++] = WCC_ROW_DMS;
+    int used = 0;
     for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
       ChannelDetails ch;
       if (the_mesh.getChannel(i, ch) && ch.name[0] != '\0') {
         _chIdx[_numCh++] = i;
+        used++;
       }
     }
+    // "+ Add Channel" last, and only while a slot is actually free.
+    if (used < MAX_GROUP_CHANNELS) _chIdx[_numCh++] = WCC_ROW_ADD;
     if (_sel >= _numCh) _sel = _numCh > 0 ? _numCh - 1 : 0;
     if (_scrollTop > _sel) _scrollTop = _sel;
   }
@@ -136,6 +144,7 @@ public:
     rebuildList();
     _mode = LIST;
     _detail = -1;
+    _addingChannel = false;
     _confirmDelete = false;
     _wantKeyboard = false;
     _wantExit = false;
@@ -147,6 +156,52 @@ public:
   bool wantsExit() const { return _wantExit; }
   void clearWantExit() { _wantExit = false; }
   const char* getEditText() const { return _editScope; }
+
+  // True when the pending keyboard request is for a new channel name rather
+  // than a region scope, so UITask can route the result to the right handler.
+  bool wantsAddChannel() const { return _addingChannel; }
+
+  // Create a channel from the keyboard result. Mirrors
+  // SettingsScreen::createChannel: a leading '#' derives the secret from
+  // SHA-256 of the name (public hashtag channel), anything else gets a random
+  // 16-byte secret (private channel). Returns NULL on success, else an error.
+  const char* applyComposedNewChannel(const char* txt) {
+    _addingChannel = false;
+    if (txt == nullptr || txt[0] == '\0') return nullptr;   // cancelled -- no error
+
+    ChannelDetails newCh;
+    memset(&newCh, 0, sizeof(newCh));
+    strncpy(newCh.name, txt, sizeof(newCh.name) - 1);
+    newCh.name[sizeof(newCh.name) - 1] = '\0';
+
+    if (txt[0] == '#') {
+      uint8_t hash[32];
+      mesh::Utils::sha256(hash, 32, (const uint8_t*)txt, strlen(txt));
+      memcpy(newCh.channel.secret, hash, 16);
+    } else {
+      uint8_t secret[16];
+      uint32_t r = 0;
+      for (int i = 0; i < 16; i++) {
+        if (i % 4 == 0) r = esp_random();
+        secret[i] = (r >> ((i % 4) * 8)) & 0xFF;
+      }
+      memcpy(newCh.channel.secret, secret, 16);
+    }
+
+    for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
+      ChannelDetails existing;
+      if (!the_mesh.getChannel(i, existing) || existing.name[0] == '\0') {
+        if (the_mesh.setChannel(i, newCh)) {
+          the_mesh.saveChannels();
+          Serial.printf("WatchChannelCfg: Channel '%s' created at idx %d\n", newCh.name, i);
+          rebuildList();
+          return nullptr;
+        }
+        return "Create failed";
+      }
+    }
+    return "No free slot";
+  }
 
   // Save the keyboard result as the open channel's region scope. An empty
   // string clears it back to the device default (same as Clear). Returns
@@ -197,7 +252,20 @@ private:
       uint8_t idx = _chIdx[_scrollTop + i];
       int y = HEADER_H + i * ROW_H;
 
-      if (idx == 0xFF) {
+      if (idx == WCC_ROW_ADD) {
+        if (_scrollTop + i == _sel) {
+          d->setRawColor(0x231D);                   // same blue as the home tile
+          d->drawRoundRect(1, y, display.width() - 2, ROW_H - 2, 3);
+        }
+        d->setRawColor(0xFFFF);
+        display.setCursor(5, y + 2);
+        display.print("+ Add Channel");
+        d->setRawColor(0x7BEF);
+        d->printSmallFont(5, y + 13, "# = public");
+        continue;
+      }
+
+      if (idx == WCC_ROW_DMS) {
         // DMs pseudo-row: no scope, notification state only
         if (_scrollTop + i == _sel) {
           d->setRawColor(0x231D);                   // same blue as the home tile
@@ -352,6 +420,12 @@ public:
         int idx = _scrollTop + i;
         if (i < WCC_ROWS && idx < _numCh) {
           if (idx == _sel) {                 // second tap on the row: open it
+            if (_chIdx[idx] == WCC_ROW_ADD) {
+              _editScope[0] = 0;             // empty pre-fill for the new name
+              _addingChannel = true;
+              _wantKeyboard = true;
+              return true;
+            }
             _detail = _chIdx[idx];
             _mode = DETAIL;
             _confirmDelete = false;
@@ -416,6 +490,12 @@ public:
     // arrives as KEY_NEXT.
     if (_mode == LIST && c == KEY_ENTER) {
       if (_sel < _numCh) {
+        if (_chIdx[_sel] == WCC_ROW_ADD) {   // same as the tap path
+          _editScope[0] = 0;
+          _addingChannel = true;
+          _wantKeyboard = true;
+          return true;
+        }
         _detail = _chIdx[_sel];
         _mode = DETAIL;
         _confirmDelete = false;
