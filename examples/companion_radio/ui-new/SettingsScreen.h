@@ -9,6 +9,8 @@
 #endif
 #include <helpers/ChannelDetails.h>
 #include <helpers/TransportKeyStore.h>
+#include <helpers/SensorManager.h>   // gps_position_locked, set by the Position row
+#include "target.h"                  // the `sensors` global (node_lat / node_lon)
 #include <MeshCore.h>
 #include "../NodePrefs.h"
 #include "MeckFonts.h"
@@ -144,6 +146,9 @@ enum SettingsRowType : uint8_t {
   ROW_GPS_BAUD,       // GPS baud rate picker (requires reboot)
   ROW_PATH_HASH_SIZE, // Path hash size (1, 2, or 3 bytes per hop)
   ROW_DEFAULT_SCOPE,  // Device-wide default region (text editor)
+  ROW_POSITION_MODE,  // Position sharing: Off / Manual / Auto-update (GPS)
+  ROW_LATITUDE,       // Manual latitude (text editor, locked in Auto)
+  ROW_LONGITUDE,      // Manual longitude (text editor, locked in Auto)
   #ifdef MECK_WIFI_COMPANION
   ROW_WIFI_SETUP,     // WiFi SSID/password configuration
   ROW_WIFI_TOGGLE,    // WiFi radio on/off toggle
@@ -504,6 +509,13 @@ private:
 #endif
       addRow(ROW_PATH_HASH_SIZE);
       addRow(ROW_DEFAULT_SCOPE);
+      addRow(ROW_POSITION_MODE);
+      // Lat/lon are only meaningful once a position is being shared. In Auto
+      // they are shown but not editable (GPS owns them) -- see activate().
+      if (_prefs->position_mode != 0) {
+        addRow(ROW_LATITUDE);
+        addRow(ROW_LONGITUDE);
+      }
 #if !defined(MECK_TWATCH)
       addRow(ROW_DARK_MODE);
 #endif
@@ -607,6 +619,27 @@ private:
   // ---------------------------------------------------------------------------
   // Hashtag channel creation
   // ---------------------------------------------------------------------------
+
+  // --- Position helpers -------------------------------------------------
+  // The coordinates live in sensors.node_lat/node_lon (already persisted at
+  // prefs offsets 40/48 by savePrefs), not in NodePrefs -- only the mode is
+  // stored there.
+  double positionLat() const { return sensors.node_lat; }
+  double positionLon() const { return sensors.node_lon; }
+  void setPosition(double lat, double lon) {
+    sensors.node_lat = lat;
+    sensors.node_lon = lon;
+  }
+
+  // Keep the two derived pieces of state in step with position_mode:
+  //   - the GPS write-lock, so Manual coordinates are not overwritten
+  //   - advert_loc_policy, which is what createSelfAdvert actually checks
+  // Mirrors the Meck-P4 derivation (advert policy = position_mode > 0).
+  void applyPositionMode() {
+    SensorManager::gps_position_locked = (_prefs->position_mode == 1);
+    _prefs->advert_loc_policy =
+        (_prefs->position_mode > 0) ? ADVERT_LOC_SHARE : ADVERT_LOC_NONE;
+  }
 
   void createChannel(const char* name) {
     ChannelDetails newCh;
@@ -1045,7 +1078,9 @@ public:
     SettingsRowType t = _rows[_cursor].type;
     if (t != ROW_NAME && t != ROW_DEFAULT_SCOPE &&
         t != ROW_FREQ && t != ROW_ADD_CHANNEL && t != ROW_TX_POWER &&
-        t != ROW_BW) return false;  // row changed underneath
+        t != ROW_BW && t != ROW_LATITUDE && t != ROW_LONGITUDE) {
+      return false;  // row changed underneath
+    }
     startEditText("");
     submitEditText(text ? text : "");
     return true;
@@ -2182,6 +2217,31 @@ public:
           display.print(tmp);
           break;
 
+        case ROW_POSITION_MODE: {
+          const char* pm = (_prefs->position_mode == 2) ? "Auto (GPS)"
+                         : (_prefs->position_mode == 1) ? "Manual" : "Off";
+          snprintf(tmp, sizeof(tmp), "Position: %s", pm);
+          display.print(tmp);
+          break;
+        }
+        case ROW_LATITUDE:
+          if (editing && _editMode == EDIT_TEXT) {
+            snprintf(tmp, sizeof(tmp), "Lat: %s_", _editBuf);
+          } else {
+            snprintf(tmp, sizeof(tmp), "Lat: %.6f%s", positionLat(),
+                     _prefs->position_mode == 2 ? " (GPS)" : "");
+          }
+          display.print(tmp);
+          break;
+        case ROW_LONGITUDE:
+          if (editing && _editMode == EDIT_TEXT) {
+            snprintf(tmp, sizeof(tmp), "Lon: %s_", _editBuf);
+          } else {
+            snprintf(tmp, sizeof(tmp), "Lon: %.6f%s", positionLon(),
+                     _prefs->position_mode == 2 ? " (GPS)" : "");
+          }
+          display.print(tmp);
+          break;
         case ROW_RX_DUTY_LEVEL: {
           const char* lvl = (_prefs->rx_duty_level == 2) ? "Aggressive"
                           : (_prefs->rx_duty_level == 1) ? "Medium" : "Light";
@@ -3147,6 +3207,28 @@ public:
             rebuildRows();
           }
           _editMode = EDIT_NONE;
+        } else if (type == ROW_LATITUDE || type == ROW_LONGITUDE) {
+          // Empty clears to 0. Out-of-range values are rejected rather than
+          // clamped, so a typo cannot silently advertise the wrong place.
+          if (_editBuf[0] == '\0') {
+            setPosition(type == ROW_LATITUDE ? 0.0 : positionLat(),
+                        type == ROW_LATITUDE ? positionLon() : 0.0);
+            the_mesh.savePrefs();
+          } else {
+            double v = atof(_editBuf);
+            double lim = (type == ROW_LATITUDE) ? 90.0 : 180.0;
+            if (v >= -lim && v <= lim) {
+              if (type == ROW_LATITUDE) setPosition(v, positionLon());
+              else                      setPosition(positionLat(), v);
+              the_mesh.savePrefs();
+              Serial.printf("Settings: %s = %.6f\n",
+                            type == ROW_LATITUDE ? "Latitude" : "Longitude", v);
+            } else {
+              Serial.printf("Settings: %s out of range (%.6f)\n",
+                            type == ROW_LATITUDE ? "Latitude" : "Longitude", v);
+            }
+          }
+          _editMode = EDIT_NONE;
         } else if (type == ROW_DEFAULT_SCOPE) {
           // Save device-wide default scope
           strncpy(_prefs->default_scope_name, _editBuf, sizeof(_prefs->default_scope_name));
@@ -3654,6 +3736,28 @@ public:
                         _prefs->rx_duty_cycle ? "ON" : "OFF");
           break;
 
+        case ROW_POSITION_MODE:
+          _prefs->position_mode = (_prefs->position_mode >= 2) ? 0 : _prefs->position_mode + 1;
+          applyPositionMode();
+          the_mesh.savePrefs();
+          rebuildRows();   // Lat/Lon rows appear or disappear with the mode
+          Serial.printf("Settings: Position mode = %d\n", _prefs->position_mode);
+          break;
+        case ROW_LATITUDE:
+        case ROW_LONGITUDE: {
+          if (_prefs->position_mode == 2) break;   // GPS owns the value in Auto
+          char cur[24];
+          snprintf(cur, sizeof(cur), "%.6f",
+                   _rows[_cursor].type == ROW_LATITUDE ? positionLat() : positionLon());
+#if defined(MECK_TWATCH)
+          strncpy(_kbInitText, cur, sizeof(_kbInitText) - 1);
+          _kbInitText[sizeof(_kbInitText) - 1] = '\0';
+          _wantsKb = true;
+#else
+          startEditText(cur);
+#endif
+          break;
+        }
         case ROW_RX_DUTY_LEVEL:
           _prefs->rx_duty_level = (_prefs->rx_duty_level >= 2) ? 0 : _prefs->rx_duty_level + 1;
           the_mesh.savePrefs();

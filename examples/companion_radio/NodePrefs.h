@@ -105,6 +105,16 @@ struct NodePrefs {  // persisted to file
   int8_t clock_slot_a;             // Zone 1 UTC offset, default 0
   int8_t clock_slot_b;             // Zone 2 UTC offset, default 0
 
+  // --- Position sharing for adverts (T-Watch) ---
+  // Controls whether self-adverts carry a position, and where it comes from:
+  //   0 = Off     -- no position shared
+  //   1 = Manual  -- user-entered lat/lon; GPS must not overwrite them
+  //   2 = Auto    -- GPS keeps lat/lon updated (GPS must be on)
+  // The coordinates themselves are sensors.node_lat / node_lon, already
+  // persisted at prefs offsets 40/48. Older prefs files short-read this final
+  // field and keep the memset-0 (Off) default.
+  uint8_t position_mode;           // 0 = Off (default), 1 = Manual, 2 = Auto-GPS
+
   // --- Font helpers (inline, no overhead) ---
   // Returns the DisplayDriver text-size index for "small/body" text.
   // T-Deck Pro: 0 = built-in 6×8 (or 7pt with custom fonts), 1 = 9pt.

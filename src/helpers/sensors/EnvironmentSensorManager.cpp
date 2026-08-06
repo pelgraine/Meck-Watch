@@ -1,5 +1,10 @@
 #include "EnvironmentSensorManager.h"
 
+// One instance per firmware; see SensorManager.h. Default false = GPS may
+// write node_lat/node_lon, which is the behaviour on every build that never
+// sets position_mode to Manual.
+bool SensorManager::gps_position_locked = false;
+
 #if ENV_PIN_SDA && ENV_PIN_SCL
 #define TELEM_WIRE &Wire1  // Use Wire1 as the I2C bus for Environment Sensors
 #else
@@ -562,7 +567,7 @@ void EnvironmentSensorManager::loop() {
   if (millis() > next_gps_update) {
 
     if(gps_active){
-    if (_location->isValid()) {
+    if (_location->isValid() && !gps_position_locked) {
       node_lat = ((double)_location->getLatitude())/1000000.;
       node_lon = ((double)_location->getLongitude())/1000000.;
       MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);

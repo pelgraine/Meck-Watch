@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "DataStore.h"
 #include <helpers/TransportKeyStore.h>   // scope-key derivation for /channels3 migration
+#include <helpers/SensorManager.h>       // gps_position_locked, restored from position_mode
 
 #if defined(EXTRAFS) || defined(QSPIFLASH)
   #define MAX_BLOBRECS 100
@@ -220,8 +221,15 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     if (file.read((uint8_t *)&_prefs.clock_slot_b, sizeof(_prefs.clock_slot_b)) != sizeof(_prefs.clock_slot_b)) {
       _prefs.clock_slot_b = 0;  // default: UTC+0
     }
+    if (file.read((uint8_t *)&_prefs.position_mode, sizeof(_prefs.position_mode)) != sizeof(_prefs.position_mode)) {
+      _prefs.position_mode = 0;  // default: Off
+    }
 
     // Clamp to valid ranges
+    if (_prefs.position_mode > 2) _prefs.position_mode = 0;
+    // Restore the GPS write-lock that matches the stored mode, so a Manual
+    // position survives a reboot instead of being overwritten by the next fix.
+    SensorManager::gps_position_locked = (_prefs.position_mode == 1);
     if (_prefs.dark_mode > 1) _prefs.dark_mode = 0;
     if (_prefs.portrait_mode > 1) _prefs.portrait_mode = 0;
     if (_prefs.hint_shown > 1) _prefs.hint_shown = 0;
@@ -305,6 +313,7 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.rx_duty_level, sizeof(_prefs.rx_duty_level));                  // 178
     file.write((uint8_t *)&_prefs.clock_slot_a, sizeof(_prefs.clock_slot_a));                    // 179
     file.write((uint8_t *)&_prefs.clock_slot_b, sizeof(_prefs.clock_slot_b));                    // 180
+    file.write((uint8_t *)&_prefs.position_mode, sizeof(_prefs.position_mode));                  // 181
 
     file.close();
   }
