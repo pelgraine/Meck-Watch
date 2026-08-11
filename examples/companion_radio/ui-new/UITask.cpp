@@ -2083,6 +2083,9 @@ if (curr) curr->poll();
       kb->acknowledgeExit();
       gotoHomeScreen();
     }
+    if (kb->consumeCannedEmptyAlert()) {
+      showAlert("No canned messages", 1200);
+    }
     const char* sendText = nullptr;
     if (kb->consumeSendRequest(&sendText) && sendText) {
       TWatchKeyboardScreen::Purpose purpose = kb->getPurpose();
@@ -2222,6 +2225,11 @@ if (curr) curr->poll();
       // Default Region: an empty entry clears the region (reverts to unscoped),
       // so allow OK with an empty buffer for this row only.
       if (ss->isOnDefaultRegionRow()) {
+        ((TWatchKeyboardScreen*)tw_keyboard)->setAllowEmptySend(true);
+      }
+      // Canned message slots: an empty entry clears the slot, so allow OK
+      // with an empty buffer for these rows too.
+      if (ss->isOnCannedSlotRow()) {
         ((TWatchKeyboardScreen*)tw_keyboard)->setAllowEmptySend(true);
       }
     }

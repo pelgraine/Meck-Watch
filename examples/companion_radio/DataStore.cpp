@@ -224,6 +224,9 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     if (file.read((uint8_t *)&_prefs.position_mode, sizeof(_prefs.position_mode)) != sizeof(_prefs.position_mode)) {
       _prefs.position_mode = 0;  // default: Off
     }
+    if (file.read((uint8_t *)_prefs.canned_msgs, sizeof(_prefs.canned_msgs)) != sizeof(_prefs.canned_msgs)) {
+      memset(_prefs.canned_msgs, 0, sizeof(_prefs.canned_msgs));  // default: all slots empty
+    }
 
     // Clamp to valid ranges
     if (_prefs.position_mode > 2) _prefs.position_mode = 0;
@@ -246,6 +249,10 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     if (_prefs.kb_backlight_pct < 5 || _prefs.kb_backlight_pct > 100) _prefs.kb_backlight_pct = 50;
     if (_prefs.rx_duty_cycle > 1) _prefs.rx_duty_cycle = 0;
     if (_prefs.rx_duty_level > 2) _prefs.rx_duty_level = 0;
+    // Force NUL termination on each canned message slot in case of garbage
+    for (int i = 0; i < (int)(sizeof(_prefs.canned_msgs) / sizeof(_prefs.canned_msgs[0])); i++) {
+      _prefs.canned_msgs[i][sizeof(_prefs.canned_msgs[0]) - 1] = '\0';
+    }
     // auto_lock_minutes: only accept known options (0, 2, 5, 10, 15, 30)
     {
       uint8_t alm = _prefs.auto_lock_minutes;
@@ -314,6 +321,7 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)&_prefs.clock_slot_a, sizeof(_prefs.clock_slot_a));                    // 179
     file.write((uint8_t *)&_prefs.clock_slot_b, sizeof(_prefs.clock_slot_b));                    // 180
     file.write((uint8_t *)&_prefs.position_mode, sizeof(_prefs.position_mode));                  // 181
+    file.write((uint8_t *)_prefs.canned_msgs, sizeof(_prefs.canned_msgs));                       // 182
 
     file.close();
   }

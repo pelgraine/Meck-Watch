@@ -649,6 +649,16 @@ private:
   bool _wantsExit;
   bool _allowEmptySend;   // when true, OK arms a send even with an empty buffer
 
+  // Canned-message overlay (channel compose only). Toggled by the physical
+  // button (PWR on the S3 = KEY_ENTER, boot on the Plus = KEY_NEXT); lists
+  // the non-empty NodePrefs canned_msgs slots. Tapping a row sends it through
+  // the normal _wantsSend path; tapping the back arrow or pressing the button
+  // again returns to the keyboard.
+  bool    _cannedOpen;
+  uint8_t _cannedMap[CANNED_MSG_SLOTS];   // visible row -> prefs slot index
+  uint8_t _cannedCount;
+  bool    _cannedEmptyAlert;   // button pressed with all slots empty; polled by UITask
+
   static const int MAXLEN   = TW_OUT_BUF_LEN - 1;    // 133
 
   // layout geometry (120x120 virtual space)
@@ -656,6 +666,7 @@ private:
   static const int KEY_W    = 12;                    // 10 * 12 = 120 wide
   static const int KEY_H    = 26;
   static const int GRID_Y   = 15;                    // row0 top; rows at GRID_Y + row*KEY_H
+  static const int CANNED_ROW_H = 21;                // 5 rows fill 15 + 5*21 = 120
 
   const char* const* layout() const {
     static const char* const lower[3] = { "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?" };
@@ -690,7 +701,8 @@ public:
       _purpose(TWKB_CHANNEL), _contextIdx(0), _mask(false), _lastCharAt(0),
       _outLen(0), _mode(LOWER),
       _touchDown(false), _downX(0), _downY(0),
-      _wantsSend(false), _wantsExit(false) {
+      _wantsSend(false), _wantsExit(false),
+      _cannedOpen(false), _cannedCount(0), _cannedEmptyAlert(false) {
     _outBuf[0] = 0;
     _allowEmptySend = false;
   }
@@ -715,6 +727,7 @@ public:
     _touchDown = true; _downX = 240; _downY = 0;
     _wantsSend = false; _wantsExit = false;
     _allowEmptySend = false;
+    _cannedOpen = false; _cannedEmptyAlert = false;
   }
 
   // Enter text for a non-channel purpose (DM / admin password / admin CLI).
@@ -736,6 +749,7 @@ public:
     _touchDown = true; _downX = 240; _downY = 0;
     _wantsSend = false; _wantsExit = false;
     _allowEmptySend = false;
+    _cannedOpen = false; _cannedEmptyAlert = false;
   }
 
   Purpose getPurpose() const { return _purpose; }
@@ -764,7 +778,37 @@ public:
   bool wantsExit() const { return _wantsExit; }
   void acknowledgeExit() { _wantsExit = false; }
 
-  bool handleInput(char c) override { return false; }
+  // Polled by UITask: the button was pressed with every canned slot empty,
+  // so the "No canned messages" toast should be shown.
+  bool consumeCannedEmptyAlert() {
+    if (!_cannedEmptyAlert) return false;
+    _cannedEmptyAlert = false;
+    return true;
+  }
+
+  // Physical button (PWR on the S3 = KEY_ENTER, boot on the Plus = KEY_NEXT):
+  // toggle the canned-messages list, channel compose only. Other keyboard
+  // purposes (DM, admin password, settings...) ignore the button as before.
+  bool handleInput(char c) override {
+    if (_purpose == TWKB_CHANNEL && (c == KEY_ENTER || c == KEY_NEXT)) {
+      if (_cannedOpen) {
+        _cannedOpen = false;
+        return true;
+      }
+      _cannedCount = 0;
+      const NodePrefs* np = the_mesh.getNodePrefs();
+      for (uint8_t i = 0; i < CANNED_MSG_SLOTS; i++) {
+        if (np->canned_msgs[i][0]) _cannedMap[_cannedCount++] = i;
+      }
+      if (_cannedCount == 0) {
+        _cannedEmptyAlert = true;   // UITask polls this and shows the toast
+        return true;
+      }
+      _cannedOpen = true;
+      return true;
+    }
+    return false;
+  }
 
   void poll() override {
     if (!_display) return;
@@ -775,6 +819,24 @@ public:
     } else if (!now && _touchDown) {
       _touchDown = false;
       int x0 = _downX, y0 = _downY;
+      if (_cannedOpen) {
+        // Canned list: the back arrow closes it; a row tap sends that message
+        // through the normal _wantsSend path (UITask consumes it exactly as a
+        // typed message -- send, "Sent!" toast, back to the channel screen).
+        if (x0 < 20 && y0 < TOPBAR_H) { _cannedOpen = false; return; }
+        if (y0 >= TOPBAR_H) {
+          int row = (y0 - TOPBAR_H) / CANNED_ROW_H;
+          if (row >= 0 && row < _cannedCount) {
+            const char* msg = the_mesh.getNodePrefs()->canned_msgs[_cannedMap[row]];
+            _outLen = 0;
+            while (msg[_outLen] && _outLen < MAXLEN) { _outBuf[_outLen] = msg[_outLen]; _outLen++; }
+            _outBuf[_outLen] = 0;
+            _cannedOpen = false;
+            _wantsSend = true;
+          }
+        }
+        return;
+      }
       if (x0 < 20 && y0 < TOPBAR_H) { _wantsExit = true; return; }   // back arrow
       if (y0 < GRID_Y) return;                                       // top bar (text) area
       int row = (y0 - GRID_Y) / KEY_H;
@@ -791,6 +853,36 @@ public:
   int render(DisplayDriver& display) override {
     const int W = display.width();
     display.setTextSize(1);
+
+    if (_cannedOpen) {
+      // ---- canned messages list (replaces the keyboard while open) ----
+      display.setColor(DisplayDriver::YELLOW);
+      display.setCursor(0, 0);
+      display.print("<");
+      display.setColor(DisplayDriver::LIGHT);
+      display.setCursor(16, 2);
+      display.print("Canned");
+      for (uint8_t r = 0; r < _cannedCount; r++) {
+        int ry = TOPBAR_H + r * CANNED_ROW_H;
+        display.setColor(DisplayDriver::GREEN);
+        display.drawRect(0, ry, W, CANNED_ROW_H);
+        // Head-truncate the message to the row width.
+        char head[TW_OUT_BUF_LEN];
+        strncpy(head, the_mesh.getNodePrefs()->canned_msgs[_cannedMap[r]], sizeof(head) - 1);
+        head[sizeof(head) - 1] = 0;
+        const int avail = W - 4;
+        int fit = strlen(head);
+        while (fit > 0) {
+          head[fit] = 0;
+          if (display.getTextWidth(head) <= avail) break;
+          fit--;
+        }
+        display.setColor(DisplayDriver::LIGHT);
+        display.setCursor(2, ry + (CANNED_ROW_H - 8) / 2);
+        display.print(head);
+      }
+      return 500;
+    }
 
     // ---- top bar: back arrow + composed text tail + cursor ----
     display.setColor(DisplayDriver::YELLOW);

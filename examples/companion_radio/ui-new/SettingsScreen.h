@@ -182,6 +182,8 @@ enum SettingsRowType : uint8_t {
   ROW_RX_DUTY_CYCLE,        // Toggle: MCU-driven RX duty cycle (watch)
   ROW_RX_DUTY_LEVEL,        // Cycle: nap depth Light/Medium/Aggressive (watch)
   ROW_RX_DUTY_UNAVAIL,      // Note shown when SF > 9 (feature not applicable)
+  ROW_CANNED_SUBMENU,       // Folder row: enters Canned Messages sub-screen (watch)
+  ROW_CANNED_SLOT,          // A canned message slot; param = slot index 0..4 (watch)
 #endif
   ROW_INFO_HEADER,    // "--- Info ---" separator
   #ifdef MECK_OTA_UPDATE
@@ -222,6 +224,7 @@ enum SubScreen : uint8_t {
   SUB_CHANNELS,    // Channels management sub-screen
 #if defined(MECK_TWATCH)
   SUB_EXPERIMENTAL,  // Experimental Features sub-screen (watch)
+  SUB_CANNED,        // Canned Messages sub-screen (watch)
 #endif
   #ifdef MECK_OTA_UPDATE
   SUB_OTA_TOOLS,   // OTA Tools sub-screen (FW update + File Manager)
@@ -331,7 +334,7 @@ private:
   bool _wantsWifiPwKb;        // Watch: open the touch keyboard for WiFi password entry (polled by UITask)
 #endif
 #if defined(MECK_TWATCH)
-  char _kbInitText[40] = "";  // initial text handed to the touch keyboard for the row being edited
+  char _kbInitText[CANNED_MSG_LEN] = "";  // initial text handed to the touch keyboard for the row being edited (sized for a full canned message)
 #endif
 #if defined(MECK_TWATCH)
   // Selected-row ticker (marquee for rows wider than the screen), mirroring
@@ -470,6 +473,11 @@ private:
       } else {
         addRow(ROW_RX_DUTY_UNAVAIL);   // note: only available at SF9 and below
       }
+    } else if (_subScreen == SUB_CANNED) {
+      // --- Canned Messages sub-screen (watch): five editable slots ---
+      for (uint8_t i = 0; i < CANNED_MSG_SLOTS; i++) {
+        addRow(ROW_CANNED_SLOT, i);
+      }
 #endif
     #ifdef MECK_OTA_UPDATE
     } else if (_subScreen == SUB_OTA_TOOLS) {
@@ -501,6 +509,11 @@ private:
       addRow(ROW_CR);
       addRow(ROW_TX_POWER);
       addRow(ROW_UTC_OFFSET);
+#if defined(MECK_TWATCH)
+      // Canned Messages folder row -- kept high in the list so it lands on
+      // the first settings page.
+      addRow(ROW_CANNED_SUBMENU);
+#endif
 #if !defined(MECK_TWATCH)
       addRow(ROW_MSG_NOTIFY);
 #endif
@@ -1069,6 +1082,9 @@ public:
   bool isOnDefaultRegionRow() const {
     return _cursor >= 0 && _cursor < _numRows && _rows[_cursor].type == ROW_DEFAULT_SCOPE;
   }
+  bool isOnCannedSlotRow() const {
+    return _cursor >= 0 && _cursor < _numRows && _rows[_cursor].type == ROW_CANNED_SLOT;
+  }
   // Apply keyboard-composed text to the selected row through the normal
   // startEditText + submitEditText commit path, so all side effects (bounds,
   // savePrefs, scope key derivation, empty-region-clears, freq constrain,
@@ -1076,6 +1092,16 @@ public:
   // irrelevant here -- submitEditText replaces the buffer before commit.
   bool applyComposedField(const char* text) {
     SettingsRowType t = _rows[_cursor].type;
+    if (t == ROW_CANNED_SLOT) {
+      // Canned slots bypass the _editBuf commit path: SETTINGS_TEXT_BUF is
+      // 33 while a slot holds up to 133 chars. Empty text clears the slot.
+      uint8_t slot = _rows[_cursor].param;
+      if (slot >= CANNED_MSG_SLOTS) return false;
+      strncpy(_prefs->canned_msgs[slot], text ? text : "", CANNED_MSG_LEN - 1);
+      _prefs->canned_msgs[slot][CANNED_MSG_LEN - 1] = '\0';
+      the_mesh.savePrefs();
+      return true;
+    }
     if (t != ROW_NAME && t != ROW_DEFAULT_SCOPE &&
         t != ROW_FREQ && t != ROW_ADD_CHANNEL && t != ROW_TX_POWER &&
         t != ROW_BW && t != ROW_LATITUDE && t != ROW_LONGITUDE) {
@@ -2210,6 +2236,23 @@ public:
           display.setColor(selected ? DisplayDriver::DARK : DisplayDriver::GREEN);
           display.print("Experimental Features >>");
           break;
+
+        case ROW_CANNED_SUBMENU:
+          display.setColor(selected ? DisplayDriver::DARK : DisplayDriver::GREEN);
+          display.print("Canned Messages >>");
+          break;
+
+        case ROW_CANNED_SLOT: {
+          uint8_t slot = _rows[i].param;
+          const char* msg = _prefs->canned_msgs[slot];
+          if (msg[0]) {
+            snprintf(tmp, sizeof(tmp), "%u: %.28s", (unsigned)(slot + 1), msg);
+          } else {
+            snprintf(tmp, sizeof(tmp), "%u: (empty)", (unsigned)(slot + 1));
+          }
+          display.print(tmp);
+          break;
+        }
 
         case ROW_RX_DUTY_CYCLE:
           snprintf(tmp, sizeof(tmp), "Rx Duty Cycle: %s",
@@ -3727,6 +3770,23 @@ public:
           rebuildRows();
           Serial.println("Settings: entered Experimental Features sub-screen");
           break;
+
+        case ROW_CANNED_SUBMENU:
+          _savedTopCursor = _cursor;
+          _subScreen = SUB_CANNED;
+          _cursor = 0;
+          _scrollTop = 0;
+          rebuildRows();
+          Serial.println("Settings: entered Canned Messages sub-screen");
+          break;
+
+        case ROW_CANNED_SLOT: {
+          uint8_t slot = _rows[_cursor].param;
+          strncpy(_kbInitText, _prefs->canned_msgs[slot], sizeof(_kbInitText) - 1);
+          _kbInitText[sizeof(_kbInitText) - 1] = '\0';
+          _wantsKb = true;   // UITask::loop() polls and opens the touch keyboard
+          break;
+        }
 
         case ROW_RX_DUTY_CYCLE:
           _prefs->rx_duty_cycle = _prefs->rx_duty_cycle ? 0 : 1;

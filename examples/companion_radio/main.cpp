@@ -738,6 +738,15 @@ static void lastHeardToggleContact() {
           return KEY_ENTER;  // Tapped same row — activate
 #endif
         }
+#if defined(MECK_TWATCH)
+        // Watch: a miss (header, footer, or empty space below the list) must
+        // not activate either. Without this, the dispatcher's debounced
+        // release after a touch-keyboard OK -- which lands here ~150ms after
+        // the keyboard has already saved and returned to Settings -- fell
+        // through to the KEY_ENTER below and re-activated the selected row,
+        // instantly reopening the keyboard it had just closed.
+        return 0;
+#endif
       }
       return KEY_ENTER;  // Editing mode or header/footer tap
     }

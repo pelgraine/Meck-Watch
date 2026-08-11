@@ -19,6 +19,12 @@
 // that lands out of bounds and the DM preference silently never applies.
 #define DM_NOTIF_SLOT   20
 
+// Canned messages (T-Watch): slot count and per-slot buffer size.
+// CANNED_MSG_LEN matches TW_OUT_BUF_LEN -- the 133-char channel message cap
+// plus a NUL terminator.
+#define CANNED_MSG_SLOTS  5
+#define CANNED_MSG_LEN    134
+
 struct NodePrefs {  // persisted to file
   float airtime_factor;
   char node_name[32];
@@ -114,6 +120,14 @@ struct NodePrefs {  // persisted to file
   // persisted at prefs offsets 40/48. Older prefs files short-read this final
   // field and keep the memset-0 (Off) default.
   uint8_t position_mode;           // 0 = Off (default), 1 = Manual, 2 = Auto-GPS
+
+  // --- Canned messages (T-Watch) ---
+  // Five pre-written channel messages, edited in Settings -> Canned Messages
+  // and sent from the channel compose keyboard via the physical button. Each
+  // slot holds up to 133 chars + NUL (the per-channel message cap); an empty
+  // string marks an unused slot. Older prefs files short-read this final
+  // field and keep the memset-0 (all slots empty) default.
+  char canned_msgs[CANNED_MSG_SLOTS][CANNED_MSG_LEN];
 
   // --- Font helpers (inline, no overhead) ---
   // Returns the DisplayDriver text-size index for "small/body" text.
