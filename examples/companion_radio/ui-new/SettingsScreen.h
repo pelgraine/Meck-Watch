@@ -849,6 +849,32 @@ public:
     return 1;  // Moved to new row
   }
 
+#if defined(MECK_TWATCH)
+  // Long-press aim (main.cpp mapTouchLongPress). Identical to selectRowAtVY()
+  // everywhere except the Canned Messages sub-screen, where a hold whose
+  // contact point sits in the top edgePx of the row directly below the
+  // highlight keeps the highlight instead of re-aiming. Fingertip centroids
+  // register a few px below the perceived aim point (2-7 px in the TouchDiag
+  // captures, Aug 2026, sensor range and render/hit geometry both verified
+  // clean); on these 9 px rows a centre-aim at the pre-selected first slot
+  // lands just inside row 2's band and silently opened it. Taps are
+  // unaffected -- a mis-selected highlight is visible and self-correcting,
+  // a silent activation retarget is not.
+  int selectRowForLongPress(int vy) {
+    if (_subScreen != SUB_CANNED) return selectRowAtVY(vy);
+    // Geometry below must match selectRowAtVY() (and the render loop).
+    const int headerH = 14, lineH = _prefs->smallLineH();
+    const int bodyTop = headerH + _prefs->smallHighlightOff();
+    int ly = (int)((long)vy * _renderScreenH / 128);
+    int tappedRow = _scrollTop + (ly - bodyTop) / lineH;
+    const int edgePx = 2;
+    if (tappedRow == _cursor + 1 && (ly - bodyTop) % lineH < edgePx) {
+      return 2;  // Knife-edge press on the next band: activate the highlight
+    }
+    return selectRowAtVY(vy);
+  }
+#endif
+
   // Page the list VIEW by one screenful (watch vertical swipe). Scrolls the
   // viewport only; the cursor/selection stays put (the highlight reappears
   // when its row scrolls back into view, and only moves when the user taps).

@@ -85,6 +85,16 @@
   static uint8_t emptyPolls = 0;
   #define TOUCH_GESTURE_LIFT_POLLS 5
   static unsigned long lastTouchEventMs = 0;
+#ifdef MECK_TOUCH_DIAG
+  // Temporary ghost-touch diagnostic (enabled with -D MECK_TOUCH_DIAG).
+  // Tracks sampling gaps within a single press so a false lift mid-hold --
+  // the suspected FT6336 gap exceeding TOUCH_LIFT_DEBOUNCE_MS -- shows up
+  // in the serial log as lift/press/longpress transitions with timings.
+  static unsigned long diagPressStartMs = 0;
+  static unsigned long diagLastPointMs = 0;
+  static unsigned long diagMaxGapMs = 0;
+  static uint8_t diagMaxEmpty = 0;
+#endif
 
 
   // Unified touch reader — returns physical screen coordinates
@@ -1185,7 +1195,7 @@ static void lastHeardToggleContact() {
 #if defined(MECK_TWATCH)
         // Aim activation at the row under the finger, not just the current
         // cursor, so a single long-press opens/edits the pressed row.
-        { int vx, vy; touchToVirtual(x, y, vx, vy); ss->selectRowAtVY(vy); }
+        { int vx, vy; touchToVirtual(x, y, vx, vy); ss->selectRowForLongPress(vy); }
 #endif
         if (ss->isOnDeletableChannel()) {
           return 'x';  // Long press on channel row → delete
@@ -1811,6 +1821,9 @@ void loop() {
           touchCooldown = false;
           touchDown = false;
           gestureLatch = false;
+#ifdef MECK_TOUCH_DIAG
+          Serial.printf("[TouchDiag] cooldown-lift t=%lu emptyPolls=%u\n", now, (unsigned)emptyPolls);
+#endif
         }
       }
       else if (gotPoint && !touchDown) {
@@ -1835,13 +1848,28 @@ void loop() {
           touchLastY = ty;
           longPressHandled = false;
           swipeHandled = false;
+#ifdef MECK_TOUCH_DIAG
+          diagPressStartMs = now;
+          diagLastPointMs = now;
+          diagMaxGapMs = 0;
+          diagMaxEmpty = 0;
+          Serial.printf("[TouchDiag] press (%d,%d) t=%lu\n", (int)tx, (int)ty, now);
+#endif
         }
       }
       else if (touchDown && fingerPresent) {
         if (gotPoint) {
           touchLastX = tx;
           touchLastY = ty;
+#ifdef MECK_TOUCH_DIAG
+          unsigned long diagGap = now - diagLastPointMs;
+          if (diagGap > diagMaxGapMs) diagMaxGapMs = diagGap;
+          diagLastPointMs = now;
+#endif
         }
+#ifdef MECK_TOUCH_DIAG
+        if (emptyPolls > diagMaxEmpty) diagMaxEmpty = emptyPolls;
+#endif
 
         int16_t dx = touchLastX - touchDownX;
         int16_t dy = touchLastY - touchDownY;
@@ -1883,6 +1911,11 @@ void loop() {
         else if (!longPressHandled && !swipeHandled && dist < TOUCH_SWIPE_THRESHOLD &&
                  (now - touchDownTime) >= TOUCH_LONG_PRESS_MS) {
           longPressHandled = true;
+#ifdef MECK_TOUCH_DIAG
+          Serial.printf("[TouchDiag] longpress at (%d,%d) heldMs=%lu maxGap=%lums maxEmpty=%u\n",
+                        (int)touchDownX, (int)touchDownY, now - diagPressStartMs,
+                        diagMaxGapMs, (unsigned)diagMaxEmpty);
+#endif
           char c = mapTouchLongPress(touchDownX, touchDownY);
           if (c) {
             ui_task.injectKey(c);
@@ -1944,6 +1977,11 @@ void loop() {
       }
       else if (touchDown && !fingerPresent) {
         touchDown = false;
+#ifdef MECK_TOUCH_DIAG
+        Serial.printf("[TouchDiag] lift t=%lu heldMs=%lu maxGap=%lums maxEmpty=%u last=(%d,%d)\n",
+                      now, now - diagPressStartMs, diagMaxGapMs, (unsigned)diagMaxEmpty,
+                      (int)touchLastX, (int)touchLastY);
+#endif
         if (!longPressHandled && !swipeHandled) {
           char c = mapTouchTap(touchDownX, touchDownY);
           ui_task.keepAlive();   // a tap keeps the display awake even if it produces no key
