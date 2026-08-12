@@ -282,6 +282,7 @@ public:
 #endif
 #ifdef TWATCH_COMPOSE_ENABLED
   bool isOnTWatchChannelScreen() const { return curr == tw_channel; }
+  bool isOnTWatchKeyboardScreen() const { return curr == tw_keyboard; }
 #endif
   bool isOnMinesweeperScreen() const { return curr == minesweeper_screen; }
   bool isOnMapScreen() const { return curr == map_screen; }

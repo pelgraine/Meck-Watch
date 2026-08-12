@@ -379,6 +379,14 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnTWatchChannelScreen()) {
       return 0;
     }
+    // TWatch keyboard screen: same rule -- the keyboard's own poll() handles
+    // every key, and the canned-messages overlay must open only on the
+    // physical button. Without this gate the fallthrough KEY_ENTER at the
+    // bottom of this map fires ~150ms after every key tap and toggles the
+    // overlay mid-compose.
+    if (ui_task.isOnTWatchKeyboardScreen()) {
+      return 0;
+    }
 #endif
 #if defined(MECK_TWATCH)
     // Watch: tiles open on long-press and pages change on swipe, so a plain tap
@@ -893,6 +901,10 @@ static void lastHeardToggleContact() {
     // TWatch channel screen: no synthesised keys (see mapTouchTap) -- a long
     // press on the header/messages must not open the hop-path overlay.
     if (ui_task.isOnTWatchChannelScreen()) return 0;
+    // TWatch keyboard screen: same rule -- holding a key must not synthesise
+    // the fallthrough KEY_ENTER, which would toggle the canned-messages
+    // overlay mid-compose.
+    if (ui_task.isOnTWatchKeyboardScreen()) return 0;
 #endif
 
     // Snake screen: long press exits to games menu
