@@ -224,14 +224,18 @@ public:
     // Sanitize emoji: replace UTF-8 emoji sequences with single-byte escape codes
     // The text already contains "Sender: message" format
 #if defined(MECK_TWATCH)
-    // Watch build: drop emoji entirely instead of storing sprite escape bytes.
-    // The watch UI has no sprite rendering and no room for emoji at 120x120
-    // virtual. Non-emoji UTF-8 (accented letters etc.) passes through
-    // unchanged, the same as emojiSanitize does.
+    // Watch build. Channel messages keep their emoji as raw UTF-8: the watch
+    // channel view (TWatchChannelScreen) draws known emoji inline as 10x10
+    // colour images and skips the rest, so the bytes must be there to draw.
+    // DM/inbox messages (channel_idx 0xFF) still have emoji dropped, because
+    // the shared DM view prints stored text straight through the LGFX GLCD
+    // font, which renders raw UTF-8 lead/continuation bytes as garbage glyphs.
+    // In both cases VS16 and invalid UTF-8 are skipped, as before.
     {
       const uint8_t* s = (const uint8_t*)text;
       int srcLen = (int)strlen(text);
       int si = 0, di = 0;
+      const bool keepEmoji = (channel_idx != 0xFF);
       while (si < srcLen && di < CHANNEL_MSG_TEXT_LEN - 1) {
         uint8_t b = s[si];
         if (b < 0x80) { msg->text[di++] = (char)b; si++; continue; }
@@ -240,32 +244,34 @@ public:
         if (cp == 0xFE0F) { si += consumed; continue; }   // variation selector
         if (cp == 0xFFFD) { si += consumed; continue; }   // invalid UTF-8 -- skip
         bool isEmoji = false;
-        for (int e = 0; e < EMOJI_COUNT; e++) {
-          if (EMOJI_CODEPOINTS[e].cp == cp) {
-            if (EMOJI_CODEPOINTS[e].cp2 != 0) {
-              // two-codepoint emoji: only a match when the pair matches
-              int consumed2;
-              if (si + consumed < srcLen) {
-                uint32_t cp2 = emojiDecodeUtf8(s + si + consumed, srcLen - si - consumed, &consumed2);
-                if (cp2 == EMOJI_CODEPOINTS[e].cp2) {
-                  si += consumed + consumed2;
-                  isEmoji = true;
-                  break;
+        if (!keepEmoji) {
+          for (int e = 0; e < EMOJI_COUNT; e++) {
+            if (EMOJI_CODEPOINTS[e].cp == cp) {
+              if (EMOJI_CODEPOINTS[e].cp2 != 0) {
+                // two-codepoint emoji: only a match when the pair matches
+                int consumed2;
+                if (si + consumed < srcLen) {
+                  uint32_t cp2 = emojiDecodeUtf8(s + si + consumed, srcLen - si - consumed, &consumed2);
+                  if (cp2 == EMOJI_CODEPOINTS[e].cp2) {
+                    si += consumed + consumed2;
+                    isEmoji = true;
+                    break;
+                  }
                 }
+                continue;
               }
-              continue;
+              si += consumed;
+              isEmoji = true;
+              break;
             }
-            si += consumed;
-            isEmoji = true;
-            break;
+          }
+          if (!isEmoji) {
+            for (int a = 0; a < EMOJI_ALIAS_COUNT; a++) {
+              if (EMOJI_ALIASES[a].cp == cp) { si += consumed; isEmoji = true; break; }
+            }
           }
         }
-        if (!isEmoji) {
-          for (int a = 0; a < EMOJI_ALIAS_COUNT; a++) {
-            if (EMOJI_ALIASES[a].cp == cp) { si += consumed; isEmoji = true; break; }
-          }
-        }
-        if (isEmoji) continue;   // dropped
+        if (isEmoji) continue;   // dropped (DM view only)
         if (di + consumed >= CHANNEL_MSG_TEXT_LEN) break;
         for (int k = 0; k < consumed; k++) msg->text[di++] = (char)s[si + k];
         si += consumed;

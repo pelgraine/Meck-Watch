@@ -4,6 +4,10 @@
 #include <helpers/ui/DisplayDriver.h>
 #include <helpers/AdvertDataHelpers.h>
 #include <MeshCore.h>
+#if defined(MECK_TWATCH)
+#include <helpers/ui/LGFXDisplay.h>   // pushImage332 for inline colour emoji
+#include "WatchEmoji.h"               // inline colour emoji in advert names
+#endif
 
 extern MyMesh the_mesh;
 
@@ -177,11 +181,17 @@ public:
         int rightWidth = display.getTextWidth(rightStr) + 2;
 
         // Name (truncated with ellipsis)
-        char filteredName[32];
-        display.translateUTF8ToBlocks(filteredName, entry.name, sizeof(filteredName));
         int nameX = display.getTextWidth(prefix) + 2;
         int nameMaxW = display.width() - nameX - rightWidth - 2;
+#if defined(MECK_TWATCH)
+        // Watch: raw name so known emoji render inline as 10x10 colour images;
+        // unknown non-ASCII is skipped, matching translateUTF8ToBlocks().
+        watchEmojiDrawName((LGFXDisplay&)display, nameX, y, nameMaxW, entry.name);
+#else
+        char filteredName[32];
+        display.translateUTF8ToBlocks(filteredName, entry.name, sizeof(filteredName));
         display.drawTextEllipsized(nameX, y, nameMaxW, filteredName);
+#endif
 
         // Right-aligned info
         display.setCursor(display.width() - rightWidth, y);

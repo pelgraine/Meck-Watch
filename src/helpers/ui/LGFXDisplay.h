@@ -39,6 +39,14 @@ public:
   // buffer. Used by WatchMapScreen to draw decoded map tiles, markers and the
   // crosshair (parallels GxEPDDisplay::drawPixelRaw on the e-ink boards).
   void drawPixelRaw(int x, int y, uint16_t c) { buffer.drawPixel(x, y, c); }
+  // Push a small RGB332 image (one byte per pixel, RRRGGGBB -- the sprite
+  // buffer's own depth) at (x,y) in the 120x120 logical space, skipping
+  // pixels equal to `key`. Used for the inline colour emoji in node names;
+  // pushRotateZoom in endFrame() then scales it 2x to the panel with the
+  // rest of the frame.
+  void pushImage332(int x, int y, int w, int h, const uint8_t* data, uint8_t key) {
+    buffer.pushImage(x, y, w, h, (const lgfx::rgb332_t*)data, lgfx::rgb332_t(key));
+  }
   // Render a string in a very small font at (x,y) so long node names fit
   // beside the centred clock, then restore the default GLCD font + size so
   // later text is unaffected. Uses the colour set via setColor()/setRawColor().

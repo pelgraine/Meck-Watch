@@ -695,9 +695,15 @@ public:
         int timestamp_width = display.getTextWidth(tmp);
         int max_name_width = display.width() - timestamp_width - 1 - EINK_X_OFFSET;
         
+#if defined(MECK_TWATCH)
+        // Watch: raw name so known emoji render inline as 10x10 colour images;
+        // unknown non-ASCII is skipped, matching translateUTF8ToBlocks().
+        watchEmojiDrawName((LGFXDisplay&)display, 0, y, max_name_width, a->name);
+#else
         char filtered_recent_name[sizeof(a->name)];
         display.translateUTF8ToBlocks(filtered_recent_name, a->name, sizeof(filtered_recent_name));
         display.drawTextEllipsized(0, y, max_name_width, filtered_recent_name);
+#endif
         display.setCursor(display.width() - timestamp_width - 1 - EINK_X_OFFSET, y);
         display.print(tmp);
       }
@@ -1201,6 +1207,13 @@ public:
       } else {
         _task->showAlert("Advert failed..", 1000);
       }
+      return true;
+    }
+    if (c == KEY_ENTER && _page == HomePage::RECENT) {
+      // Recent Adverts page: open the full Last Heard list. On the watch this
+      // is the long press promised by the page's footer hint; the bottom-area
+      // tap route in main.cpp remains as well.
+      _task->gotoLastHeardScreen();
       return true;
     }
 #if ENV_INCLUDE_GPS == 1

@@ -6,6 +6,7 @@
 
 #if defined(MECK_TWATCH)
 #include <helpers/ui/LGFXDisplay.h>   // blue rounded-rect overlay primitives (watch LCD)
+#include "WatchEmoji.h"               // inline colour emoji in contact names
 #endif
 
 // Timestamps before this (Jan 1 2026 UTC) are treated as invalid/unsynced
@@ -412,8 +413,10 @@ public:
         display.print(prefix);
 
         // Contact name (truncated to fit)
+#if !defined(MECK_TWATCH)
         char filteredName[32];
         display.translateUTF8ToBlocks(filteredName, contact.name, sizeof(filteredName));
+#endif
 
         // Reserve space for hops + age on right side
         char hopStr[6];
@@ -463,7 +466,14 @@ public:
         // Name region: after prefix + small gap, before right info
         int nameX = display.getTextWidth(prefix) + 2;
         int nameMaxW = display.width() - nameX - rightWidth - 2;
+#if defined(MECK_TWATCH)
+        // Watch: draw the raw name so any known emoji renders inline as a
+        // 10x10 colour image; unknown non-ASCII is skipped, matching what
+        // translateUTF8ToBlocks() produces on the other boards.
+        watchEmojiDrawName((LGFXDisplay&)display, nameX, y, nameMaxW, contact.name);
+#else
         display.drawTextEllipsized(nameX, y, nameMaxW, filteredName);
+#endif
 
         // Right-aligned: hops + age
         display.setCursor(display.width() - rightWidth, y);

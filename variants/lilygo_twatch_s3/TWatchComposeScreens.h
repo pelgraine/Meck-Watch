@@ -287,48 +287,67 @@ class TWatchChannelScreen : public UIScreen {
     return true;
   }
 
+  // Message rows draw through the WatchEmoji helpers so known emoji in the
+  // stored "sender: text" render inline as 10x10 colour images. Widths come
+  // from watchEmojiTextWidth() so right-alignment, ellipsis and the marquee
+  // period all account for the emoji cells.
   void drawMsgLine(DisplayDriver& display, int y, const char* text, bool sent) {
+    LGFXDisplay& d = (LGFXDisplay&)display;
     const int W = display.width();
     const int maxW = W - 4;
     display.setColor(DisplayDriver::LIGHT);
     if (!sent) {
-      display.drawTextEllipsized(2, y, maxW, text);   // incoming: left-aligned
+      watchEmojiDrawName(d, 2, y, maxW, text);   // incoming: left-aligned, truncates to fit
       return;
     }
-    if (display.getTextWidth(text) <= maxW) {          // sent: right-aligned
-      display.drawTextRightAlign(W - 2, y, text);
+    int tw = watchEmojiTextWidth(d, text);
+    if (tw <= maxW) {                            // sent: right-aligned
+      d.setTextWrap(false);
+      watchEmojiDrawRun(d, W - 2 - tw, y, text);
+      d.setTextWrap(true);
       return;
     }
+    // Too wide: shorten (whole UTF-8 sequences at a time) until it fits with
+    // an ellipsis, then right-align the result.
     char buf[CHANNEL_MSG_TEXT_LEN + 4];
     strncpy(buf, text, sizeof(buf) - 4);
     buf[sizeof(buf) - 4] = 0;
     int ellW = display.getTextWidth("...");
     int len = (int)strlen(buf);
-    while (len > 0 && display.getTextWidth(buf) > maxW - ellW) { buf[--len] = 0; }
+    while (len > 0 && watchEmojiTextWidth(d, buf) > maxW - ellW) {
+      len--;
+      while (len > 0 && (((uint8_t)buf[len]) & 0xC0) == 0x80) len--;   // step back over continuation bytes
+      buf[len] = 0;
+    }
     strcat(buf, "...");
-    display.drawTextRightAlign(W - 2, y, buf);
+    tw = watchEmojiTextWidth(d, buf);
+    d.setTextWrap(false);
+    watchEmojiDrawRun(d, W - 2 - tw, y, buf);
+    d.setTextWrap(true);
   }
 
   void drawTicker(DisplayDriver& display, int y, const char* text, bool sent) {
+    LGFXDisplay& d = (LGFXDisplay&)display;
     const int W = display.width();
-    int textW = display.getTextWidth(text);
+    int textW = watchEmojiTextWidth(d, text);
     display.setColor(DisplayDriver::LIGHT);
     if (textW <= W - 4) {   // fits -> nothing to scroll, keep alignment
-      if (sent) display.drawTextRightAlign(W - 2, y, text);
-      else      { display.setCursor(2, y); display.print(text); }
+      d.setTextWrap(false);
+      if (sent) watchEmojiDrawRun(d, W - 2 - textW, y, text);
+      else      watchEmojiDrawRun(d, 2, y, text);
+      d.setTextWrap(true);
       return;
     }
     int period = textW + 24;   // full text width + trailing gap
     unsigned long elapsed = millis() - _tickerStartMs;
     int off = (int)((elapsed / TW_TICKER_MS_PER_PX) % (unsigned long)period);
     // Wrap off while the marquee draws: a long line must clip at the screen
-    // edge, not wrap onto the rows below. Restored straight after.
-    ((LGFXDisplay*)_display)->setTextWrap(false);
-    display.setCursor(2 - off, y);
-    display.print(text);
-    display.setCursor(2 - off + period, y);
-    display.print(text);
-    ((LGFXDisplay*)_display)->setTextWrap(true);
+    // edge, not wrap onto the rows below. Restored straight after. Emoji
+    // cells clip via the sprite's pushImage.
+    d.setTextWrap(false);
+    watchEmojiDrawRun(d, 2 - off, y, text);
+    watchEmojiDrawRun(d, 2 - off + period, y, text);
+    d.setTextWrap(true);
   }
 
   // Renders the "Heard by" list (repeaters that echoed our sent message + the

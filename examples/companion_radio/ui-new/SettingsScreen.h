@@ -4,6 +4,7 @@
 #include <helpers/ui/DisplayDriver.h>
 #if defined(MECK_TWATCH)
 #include <helpers/ui/LGFXDisplay.h>   // setTextWrap/getCursorX for the row ticker
+#include "WatchEmoji.h"               // inline colour emoji in the Name row (watch)
 // Row ticker scroll speed -- matches TW_TICKER_MS_PER_PX in TWatchComposeScreens.h.
 #define SETTINGS_TICKER_MS_PER_PX 20
 #endif
@@ -342,6 +343,7 @@ private:
   int           _tickerRow = -1;      // row index currently anchored
   unsigned long _tickerStartMs = 0;   // animation anchor
   int           _tickerTextW = 0;     // measured on pass 0 of the previous frame
+  int           _nameEmojiW = 0;      // width of the Name row's inline emoji cells (added to the ticker measurement)
   bool          _tickerActive = false;
 #endif
 
@@ -2062,10 +2064,33 @@ public:
         case ROW_NAME:
           if (editing && _editMode == EDIT_TEXT) {
             snprintf(tmp, sizeof(tmp), "Name: %s_", _editBuf);
+            display.print(tmp);
           } else {
+#if defined(MECK_TWATCH)
+            // Watch: draw the raw name so any known emoji renders inline as a
+            // 10x10 colour image (an app-imported name like "<seedling> Ivy"
+            // otherwise prints its UTF-8 bytes as garbage glyphs). Starts at
+            // the pass cursor so the selected-row marquee still works. tmp is
+            // left holding the emoji-free text for the width measurement below,
+            // with the emoji cells' width added there.
+            {
+              LGFXDisplay& d = (LGFXDisplay&)display;
+              int rx = d.getCursorX();
+              d.setCursor(rx, y);
+              display.print("Name: ");
+              rx += display.getTextWidth("Name: ");
+              watchEmojiDrawRun(d, rx, y, _prefs->node_name);
+              // emoji-free copy for the ticker's width measurement
+              char plain[sizeof(_prefs->node_name)];
+              display.translateUTF8ToBlocks(plain, _prefs->node_name, sizeof(plain));
+              snprintf(tmp, sizeof(tmp), "Name: %s", plain);
+              _nameEmojiW = watchEmojiTextWidth(d, _prefs->node_name) - display.getTextWidth(plain);
+            }
+#else
             snprintf(tmp, sizeof(tmp), "Name: %s", _prefs->node_name);
+            display.print(tmp);
+#endif
           }
-          display.print(tmp);
           break;
 
         case ROW_RADIO_PRESET: {
@@ -2518,6 +2543,9 @@ public:
         // getCursorX() is unusable here: LGFXDisplay::print() calls buffer.println(),
         // whose newline resets the cursor X to 0. Measure the string directly.
         rowTextW = display.getTextWidth(tmp);
+        // The Name row draws its emoji as 10x10 cells that getTextWidth() can't
+        // see; add their width so the marquee period covers the whole row.
+        if (_rows[i].type == ROW_NAME) rowTextW += _nameEmojiW;
       }
       }  // ticker pass loop
       if (selected) _tickerTextW = rowTextW;
