@@ -3,6 +3,10 @@
 #include <helpers/ui/UIScreen.h>
 #include <helpers/ui/DisplayDriver.h>
 #include <MeshCore.h>
+#if defined(MECK_TWATCH)
+#include <helpers/ui/LGFXDisplay.h>   // pushImage332 / setTextWrap for inline colour emoji
+#include "WatchEmoji.h"               // inline colour emoji in the repeater name + neighbour rows
+#endif
 
 // Forward declarations
 #include "../AbstractUITask.h"
@@ -406,7 +410,14 @@ private:
 
       int n;
       if (nodeName) {
+#if defined(MECK_TWATCH)
+        // Watch: keep the whole name -- %.18s could split a UTF-8 emoji
+        // sequence mid-way; the response renderer draws emoji inline and
+        // clips the row at the screen edge instead.
+        n = snprintf(dp, remaining, "%s %s %s\n", nodeName, snrStr, timeStr);
+#else
         n = snprintf(dp, remaining, "%.18s %s %s\n", nodeName, snrStr, timeStr);
+#endif
       } else {
         n = snprintf(dp, remaining, "<%s> %s %s\n", hexPart, snrStr, timeStr);
       }
@@ -621,12 +632,28 @@ public:
     display.setCursor(0, 0);
     const char* hdrPrefix = (_state == STATE_PASSWORD_ENTRY || _state == STATE_LOGGING_IN)
                              ? "Login" : "Admin";
+    bool showPerm = (_state >= STATE_CATEGORY_MENU && _state <= STATE_RESPONSE_VIEW);
+    const char* perm = (_permissions & 0x03) >= 3 ? "ADM" :
+                       (_permissions & 0x03) >= 2 ? "R/W" : "R/O";
+#if defined(MECK_TWATCH)
+    // Watch: draw the raw name so any known emoji renders inline as a 10x10
+    // colour image, fitted to the width left before the permission badge.
+    // Replaces the %.16s byte-truncation, which could split a multi-byte
+    // UTF-8 sequence and print garbage on an emoji-prefixed repeater name.
+    {
+      snprintf(tmp, sizeof(tmp), "%s: ", hdrPrefix);
+      display.print(tmp);
+      int nx = display.getTextWidth(tmp);
+      int reserve = showPerm ? (display.getTextWidth(perm) + 4) : 0;
+      int nameMaxW = display.width() - nx - reserve;
+      if (nameMaxW > 0) watchEmojiDrawName((LGFXDisplay&)display, nx, 0, nameMaxW, _repeaterName);
+    }
+#else
     snprintf(tmp, sizeof(tmp), "%s: %.16s", hdrPrefix, _repeaterName);
     display.print(tmp);
+#endif
 
-    if (_state >= STATE_CATEGORY_MENU && _state <= STATE_RESPONSE_VIEW) {
-      const char* perm = (_permissions & 0x03) >= 3 ? "ADM" :
-                         (_permissions & 0x03) >= 2 ? "R/W" : "R/O";
+    if (showPerm) {
       display.setCursor(display.width() - display.getTextWidth(perm) - 2, 0);
       display.print(perm);
     }
@@ -1218,8 +1245,14 @@ private:
       if (*p == '\n') p++;
 
       if (lineCount >= skipLines && lineCount < skipLines + maxLines) {
+#if defined(MECK_TWATCH)
+        // Watch: response lines (neighbour rows in particular) may carry emoji
+        // in resolved node names; draw them inline. Wrap is already off here.
+        watchEmojiDrawRun((LGFXDisplay&)display, 2, y, lineBuf);
+#else
         display.setCursor(2, y);
         display.print(lineBuf);
+#endif
         y += lineHeight;
       }
       lineCount++;

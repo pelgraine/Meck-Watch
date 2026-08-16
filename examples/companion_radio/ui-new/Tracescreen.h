@@ -4,6 +4,10 @@
 #include <helpers/ui/DisplayDriver.h>
 #include <MeshCore.h>
 #include <Packet.h>
+#if defined(MECK_TWATCH)
+#include <helpers/ui/LGFXDisplay.h>   // pushImage332 for inline colour emoji
+#include "WatchEmoji.h"               // inline colour emoji in hop / repeater names
+#endif
 
 // Forward declarations
 class UITask;
@@ -575,14 +579,33 @@ private:
               hashVal = ((uint16_t)_pathBuf[offset] << 8) | _pathBuf[offset + 1];
             }
             if (findNameForHash(&_pathBuf[offset], _bytesPerHop, hopName, sizeof(hopName))) {
-              truncateName(hopName);
               display.setColor(DisplayDriver::GREEN);
+#if defined(MECK_TWATCH)
+              // Watch: prefix as text, raw name with inline emoji fitted to the
+              // room before the hash, then the hash. Replaces truncateName()'s
+              // byte cut, which could split a multi-byte UTF-8 sequence.
+              {
+                LGFXDisplay& d = (LGFXDisplay&)display;
+                snprintf(tmp, sizeof(tmp), "%c%d: ", prefix, hopIdx + 1);
+                display.print(tmp);
+                int nx = display.getTextWidth(tmp);
+                char hashStr[12];
+                snprintf(hashStr, sizeof(hashStr), " (%X)", hashVal);
+                int nameMaxW = display.width() - nx - display.getTextWidth(hashStr) - 2;
+                int ex = (nameMaxW > 0) ? watchEmojiDrawName(d, nx, y, nameMaxW, hopName) : nx;
+                display.setCursor(ex, y);
+                display.print(hashStr);
+              }
+#else
+              truncateName(hopName);
               snprintf(tmp, sizeof(tmp), "%c%d: %s (%X)", prefix, hopIdx + 1,
                        hopName, hashVal);
+              display.print(tmp);
+#endif
             } else {
               snprintf(tmp, sizeof(tmp), "%c%d: (%X)", prefix, hopIdx + 1, hashVal);
+              display.print(tmp);
             }
-            display.print(tmp);
           }
           break;
       }
@@ -639,18 +662,35 @@ private:
         display.setCursor(0, y);
 
         // Show name + decimal hash value
-        char filteredName[24];
-        display.translateUTF8ToBlocks(filteredName, c.name, sizeof(filteredName));
-        truncateName(filteredName, 14);  // Picker has more room
         uint16_t hashVal;
         if (_bytesPerHop == 1) {
           hashVal = c.id.pub_key[0];
         } else {
           hashVal = ((uint16_t)c.id.pub_key[0] << 8) | c.id.pub_key[1];
         }
-        snprintf(tmp, sizeof(tmp), "%c %s (%X)", prefix, filteredName, hashVal);
         display.setColor((idx == _repSel) ? DisplayDriver::GREEN : DisplayDriver::LIGHT);
+#if defined(MECK_TWATCH)
+        // Watch: prefix as text, raw name with inline emoji fitted to the room
+        // before the hash, then the hash (see the hop line above).
+        {
+          LGFXDisplay& d = (LGFXDisplay&)display;
+          snprintf(tmp, sizeof(tmp), "%c ", prefix);
+          display.print(tmp);
+          int nx = display.getTextWidth(tmp);
+          char hashStr[12];
+          snprintf(hashStr, sizeof(hashStr), " (%X)", hashVal);
+          int nameMaxW = display.width() - nx - display.getTextWidth(hashStr) - 2;
+          int ex = (nameMaxW > 0) ? watchEmojiDrawName(d, nx, y, nameMaxW, c.name) : nx;
+          display.setCursor(ex, y);
+          display.print(hashStr);
+        }
+#else
+        char filteredName[24];
+        display.translateUTF8ToBlocks(filteredName, c.name, sizeof(filteredName));
+        truncateName(filteredName, 14);  // Picker has more room
+        snprintf(tmp, sizeof(tmp), "%c %s (%X)", prefix, filteredName, hashVal);
         display.print(tmp);
+#endif
         y += lineH;
       }
     }
@@ -762,13 +802,30 @@ private:
           char hopName[20];
           bool resolved = findNameForHash(&_result.hashes[offset], _bytesPerHop,
                                           hopName, sizeof(hopName));
-          if (resolved) truncateName(hopName);
 
           float snr = _result.snrs[idx] / 4.0f;
 
           display.setColor(resolved ? DisplayDriver::GREEN : DisplayDriver::LIGHT);
           if (resolved) {
+#if defined(MECK_TWATCH)
+            // Watch: index as text, then the raw name with inline emoji fitted
+            // to the room before the SNR block (bars + value drawn below).
+            {
+              LGFXDisplay& d = (LGFXDisplay&)display;
+              snprintf(tmp, sizeof(tmp), "%d: ", idx + 1);
+              display.print(tmp);
+              int nx = display.getTextWidth(tmp);
+              char snrTmp[12];
+              snprintf(snrTmp, sizeof(snrTmp), "%.1fdB", snr);
+              int reserve = display.getTextWidth(snrTmp) + 14 + 6;   // SNR text + bars + gaps
+              int nameMaxW = display.width() - nx - reserve;
+              if (nameMaxW > 0) watchEmojiDrawName(d, nx, y, nameMaxW, hopName);
+              tmp[0] = 0;   // nothing further to print for the name
+            }
+#else
+            truncateName(hopName);
             snprintf(tmp, sizeof(tmp), "%d: %s", idx + 1, hopName);
+#endif
           } else {
             uint16_t hashVal;
             if (_bytesPerHop == 1) {
