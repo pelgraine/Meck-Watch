@@ -1640,7 +1640,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _discoveryTag = 0;
 
   // defaults
-  memset(&_prefs, 0, sizeof(_prefs));
+  // NOTE: no memset() here any more -- NodePrefs is a ConfigSerializer subclass
+  // (vtable + sub-objects) and every scalar field has an in-class default of 0.
   _prefs.airtime_factor = 1.0; // one half
   _prefs.multi_acks = 1;      // redundant ACKs on by default
   strcpy(_prefs.node_name, "NONAME");
@@ -1681,7 +1682,9 @@ void MyMesh::begin(bool has_display) {
 #endif
 
   // load persisted prefs
-  _store->loadPrefs(_prefs, sensors.node_lat, sensors.node_lon);
+  _store->loadPrefs(_prefs);
+  sensors.node_lat = _prefs.node_lat;   // position is persisted in NodePrefs (JSON prefs)
+  sensors.node_lon = _prefs.node_lon;
 
   // sanitise bad pref values
   _prefs.rx_delay_base = constrain(_prefs.rx_delay_base, 0, 20.0f);

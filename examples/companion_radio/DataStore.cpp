@@ -88,12 +88,24 @@ bool DataStore::saveMainIdentity(const mesh::LocalIdentity &identity) {
   return identity_store.save("_main", identity);
 }
 
-void DataStore::loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon) {
-  if (_fs->exists("/new_prefs")) {
-    loadPrefsInt("/new_prefs", prefs, node_lat, node_lon); // new filename
+void DataStore::loadPrefs(NodePrefs& prefs) {
+  if (_fs->exists("/prefs.json")) {
+    File file = openRead(_fs, "/prefs.json");
+    if (file) {
+      prefs.loadSerial(file);   // JSON prefs (v1.17.0+)
+      file.close();
+    }
+    // Restore the GPS write-lock that matches the stored mode (the binary
+    // reader below does this itself; the JSON path needs it here).
+    SensorManager::gps_position_locked = (prefs.position_mode == 1);
+  } else if (_fs->exists("/new_prefs")) {
+    loadPrefsInt("/new_prefs", prefs);   // legacy binary blob
+    if (savePrefs(prefs)) {              // migrate to JSON
+      //_fs->remove("/new_prefs");       // kept, as upstream does, so an older firmware can still boot
+    }
   } else if (_fs->exists("/node_prefs")) {
-    loadPrefsInt("/node_prefs", prefs, node_lat, node_lon);
-    savePrefs(prefs, node_lat, node_lon);                // save to new filename
+    loadPrefsInt("/node_prefs", prefs);
+    savePrefs(prefs);                    // save to new format
     _fs->remove("/node_prefs"); // remove old
   }
   // Fresh device (no prefs file) leaves backlight at memset 0; treat any
@@ -107,7 +119,7 @@ void DataStore::loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon) 
   }
 }
 
-void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& node_lat, double& node_lon) {
+void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs) {
   File file = openRead(_fs, filename);
   if (file) {
     uint8_t pad[8];
@@ -115,8 +127,8 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     file.read((uint8_t *)&_prefs.airtime_factor, sizeof(float));                           // 0
     file.read((uint8_t *)_prefs.node_name, sizeof(_prefs.node_name));                      // 4
     file.read(pad, 4);                                                                     // 36
-    file.read((uint8_t *)&node_lat, sizeof(node_lat));                                     // 40
-    file.read((uint8_t *)&node_lon, sizeof(node_lon));                                     // 48
+    file.read((uint8_t *)&_prefs.node_lat, sizeof(_prefs.node_lat));                       // 40
+    file.read((uint8_t *)&_prefs.node_lon, sizeof(_prefs.node_lon));                       // 48
     file.read((uint8_t *)&_prefs.freq, sizeof(_prefs.freq));                               // 56
     file.read((uint8_t *)&_prefs.sf, sizeof(_prefs.sf));                                   // 60
     file.read((uint8_t *)&_prefs.cr, sizeof(_prefs.cr));                                   // 61
@@ -265,66 +277,17 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
   }
 }
 
-void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_lon) {
-  File file = openWrite(_fs, "/new_prefs");
+bool DataStore::savePrefs(NodePrefs& _prefs) {
+  // Prefs are now serialised as JSON (upstream MeshCore v1.17.0, PR #2982).
+  // The binary /new_prefs writer that used to live here is gone; the reader
+  // (loadPrefsInt) is kept so an existing device migrates on first boot.
+  File file = openWrite(_fs, "/prefs.json");
   if (file) {
-    uint8_t pad[8];
-    memset(pad, 0, sizeof(pad));
-
-    file.write((uint8_t *)&_prefs.airtime_factor, sizeof(float));                           // 0
-    file.write((uint8_t *)_prefs.node_name, sizeof(_prefs.node_name));                      // 4
-    file.write(pad, 4);                                                                     // 36
-    file.write((uint8_t *)&node_lat, sizeof(node_lat));                                     // 40
-    file.write((uint8_t *)&node_lon, sizeof(node_lon));                                     // 48
-    file.write((uint8_t *)&_prefs.freq, sizeof(_prefs.freq));                               // 56
-    file.write((uint8_t *)&_prefs.sf, sizeof(_prefs.sf));                                   // 60
-    file.write((uint8_t *)&_prefs.cr, sizeof(_prefs.cr));                                   // 61
-    file.write(pad, 1);                                                                     // 62
-    file.write((uint8_t *)&_prefs.manual_add_contacts, sizeof(_prefs.manual_add_contacts)); // 63
-    file.write((uint8_t *)&_prefs.bw, sizeof(_prefs.bw));                                   // 64
-    file.write((uint8_t *)&_prefs.tx_power_dbm, sizeof(_prefs.tx_power_dbm));               // 68
-    file.write((uint8_t *)&_prefs.telemetry_mode_base, sizeof(_prefs.telemetry_mode_base)); // 69
-    file.write((uint8_t *)&_prefs.telemetry_mode_loc, sizeof(_prefs.telemetry_mode_loc));   // 70
-    file.write((uint8_t *)&_prefs.telemetry_mode_env, sizeof(_prefs.telemetry_mode_env));   // 71
-    file.write((uint8_t *)&_prefs.rx_delay_base, sizeof(_prefs.rx_delay_base));             // 72
-    file.write((uint8_t *)&_prefs.advert_loc_policy, sizeof(_prefs.advert_loc_policy));     // 76
-    file.write((uint8_t *)&_prefs.multi_acks, sizeof(_prefs.multi_acks));                   // 77
-    file.write(pad, 2);                                                                     // 78
-    file.write((uint8_t *)&_prefs.ble_pin, sizeof(_prefs.ble_pin));                         // 80
-    file.write((uint8_t *)&_prefs.buzzer_quiet, sizeof(_prefs.buzzer_quiet));               // 84
-    file.write((uint8_t *)&_prefs.gps_enabled, sizeof(_prefs.gps_enabled));                 // 85
-    file.write((uint8_t *)&_prefs.gps_interval, sizeof(_prefs.gps_interval));               // 86
-    file.write((uint8_t *)&_prefs.autoadd_config, sizeof(_prefs.autoadd_config));           // 87
-    file.write((uint8_t *)&_prefs.utc_offset_hours, sizeof(_prefs.utc_offset_hours));     // 88
-    file.write((uint8_t *)&_prefs.kb_flash_notify, sizeof(_prefs.kb_flash_notify));      // 89
-    file.write((uint8_t *)&_prefs.ringtone_enabled, sizeof(_prefs.ringtone_enabled));    // 90
-    file.write((uint8_t *)&_prefs.path_hash_mode, sizeof(_prefs.path_hash_mode));        // 91
-    file.write((uint8_t *)&_prefs.autoadd_max_hops, sizeof(_prefs.autoadd_max_hops));   // 92
-    file.write((uint8_t *)&_prefs.gps_baudrate, sizeof(_prefs.gps_baudrate));            // 93
-    file.write((uint8_t *)&_prefs.interference_threshold, sizeof(_prefs.interference_threshold)); // 97
-    file.write((uint8_t *)&_prefs.dark_mode, sizeof(_prefs.dark_mode));                  // 98
-    file.write((uint8_t *)&_prefs.portrait_mode, sizeof(_prefs.portrait_mode));          // 99
-    file.write((uint8_t *)&_prefs.auto_lock_minutes, sizeof(_prefs.auto_lock_minutes)); // 100
-    file.write((uint8_t *)&_prefs.hint_shown, sizeof(_prefs.hint_shown));               // 101
-    file.write((uint8_t *)&_prefs.large_font, sizeof(_prefs.large_font));               // 102
-    file.write((uint8_t *)&_prefs.tx_fail_reset_threshold, sizeof(_prefs.tx_fail_reset_threshold)); // 103
-    file.write((uint8_t *)&_prefs.rx_fail_reboot_threshold, sizeof(_prefs.rx_fail_reboot_threshold)); // 104
-    file.write((uint8_t *)&_prefs.ui_font_style, sizeof(_prefs.ui_font_style));                 // 105
-    file.write((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));         // 106
-    file.write((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));           // 137
-    file.write((uint8_t *)_prefs.channel_notif, sizeof(_prefs.channel_notif));                   // 153
-    file.write((uint8_t *)&_prefs.lora_antenna, sizeof(_prefs.lora_antenna));                    // 174
-    file.write((uint8_t *)&_prefs.backlight_brightness_pct, sizeof(_prefs.backlight_brightness_pct)); // 175
-    file.write((uint8_t *)&_prefs.kb_backlight_pct, sizeof(_prefs.kb_backlight_pct));            // 176
-    file.write((uint8_t *)&_prefs.rx_duty_cycle, sizeof(_prefs.rx_duty_cycle));                  // 177
-    file.write((uint8_t *)&_prefs.rx_duty_level, sizeof(_prefs.rx_duty_level));                  // 178
-    file.write((uint8_t *)&_prefs.clock_slot_a, sizeof(_prefs.clock_slot_a));                    // 179
-    file.write((uint8_t *)&_prefs.clock_slot_b, sizeof(_prefs.clock_slot_b));                    // 180
-    file.write((uint8_t *)&_prefs.position_mode, sizeof(_prefs.position_mode));                  // 181
-    file.write((uint8_t *)_prefs.canned_msgs, sizeof(_prefs.canned_msgs));                       // 182
-
+    bool success = _prefs.saveSerial(file);
     file.close();
+    return success;
   }
+  return false;
 }
 
 void DataStore::loadContacts(DataStoreHost* host) {

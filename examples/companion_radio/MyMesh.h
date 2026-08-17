@@ -292,7 +292,11 @@ protected:
   }
 
 public:
-  void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
+  void savePrefs() {
+    _prefs.node_lat = sensors.node_lat;   // position lives in NodePrefs now (JSON prefs)
+    _prefs.node_lon = sensors.node_lon;
+    _store->savePrefs(_prefs);
+  }
   void saveChannels() {
     _store->saveChannels(this);
   }

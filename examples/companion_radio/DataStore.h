@@ -19,7 +19,7 @@ class DataStore {
   mesh::RTCClock* _clock;
   IdentityStore identity_store;
 
-  void loadPrefsInt(const char *filename, NodePrefs& prefs, double& node_lat, double& node_lon);
+  void loadPrefsInt(const char *filename, NodePrefs& prefs);
 
   // Chunked save state (ESP32 with SD card only)
   File _saveFile;
@@ -38,8 +38,8 @@ public:
   FILESYSTEM* getSecondaryFS() const { return _fsExtra; }
   bool loadMainIdentity(mesh::LocalIdentity &identity);
   bool saveMainIdentity(const mesh::LocalIdentity &identity);
-  void loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon);
-  void savePrefs(const NodePrefs& prefs, double node_lat, double node_lon);
+  void loadPrefs(NodePrefs& prefs);
+  bool savePrefs(NodePrefs& prefs);
   void loadContacts(DataStoreHost* host);
   void saveContacts(DataStoreHost* host);
   // Chunked save — splits contact write across multiple loop iterations
