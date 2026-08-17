@@ -43,8 +43,18 @@ static const AdminCmdDef CMD_OPERATIONAL[] = {
   { "Clock Sync",    "clock sync",   nullptr,          0 },
   { "Send Advert",   "advert",       nullptr,          0 },
   { "Get Clock",     "clock",        nullptr,          0 },
+  // -- upstream CLI additions (MeshCore v1.17.x CommonCLI) --
+  { "Zero-hop Advert",   "advert.zerohop", nullptr,           0 },
+  { "Set Time",          "time ",          "Epoch seconds:",  CMDF_PARAM },
+  { "GPS Status",        "gps",            nullptr,           0 },
+  { "GPS On",            "gps on",         nullptr,           0 },
+  { "GPS Off",           "gps off",        nullptr,           0 },
+  { "GPS Sync Clock",    "gps sync",       nullptr,           0 },
+  { "GPS Set Location",  "gps setloc",     nullptr,           0 },
+  { "GPS Advert Policy", "gps advert",     nullptr,           0 },
+  { "Set GPS Advert",    "gps advert ",    "none/share/prefs:", CMDF_PARAM },
 };
-#define CMD_OPERATIONAL_COUNT 3
+#define CMD_OPERATIONAL_COUNT 12
 
 // --- Neighbors ---
 static const AdminCmdDef CMD_NEIGHBORS[] = {
@@ -61,8 +71,14 @@ static const AdminCmdDef CMD_NEIGHBORS[] = {
 static const AdminCmdDef CMD_INFO[] = {
   { "Version",    "ver",    nullptr, 0 },
   { "Board",      "board",  nullptr, 0 },
+  // -- upstream CLI additions (MeshCore v1.17.x CommonCLI) --
+  { "Sensor List",  "sensor list", nullptr,        0 },
+  { "Sensor Get",   "sensor get ", "Setting key:", CMDF_PARAM },
+  { "Sensor Set",   "sensor set ", "key value:",   CMDF_PARAM },
+  { "Region Tree",  "region",      nullptr,        0 },
+  { "Clear Stats",  "clear stats", nullptr,        0 },
 };
-#define CMD_INFO_COUNT 2
+#define CMD_INFO_COUNT 7
 
 // --- Get Config (read-only queries) ---
 static const AdminCmdDef CMD_GET_CONFIG[] = {
@@ -83,8 +99,35 @@ static const AdminCmdDef CMD_GET_CONFIG[] = {
   { "Get Guest Password",   "get guest.password",        nullptr, 0 },
   { "Get Allow R/O",        "get allow.read.only",       nullptr, 0 },
   { "Get ADC Multiplier",   "get adc.multiplier",        nullptr, 0 },
+  // -- upstream CLI additions (MeshCore v1.17.x CommonCLI) --
+  { "Get Freq",             "get freq",                  nullptr, 0 },
+  { "Get RX Gain",          "get radio.rxgain",          nullptr, 0 },
+  { "Get FEM RX Gain",      "get radio.fem.rxgain",      nullptr, 0 },
+  { "Get FEM TX Gain",      "get radio.fem.txgain",      nullptr, 0 },
+  { "Get CAD",              "get cad",                   nullptr, 0 },
+  { "Get Path Hash Mode",   "get path.hash.mode",        nullptr, 0 },
+  { "Get Loop Detect",      "get loop.detect",           nullptr, 0 },
+  { "Get Duty Cycle",       "get dutycycle",             nullptr, 0 },
+  { "Get Lat",              "get lat",                   nullptr, 0 },
+  { "Get Lon",              "get lon",                   nullptr, 0 },
+  { "Get Owner Info",       "get owner.info",            nullptr, 0 },
+  { "Get Public Key",       "get public.key",            nullptr, 0 },
+  { "Get Role",             "get role",                  nullptr, 0 },
+  { "Get Bootloader Ver",   "get bootloader.ver",        nullptr, 0 },
+  { "Get PwrMgt Support",   "get pwrmgt.support",        nullptr, 0 },
+  { "Get PwrMgt Source",    "get pwrmgt.source",         nullptr, 0 },
+  { "Get Boot Reason",      "get pwrmgt.bootreason",     nullptr, 0 },
+  { "Get Boot mV",          "get pwrmgt.bootmv",         nullptr, 0 },
+  { "Get Extra SF",         "get extra.sf",              nullptr, 0 },
+  { "Get Bridge Type",      "get bridge.type",           nullptr, 0 },
+  { "Get Bridge Enabled",   "get bridge.enabled",        nullptr, 0 },
+  { "Get Bridge Delay",     "get bridge.delay",          nullptr, 0 },
+  { "Get Bridge Source",    "get bridge.source",         nullptr, 0 },
+  { "Get Bridge Baud",      "get bridge.baud",           nullptr, 0 },
+  { "Get Bridge Channel",   "get bridge.channel",        nullptr, 0 },
+  { "Get Bridge Secret",    "get bridge.secret",         nullptr, 0 },
 };
-#define CMD_GET_CONFIG_COUNT 17
+#define CMD_GET_CONFIG_COUNT 43
 
 // --- Set Config (write commands, all need parameter input) ---
 static const AdminCmdDef CMD_SET_CONFIG[] = {
@@ -108,9 +151,27 @@ static const AdminCmdDef CMD_SET_CONFIG[] = {
   { "Set ADC Multiplier",   "set adc.multiplier ",        "Factor (0=default):",   CMDF_PARAM },
   { "Set Radio",            "set radio ",                 "freq,bw,sf,cr:",        CMDF_PARAM },
   { "Temp Radio",           "tempradio ",                 "freq,bw,sf,cr,mins:",   CMDF_PARAM },
+  // -- upstream CLI additions (MeshCore v1.17.x CommonCLI) --
+  { "Set RX Gain",          "set radio.rxgain ",          nullptr,                 CMDF_BOOL },
+  { "Set FEM RX Gain",      "set radio.fem.rxgain ",      nullptr,                 CMDF_BOOL },
+  { "Set FEM TX Gain",      "set radio.fem.txgain ",      nullptr,                 CMDF_BOOL },
+  { "Set CAD",              "set cad ",                   nullptr,                 CMDF_BOOL },
+  { "Set Path Hash Mode",   "set path.hash.mode ",        "0=1B 1=2B 2=3B:",       CMDF_PARAM },
+  { "Set Loop Detect",      "set loop.detect ",           "off/min/mod/strict:",   CMDF_PARAM },
+  { "Set Duty Cycle",       "set dutycycle ",             "Percent (1-100):",      CMDF_PARAM },
+  { "Set Lat",              "set lat ",                   "Degrees:",              CMDF_PARAM },
+  { "Set Lon",              "set lon ",                   "Degrees:",              CMDF_PARAM },
+  { "Set Owner Info",       "set owner.info ",            "Text:",                 CMDF_PARAM },
+  { "Set Extra SF",         "set extra.sf ",              "SFs csv (LR2021):",     CMDF_PARAM },
+  { "Set Bridge Enabled",   "set bridge.enabled ",        nullptr,                 CMDF_BOOL },
+  { "Set Bridge Delay",     "set bridge.delay ",          "ms (0-10000):",         CMDF_PARAM },
+  { "Set Bridge Source",    "set bridge.source ",         "rx or tx:",             CMDF_PARAM },
+  { "Set Bridge Baud",      "set bridge.baud ",           "Baud (9600+):",         CMDF_PARAM },
+  { "Set Bridge Channel",   "set bridge.channel ",        "Channel (1-14):",       CMDF_PARAM },
+  { "Set Bridge Secret",    "set bridge.secret ",         "Secret:",               CMDF_PARAM },
   { "Change Admin Pwd",     "password ",                  "New password:",          CMDF_PARAM | CMDF_CONFIRM },
 };
-#define CMD_SET_CONFIG_COUNT 21
+#define CMD_SET_CONFIG_COUNT 38
 
 // --- Power ---
 static const AdminCmdDef CMD_POWER[] = {
@@ -124,8 +185,11 @@ static const AdminCmdDef CMD_POWER[] = {
 static const AdminCmdDef CMD_SYSTEM[] = {
   { "Reboot",       "reboot",     nullptr, CMDF_CONFIRM | CMDF_EXPECT_TIMEOUT },
   { "Start OTA",    "start ota",  nullptr, CMDF_CONFIRM | CMDF_EXPECT_TIMEOUT },
+  // -- upstream CLI additions (MeshCore v1.17.x CommonCLI) --
+  // clkreboot resets the repeater clock to a fixed epoch and reboots; no reply is sent.
+  { "Reset Clock+Reboot", "clkreboot", nullptr, CMDF_CONFIRM | CMDF_EXPECT_TIMEOUT },
 };
-#define CMD_SYSTEM_COUNT 2
+#define CMD_SYSTEM_COUNT 3
 
 // =====================================================================
 // Category table
