@@ -67,6 +67,9 @@ All commands follow a simple pattern: `get` to read, `set` to write.
 | `get tx.fail.threshold` | TX fail reset threshold (0=disabled, default 3) |
 | `get rx.fail.threshold` | RX stuck reboot threshold (0=disabled, default 3) |
 | `get gps.baud` | GPS baud rate (0=compile-time default) |
+| `get contact.mode` | Contact auto-add mode (`auto`, `custom` or `manual`) |
+| `get contact.autoadd` | Per-type auto-add toggles (chat, repeater, room, sensor, overwrite) |
+| `get contact.maxhops` | Auto-add hop limit (0 = no limit) |
 | `get region` | Default region scope (e.g. `au-nsw`, or `none`) |
 | `get channels` | List all channels with index numbers and region scopes |
 | `get channel.scope <idx>` | Show region scope for a specific channel |
@@ -235,7 +238,7 @@ set int.thresh 0
 
 Values: 0 (disabled, default) or 14+ (14 is the typical setting). Values between 1–13 are not functional and will be rejected.
 
-#### TX Fail Reset Threshold (tx.fail.reset)
+#### TX Fail Reset Threshold (tx.fail.threshold)
 
 Automatically resets the radio hardware after this many consecutive failed transmission attempts. This recovers from "zombie radio" states where the SX1262 stops responding to send commands.
 
@@ -246,7 +249,7 @@ set tx.fail.threshold 0
 
 Values: 0 (disabled) or 1–10 (default: 3). After the threshold is reached, the radio is reset and the failed packet is re-queued.
 
-#### RX Stuck Reboot Threshold (rx.fail.reboot)
+#### RX Stuck Reboot Threshold (rx.fail.threshold)
 
 Automatically reboots the device after this many consecutive RX-stuck recovery failures. An RX-stuck event occurs when the radio is not in receive mode for 8 seconds despite automatic recovery attempts.
 
@@ -313,6 +316,44 @@ set channel.del 2
 ```
 
 Channels are referenced by their index number (shown in `get channels`). Channel 0 (public) cannot be deleted. Remaining channels are automatically compacted after deletion.
+
+### Contact Auto-Add
+
+Controls whether nodes are added to your contacts automatically when their advert is heard. `get all` shows the current state on its `contacts:` line.
+
+#### Mode
+
+```
+set contact.mode auto
+set contact.mode custom
+set contact.mode manual
+set contact.mode repeater-only
+```
+
+`auto` adds every node heard. `custom` adds only the types enabled with `contact.autoadd` (all types are switched on if none were). `manual` disables auto-add entirely. `repeater-only` is a shortcut for custom mode with only repeaters enabled (the overwrite setting is kept).
+
+#### Per-Type Toggles (custom mode)
+
+```
+set contact.autoadd chat on
+set contact.autoadd repeater on
+set contact.autoadd room off
+set contact.autoadd sensor off
+set contact.autoadd overwrite on
+```
+
+`overwrite` controls whether, when the contact list is full, the oldest non-favourite entry is replaced instead of the new contact being discarded.
+
+#### Hop Limit
+
+```
+set contact.maxhops 3
+set contact.maxhops 0
+```
+
+Values: 0 (no limit) or 1-64 -- 1 means direct (0-hop) adverts only, N means up to N-1 hops.
+
+---
 
 ### Region Scope
 
@@ -588,6 +629,6 @@ Use `get all` to capture a snapshot of your configuration. Copy the serial outpu
 
 - **All radio changes apply live.** There is no need to reboot after changing frequency, bandwidth, spreading factor, coding rate, or TX power. The radio reconfigures on the fly.
 - **Preset selection by number is faster.** Once you've seen `get presets`, use the index number instead of typing the full name.
-- **Settings are persisted immediately.** Every `set` command writes to flash. If power is lost, your settings are safe.
+- **Settings are persisted immediately.** Every `set` command writes to flash. If power is lost, your settings are safe. On the T-Watch builds (v1.4+) they are stored as `/prefs.json` on the internal LittleFS partition; the older binary `/new_prefs` file is read once and migrated on the first boot of v1.4.
 - **SD card backup is automatic.** If your T-Deck Pro has an SD card inserted, settings are backed up after every change. On a fresh flash, settings restore automatically from the SD card.
 - **The `get all` command is your friend.** When in doubt, dump everything and check.

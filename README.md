@@ -23,7 +23,9 @@ A fork created specifically to focus on enabling BLE, WiFi & standalone Meshcore
 - [Step Counter](#step-counter)
 - [Clock & Timezone](#clock--timezone)
 - [Channel Messages & the Channel Picker](#channel-messages--the-channel-picker)
+- [Canned Messages](#canned-messages)
 - [Contacts & Direct Messages](#contacts--direct-messages)
+- [Emoji in Node Names](#emoji-in-node-names)
 - ["Heard By" on Sent Messages](#heard-by-on-sent-messages)
 - [Notes](#notes)
 - [Discovery & Last Heard](#discovery--last-heard)
@@ -72,7 +74,7 @@ The two boards are wired identically at the ESP32-S3 — they differ only in wha
 | Home tile (row 3, right) | **Games** (Trace + Games) | **Maps** (Trace + Maps); **Games** on the no-maps builds |
 | Battery cell | 470 mAh LiHV (Tewaycell 552530, 3.8 V nom / 4.35 V max) | LiHV (Tewaycell 112530-2P, 3.8 V nom / 4.35 V max) |
 | Measured runtime | 14h27m (standalone, 40 MHz cap, duty cycle off) | 21h24m (no-maps standalone, 40 MHz cap, GPS off) |
-| Firmware version string | `Meck TWatch S3 v1.0` / `Meck TWatch S3 BLE v1.0` / `Meck TWatch S3 WiFi v1.0` | `Meck TWatch v1.0` / `Meck TWatch BLE v1.0` / `Meck TWatch WiFi v1.0` |
+| Firmware version string | `Meck TWatch S3 v1.4` / `Meck TWatch S3 BLE v1.4` / `Meck TWatch S3 WiFi v1.4` | `Meck TWatch v1.4` / `Meck TWatch BLE v1.4` / `Meck TWatch WiFi v1.4` |
 
 Everything else — the UI, the touch keyboard, step counting, tilt-to-wake, the lock/clock screen, notes, and the whole channel/DM/contacts system — is shared between the two.
 
@@ -86,6 +88,8 @@ Two consequences worth knowing:
 
 - Features that are inherently SD-dependent on other Meck devices — the e-book/EPUB reader, audiobooks, and the web reader — are **not part of the watch build** at all.
 - The **config export/import** menu items compile in but write to an SD card, so they are non-functional on the watch. Move config between devices using the companion app or the main-repo devices instead.
+
+Settings live in that partition as a JSON file, `/prefs.json` (from v1.4 -- earlier builds wrote a binary `/new_prefs` blob). The first boot of a v1.4 build reads the old file once and re-saves it as JSON, and leaves the old file in place, so an earlier firmware can still be flashed back without losing settings. Identity, contacts and channels are unaffected -- they live in their own files.
 
 ---
 
@@ -302,6 +306,14 @@ Long messages are truncated to a single line in the list, but they aren't cut of
 
 ---
 
+## Canned Messages
+
+Five reusable message slots, added in v1.3. Fill them in from **Settings -> Canned Messages** (the folder row directly under UTC Offset): long-press a slot to open the touch keyboard, type the text (up to 133 characters, the standard MeshCore message length) and press OK. Saving an empty entry clears a slot.
+
+To send one, open a channel and tap the compose bar as usual, then press the physical button -- the **PWR key on the S3**, the **BOOT button on the S3 Plus** -- to replace the keyboard with a list of the slots you have filled. **Tap a row to send it** through the normal send path, so it is tracked and shown exactly like a typed message. Press the button again, or tap the back arrow, to return to the keyboard. If every slot is empty a **"No canned messages"** toast is shown instead. The list is offered in channel compose only.
+
+---
+
 ## Contacts & Direct Messages
 
 The Contacts screen lists all known nodes sorted by most recently heard, with a type prefix, estimated hop count, and time since last advert.
@@ -317,6 +329,14 @@ The Contacts screen lists all known nodes sorted by most recently heard, with a 
 **Select mode** lets you batch-operate on contacts — mark favourites or delete — from the overlay that appears after you exit select mode with contacts selected.
 
 Sending a DM opens the touch keyboard; the message is tracked with the standard device-side retry counter and delivery status.
+
+---
+
+## Emoji in Node Names
+
+From v1.3 the watch draws colour emoji inline wherever a node name appears -- the Contacts list, Last Heard, Discovery, Trace (path builder, repeater picker and results), Repeater Admin (the header and the Neighbours response), the Name row in Settings, and the sender names on channel messages, sent and received. The glyphs are Twemoji, baked into the firmware at 10x10 pixels (20x20 on the panel): 188 of them, covering the emoji seen in repeater and node names on the developer's home network plus the common faces, so an emoji name set from the companion app renders as the picture rather than as stray characters.
+
+This is display only: the touch keyboard has no emoji picker, so emoji cannot be typed on the watch. An emoji that is not in the baked set is skipped rather than drawn as garbage. The DM inbox and conversation view still show names without emoji.
 
 ---
 
@@ -360,6 +380,8 @@ The **Rx Log** is a packet sniffer, opened from **Settings → Rx Log**. It capt
 ## Repeater Admin & Path Editor
 
 Long-pressing a repeater or room-server contact opens the **repeater admin** login. Enter the admin password via the touch keyboard to manage the repeater over RF.
+
+From v1.4 the command menus cover the current MeshCore repeater CLI (v1.17): **Get Config** and **Set Config** add RX gain and the FEM RX/TX gain, CAD, path hash mode, loop detection, duty cycle, latitude and longitude, owner info, extra SF (LR2021 repeaters), the `bridge.*` settings, and read-only public key, role, bootloader version and the power-management and boot-reason values; **Clock & Adverts** adds a zero-hop advert, `time <epoch>` and the GPS commands (status, on/off, sync clock, set location, advert policy); **Firmware & Device Info** adds sensor list/get/set, the region tree and clear stats; **Reboot & Start OTA** adds clock reset+reboot. Boolean settings show an on/off picker; typed values open the touch keyboard with a hint of the accepted format. Commands a repeater only accepts on its own serial port (`erase`, `log`, `stats-*`, `set freq`, `get prv.key`) are deliberately not offered, since they cannot succeed over RF, and neither is `set prv.key`. A setting a particular repeater does not have (no FEM, no bridge, not an LR2021) simply returns its unknown-command reply.
 
 Inside repeater admin, **tapping the top of the screen goes back one level** rather than leaving, so your admin session and password survive: a response or error page returns to the command menu, the command menu returns to the category menu, parameter entry and confirmation return to the command menu, and a command still in flight is cancelled. The top-level category menu and the password prompt have nowhere further back, so a tap there returns you to the home UI. The footers tell you what a tap will do on each page -- `Tap top: Cancel`, `Tap top: No` with `Long Press: Yes`, or `Tap top: Back` with `Swipe:Scrll`.
 
@@ -410,13 +432,17 @@ Open **Settings** from its home tile. The watch settings screen exposes:
 - **Node name**
 - **Radio preset**, and the individual radio parameters — **frequency, bandwidth, spreading factor, coding rate, TX power**
 - **UTC offset** (see [Clock & Timezone](#clock--timezone))
+- **Canned Messages** submenu -- five reusable message slots (see [Canned Messages](#canned-messages))
 - **GPS baud** (S3 Plus only)
 - **Path hash size** (see [Path Hash Mode](#path-hash-mode))
 - **Default region scope** (see [Region Scope](#region-scope))
+- **Position sharing** -- Off / Manual / Auto-GPS; latitude and longitude rows appear once a position is being shared, editable in Manual and owned by the GPS in Auto
+- **Contacts** submenu -- the auto-add mode (Auto All / Custom / Manual) and its per-type toggles
 - **Channels** submenu — add, edit, and manage channels including private ones (see [Channels](#channels-public-private--sharing))
 - **Rx Log** — the packet sniffer (see [Rx Log](#rx-log))
 - **WiFi** — network setup and a radio on/off toggle (WiFi builds only, see [WiFi Companion](#wifi-companion))
 - **Experimental Features** submenu — the RX duty cycle battery saver (see [Experimental: RX Duty Cycle](#experimental-rx-duty-cycle))
+- **Device Info** -- Node ID, firmware version and, from v1.4, the MCU temperature (the ESP32-S3 die temperature, read-only; the same value the watch reports in its telemetry to the companion app)
 
 ### Navigating the settings list
 
@@ -668,5 +694,6 @@ This firmware links against third-party libraries with their own license terms; 
 | [RTClib](https://github.com/adafruit/RTClib) | MIT | Adafruit |
 | [Melopero RV3028](https://github.com/melopero/Melopero_RV-3028_Arduino_Library) | MIT | Melopero |
 | [CayenneLPP](https://github.com/ElectronicCats/CayenneLPP) | MIT | Electronic Cats |
+| [Twemoji](https://github.com/jdecked/twemoji) | CC BY 4.0 | Twitter / Twemoji contributors -- emoji glyphs baked into the watch build (`WatchEmojiData.h`) |
 
 Full license texts for each dependency are available in their respective repositories linked above.
