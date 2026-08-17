@@ -3,6 +3,13 @@
 #include <Mesh.h>
 #include <RadioLib.h>
 
+// Deadlines used by CustomSX1262::isReceiving() to expire stuck IRQ flags
+// (upstream MeshCore v1.17.0, PR #2977). Fed from radio_set_params().
+struct PacketMillis {
+  uint32_t preambleMillis;  // preamble-detect -> header-valid deadline
+  uint32_t payloadMillis;   // header-valid   -> rx-done deadline
+};
+
 class RadioLibWrapper : public mesh::Radio {
 protected:
   PhysicalLayer* _radio;
@@ -29,6 +36,7 @@ public:
   virtual void powerOff() { _radio->standby(); _radio->sleep(); }
   int recvRaw(uint8_t* bytes, int sz) override;
   uint32_t getEstAirtimeFor(int len_bytes) override;
+  PacketMillis calcMaxPacketMillis(uint8_t sf, float bw, uint8_t cr, uint8_t preambleSymbols);
   bool startSendRaw(const uint8_t* bytes, int len) override;
   bool isSendComplete() override;
   void onSendFinished() override;

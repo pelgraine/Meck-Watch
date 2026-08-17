@@ -48,6 +48,12 @@ void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr) {
   // at low SF, so more symbols are needed for reliable detection.
   uint16_t preamble = (sf <= 9) ? 32 : 16;
   radio.setPreambleLength(preamble);
+
+  // Stuck-IRQ deadlines for CustomSX1262::isReceiving() (upstream PR #2977):
+  // derived from the params just applied, including our actual preamble length.
+  PacketMillis pm = radio_driver.calcMaxPacketMillis(sf, bw, cr, (uint8_t)preamble);
+  radio.setPreambleMillis(pm.preambleMillis);
+  radio.setMaxPayloadMillis(pm.payloadMillis);
 }
 
 void radio_set_tx_power(uint8_t dbm) {

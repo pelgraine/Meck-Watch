@@ -194,6 +194,9 @@ enum SettingsRowType : uint8_t {
   #endif
   ROW_PUB_KEY,        // Public key display
   ROW_FIRMWARE,       // Firmware version
+#if defined(MECK_TWATCH)
+  ROW_MCU_TEMP,       // MCU (ESP32-S3 die) temperature, read-only (watch)
+#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -565,6 +568,9 @@ private:
       addRow(ROW_INFO_HEADER);
       addRow(ROW_PUB_KEY);
       addRow(ROW_FIRMWARE);
+#if defined(MECK_TWATCH)
+      addRow(ROW_MCU_TEMP);   // read-only; value re-read on each redraw
+#endif
 
     }
 
@@ -2536,6 +2542,15 @@ public:
           display.print(tmp);
           break;
 
+#if defined(MECK_TWATCH)
+        case ROW_MCU_TEMP:
+          // ESP32-S3 on-die sensor via ESP32Board::getMCUTemperature() (whole degrees);
+          // the same value the node reports in its self telemetry (MCU temp, PR #2897).
+          snprintf(tmp, sizeof(tmp), "MCU Temp: %d C", (int)board.getMCUTemperature());
+          display.print(tmp);
+          break;
+#endif
+
       }
 
 #if defined(MECK_TWATCH)
@@ -3975,6 +3990,9 @@ public:
           break;
         case ROW_PUB_KEY:
         case ROW_FIRMWARE:
+#if defined(MECK_TWATCH)
+        case ROW_MCU_TEMP:
+#endif
           // Not directly editable on Enter
           break;
         default:
