@@ -102,7 +102,7 @@ There are eight build environments -- three for the S3, five for the S3 Plus.
 | S3 Standalone | `meck_twatch_s3_standalone` | -- | n/a (no GPS) | 40 MHz | 2,000 |
 | S3 BLE | `meck_twatch_s3_ble` | BLE | n/a (no GPS) | 80 MHz | 2,000 |
 | S3 WiFi | `meck_twatch_s3_wifi` | WiFi | n/a (no GPS) | 80 MHz | 2,000 |
-| S3 Plus Standalone | `meck_twatch_s3_plus_standalone` | -- | Yes | 80 MHz | 2,000 |
+| S3 Plus Standalone | `meck_twatch_s3_plus_standalone` | -- | Yes | 40 MHz | 2,000 |
 | S3 Plus BLE | `meck_twatch_s3_plus_ble` | BLE | Yes | 80 MHz | 2,000 |
 | S3 Plus WiFi | `meck_twatch_s3_plus_wifi` | WiFi | Yes | 80 MHz | 2,000 |
 | S3 Plus Standalone, No Maps | `meck_twatch_s3_plus_standalone_nomaps` | -- | No | 40 MHz | 2,000 |
@@ -112,7 +112,7 @@ There are eight build environments -- three for the S3, five for the S3 Plus.
 
 **No Maps** builds drop the map screen on the S3 Plus in exchange for the best battery life on that watch, and change how the clock face and buttons behave -- see [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds).
 
-All eight builds allocate their 2,000-contact arrays in PSRAM and boot the CPU at 80 MHz (`ESP32_CPU_FREQ=80`). The two standalone builds marked 40 MHz above go further and cap the *running* clock -- both idle and boost -- at 40 MHz. The BLE and WiFi builds are deliberately left at 80 MHz, because WiFi and Bluetooth will not run below it.
+All eight builds allocate their 2,000-contact arrays in PSRAM and boot the CPU at 80 MHz (`ESP32_CPU_FREQ=80`). The three standalone builds marked 40 MHz above go further and cap the *running* clock -- both idle and boost -- at 40 MHz. The BLE and WiFi builds are deliberately left at 80 MHz, because WiFi and Bluetooth will not run below it.
 
 ### Files in each release
 
@@ -137,8 +137,8 @@ Each environment ships two files: a merged image for a first flash, and a plain 
 | `meck_twatch_s3_plus_ble.bin` | BLE companion build with maps, for a watch that already runs Meck. Config is kept. |
 | `meck_twatch_s3_plus_wifi-merged.bin` | WiFi companion build with maps (TCP port 5000), full-flash image. |
 | `meck_twatch_s3_plus_wifi.bin` | WiFi companion build with maps, for a watch that already runs Meck. Config is kept. |
-| `meck_twatch_s3_plus_standalone-merged.bin` | Standalone build with maps, full-flash image. |
-| `meck_twatch_s3_plus_standalone.bin` | Standalone build with maps, for a watch that already runs Meck. Config is kept. |
+| `meck_twatch_s3_plus_standalone-merged.bin` | Standalone build with maps, 40 MHz cap, full-flash image. |
+| `meck_twatch_s3_plus_standalone.bin` | Standalone build with maps, 40 MHz cap, for a watch that already runs Meck. Config is kept. |
 
 **T-Watch S3 Plus -- No Maps**
 
@@ -608,7 +608,7 @@ Charge over USB-C. The AXP2101 PMU manages charging; a moderate charge current i
 Two changes made a large difference to how long the watches last:
 
 - **The display-off throttle.** While the display is off -- which is nearly all the time -- the firmware yields the CPU so the idle task can drop into a low-power wait. This was present but never actually running until v0.9. On the BLE builds it is skipped while Bluetooth is enabled, to keep the connection responsive.
-- **The 40 MHz cap** on `meck_twatch_s3_standalone` and `meck_twatch_s3_plus_standalone_nomaps`, which holds both the idle and boost clocks down instead of only the idle clock.
+- **The 40 MHz cap** on `meck_twatch_s3_standalone` and `meck_twatch_s3_plus_standalone_nomaps` (and, from v1.1, `meck_twatch_s3_plus_standalone`, not yet re-measured), which holds both the idle and boost clocks down instead of only the idle clock.
 
 Measured results:
 
