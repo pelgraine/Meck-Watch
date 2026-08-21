@@ -8,7 +8,7 @@
 #define FIRMWARE_VER_CODE 11
 
 #ifndef FIRMWARE_BUILD_DATE
-#define FIRMWARE_BUILD_DATE "17 August 2026"
+#define FIRMWARE_BUILD_DATE "21 August 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
@@ -391,7 +391,10 @@ private:
     bool isChannelMsg() const;
   };
   int offline_queue_len;
-  Frame offline_queue[OFFLINE_QUEUE_SIZE];
+  // Offline frame queue. Allocated from PSRAM in begin(): the_mesh is a
+  // global, so an inline array here would land in internal .bss (200 KB at
+  // an 800-entry queue).
+  Frame* offline_queue;
 
   struct AckTableEntry {
     unsigned long msg_sent;

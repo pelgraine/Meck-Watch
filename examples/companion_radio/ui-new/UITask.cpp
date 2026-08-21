@@ -2084,6 +2084,20 @@ if (curr) curr->poll();
       }
       setCurrScreen(tw_keyboard);
     }
+    int resendN;
+    if (cs->consumeResendRequest(&resendN)) {
+      // Path-overlay Send Again: retransmit the stored text as a new message
+      // through the same send path as the composer.
+      const char* rtext = cs->resendTextFor(resendN);
+      ChannelDetails ch;
+      if (rtext && rtext[0] && the_mesh.getChannel(cs->getChannelIdx(), ch)) {
+        uint32_t ts = rtc_clock.getCurrentTime();
+        the_mesh.sendGroupMessage(ts, ch.channel, the_mesh.getNodeName(),
+                                  rtext, strlen(rtext));
+        showAlert("Sent again", 800);
+        addSentChannelMessage(cs->getChannelIdx(), the_mesh.getNodePrefs()->node_name, rtext);
+      }
+    }
     if (cs->wantsExit()) {
       cs->acknowledgeExit();
       gotoHomeScreen();
@@ -2173,6 +2187,14 @@ if (curr) curr->poll();
         if (settings_screen) setCurrScreen(settings_screen);
         else gotoHomeScreen();
         if (!applied) showAlert("Not applied", 1200);
+        else {
+          // Typed value was adjusted (clamped/snapped) by the commit path --
+          // tell the user what was actually stored.
+          char clampMsg[28];
+          if (ss && ss->consumeClampAlert(clampMsg, sizeof(clampMsg))) {
+            showAlert(clampMsg, 1200);
+          }
+        }
 #ifdef MECK_WIFI_COMPANION
       } else if (purpose == TWatchKeyboardScreen::TWKB_WIFI_PASSWORD) {
         SettingsScreen* ss = (SettingsScreen*)settings_screen;

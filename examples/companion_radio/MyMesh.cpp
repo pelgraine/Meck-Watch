@@ -1,5 +1,12 @@
 #include "MyMesh.h"
 
+// Upper bound for the configurable LoRa bandwidth (kHz). 500 for the sub-GHz
+// SX126x builds; the 2.4 GHz SX1280 build overrides this (1625) so the wide
+// bandwidths pass validation. Same pattern as GrayHatGuy/MeshCore.
+#ifndef LORA_MAX_BW
+#define LORA_MAX_BW 500.0f
+#endif
+
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 #include "RadioPresets.h"        // Shared radio presets (serial CLI + settings screen)
@@ -1664,6 +1671,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
 void MyMesh::begin(bool has_display) {
   advert_paths = (AdvertPath*)ps_calloc(ADVERT_PATH_TABLE_SIZE, sizeof(AdvertPath));
   _rxlog = (RxLogEntry*)ps_calloc(RXLOG_SIZE, sizeof(RxLogEntry));
+  offline_queue = (Frame*)ps_calloc(OFFLINE_QUEUE_SIZE, sizeof(Frame));
   BaseChatMesh::begin();
 
   if (!_store->loadMainIdentity(self_id)) {
@@ -1695,7 +1703,7 @@ void MyMesh::begin(bool has_display) {
   _prefs.rx_delay_base = constrain(_prefs.rx_delay_base, 0, 20.0f);
   _prefs.airtime_factor = constrain(_prefs.airtime_factor, 0, 9.0f);
   _prefs.freq = constrain(_prefs.freq, 400.0f, 2500.0f);
-  _prefs.bw = constrain(_prefs.bw, 7.8f, 500.0f);
+  _prefs.bw = constrain(_prefs.bw, 7.8f, LORA_MAX_BW);
   _prefs.sf = constrain(_prefs.sf, 5, 12);
   _prefs.cr = constrain(_prefs.cr, 5, 8);
   _prefs.tx_power_dbm = constrain(_prefs.tx_power_dbm, 1, MAX_LORA_TX_POWER);
@@ -2139,8 +2147,15 @@ void MyMesh::handleCmdFrame(size_t len) {
     uint8_t sf = cmd_frame[i++];
     uint8_t cr = cmd_frame[i++];
 
+#if defined(MECK_TWATCH_1280)
+    // SX1280 floors: the chip only tunes 2400-2500 MHz and 203.125+ kHz, so
+    // reject sub-GHz values here rather than storing prefs the radio refuses.
+    if (freq >= 2400000 && freq <= 2500000 && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 203125 &&
+        bw <= (uint32_t)(LORA_MAX_BW * 1000)) {
+#else
     if (freq >= 300000 && freq <= 2500000 && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7000 &&
-        bw <= 500000) {
+        bw <= (uint32_t)(LORA_MAX_BW * 1000)) {
+#endif
       _prefs.sf = sf;
       _prefs.cr = cr;
       _prefs.freq = (float)freq / 1000.0;
@@ -3004,24 +3019,40 @@ void MyMesh::checkCLIRescueCmd() {
 
       } else if (memcmp(config, "freq ", 5) == 0) {
         float f = atof(&config[5]);
+#if defined(MECK_TWATCH_1280)
+        if (f >= 2400.0f && f <= 2500.0f) {
+#else
         if (f >= 400.0f && f <= 928.0f) {
+#endif
           _prefs.freq = f;
           savePrefs();
           radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
           Serial.printf("  > freq = %.3f (applied)\n", _prefs.freq);
         } else {
+#if defined(MECK_TWATCH_1280)
+          Serial.println("  Error: freq out of range (2400-2500)");
+#else
           Serial.println("  Error: freq out of range (400-928)");
+#endif
         }
 
       } else if (memcmp(config, "bw ", 3) == 0) {
         float bw = atof(&config[3]);
-        if (bw >= 7.8f && bw <= 500.0f) {
+#if defined(MECK_TWATCH_1280)
+        if (bw >= 203.125f && bw <= LORA_MAX_BW) {
+#else
+        if (bw >= 7.8f && bw <= LORA_MAX_BW) {
+#endif
           _prefs.bw = bw;
           savePrefs();
           radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
           Serial.printf("  > bw = %.1f (applied)\n", _prefs.bw);
         } else {
-          Serial.println("  Error: bw out of range (7.8-500)");
+#if defined(MECK_TWATCH_1280)
+          Serial.println("  Error: bw out of range (203.125-1625)");
+#else
+          Serial.printf("  Error: bw out of range (7.8-%.0f)\n", (float)LORA_MAX_BW);
+#endif
         }
 
       } else if (memcmp(config, "sf ", 3) == 0) {

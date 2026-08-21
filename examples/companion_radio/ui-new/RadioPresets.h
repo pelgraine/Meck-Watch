@@ -13,6 +13,17 @@ struct RadioPreset {
   uint8_t tx_power;
 };
 
+#if defined(MECK_TWATCH_1280)
+// 2.4 GHz (SX1280) presets. Sydney first -- it matches this build's boot
+// defaults, so the onboarding wizard pre-selects it. The 2450 rows are the
+// defaults used by GrayHatGuy/MeshCore's 2.4 GHz variants. 13 dBm is the
+// SX1280 driver ceiling (RadioLib checkOutputPower: -18..+13).
+static const RadioPreset RADIO_PRESETS[] = {
+  { "Sydney 2.4G (2400.5)",   2400.500f, 406.25f, 11, 5, 13 },
+  { "2.4 GHz (2450)",         2450.000f, 812.5f,  10, 5, 13 },
+  { "2.4 GHz Narrow (2450)",  2450.000f, 406.25f, 10, 5, 13 },
+};
+#else
 static const RadioPreset RADIO_PRESETS[] = {
   { "Australia",              915.800f, 250.0f,  10, 5, 22 },
   { "Australia (Mid)",        915.075f,  125.0f,  9, 5, 22 },
@@ -32,4 +43,5 @@ static const RadioPreset RADIO_PRESETS[] = {
   { "USA/Canada (Recommended)",910.525f, 62.5f,   7, 5, 22 },
   { "Vietnam",                920.250f, 250.0f,  11, 5, 22 },
 };
+#endif
 #define NUM_RADIO_PRESETS (sizeof(RADIO_PRESETS) / sizeof(RADIO_PRESETS[0]))

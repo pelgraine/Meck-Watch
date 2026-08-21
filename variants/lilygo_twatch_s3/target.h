@@ -6,7 +6,11 @@
 #define RADIOLIB_STATIC_ONLY 1
 #include <RadioLib.h>
 #include <helpers/radiolib/RadioLibWrappers.h>
-#include <helpers/radiolib/CustomSX1262Wrapper.h>
+#if defined(MECK_TWATCH_1280)
+  #include <helpers/radiolib/CustomSX1280Wrapper.h>
+#else
+  #include <helpers/radiolib/CustomSX1262Wrapper.h>
+#endif
 #include <TWatchS3Board.h>
 #include <helpers/AutoDiscoverRTCClock.h>
 #include <helpers/SensorManager.h>

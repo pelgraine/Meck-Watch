@@ -245,6 +245,7 @@ class TWatchChannelScreen : public UIScreen {
   bool          _showPath;        // hop-path overlay visible
   int           _pathMsgN;        // recency index the overlay describes
   char          _replyPrefill[40] = "";  // "@[sender] " armed by the overlay's Reply button
+  int           _resendN = -1;           // recency index armed by the overlay's Send Again button
 
   static const int HEADER_H      = 14;
   static const int COMPOSE_BAR_H = 18;
@@ -354,8 +355,9 @@ class TWatchChannelScreen : public UIScreen {
   // SNR we heard each at) into the already-drawn overlay box. Data comes from
   // MyMesh::getHeardBy, keyed by the fingerprint stashed in the sent bubble's
   // path[]. Same blue box as the hop-path overlay.
-  void drawHeardBy(LGFXDisplay* d, const ChannelScreen::ChannelMessage* m,
-                   int bx, int by, int bh) {
+  // Returns the distinct-repeater echo count (0 when nothing has been heard).
+  uint8_t drawHeardBy(LGFXDisplay* d, const ChannelScreen::ChannelMessage* m,
+                      int bx, int by, int bh) {
     uint8_t bph = 0, count = 0;
     uint8_t hashes[16];
     int8_t  snrs[8];
@@ -370,7 +372,7 @@ class TWatchChannelScreen : public UIScreen {
     if (count == 0 || bph == 0) {
       d->setRawColor(0xFFFF);
       d->setCursor(bx + 5, by + 19); d->print("No repeater echoes yet");
-      return;
+      return 0;
     }
 
     const int maxLines = 5;                       // 5 repeaters, then a "+N more" 6th line
@@ -396,6 +398,7 @@ class TWatchChannelScreen : public UIScreen {
       snprintf(more, sizeof(more), "+%d more", count - shown);
       d->setCursor(bx + 5, y); d->print(more);
     }
+    return count;
   }
 
   // Hop-path overlay for the message at recency _pathMsgN. Drawn last so it
@@ -416,7 +419,14 @@ class TWatchChannelScreen : public UIScreen {
     // Sent message with a captured fingerprint: show which repeaters echoed it
     // ("Heard by") instead of a hop path, which a sent bubble doesn't have.
     if (m->path_len == 0 && m->has_fp) {
-      drawHeardBy(d, m, bx, by, bh);
+      uint8_t hb = drawHeardBy(d, m, bx, by, bh);
+      if (hb == 0) {
+        // No repeater has echoed this send: offer a retransmit. Same corner
+        // and style as the Reply button on received messages; hit-test in
+        // poll().
+        d->setRawColor(0x231D);
+        d->drawTextRightAlign(bx + bw - 4, by + bh - 10, "[Send Again]");
+      }
       return;
     }
 
@@ -529,6 +539,23 @@ public:
   void acknowledgeCompose() { _wantsCompose = false; }
   const char* replyPrefill() const { return _replyPrefill; }
   void clearReplyPrefill() { _replyPrefill[0] = 0; }
+
+  // Path-overlay Send Again: armed by poll() when the button is tapped on a
+  // sent bubble with no repeater echoes; consumed by UITask, which resends
+  // through the same path as the composer.
+  bool consumeResendRequest(int* n) {
+    if (_resendN < 0) return false;
+    *n = _resendN; _resendN = -1;
+    return true;
+  }
+  // Text of the sent message at recency n with the "NodeName: " echo prefix
+  // stripped -- what sendGroupMessage takes. NULL if the row is not our send.
+  const char* resendTextFor(int n) {
+    const ChannelScreen::ChannelMessage* m =
+        _store ? _store->getChannelMsgByRecency(_channelIdx, n) : nullptr;
+    if (!m || !isSent(m)) return nullptr;
+    return m->text + strlen(_selfPrefix);
+  }
   bool wantsExit() const { return _wantsExit; }
   void acknowledgeExit() { _wantsExit = false; }
 
@@ -570,6 +597,16 @@ public:
           _showPath = false;
           _wantsCompose = true;
           return;
+        }
+        // Send Again hit-test: same corner rect, but on a sent bubble whose
+        // fingerprint has no repeater echoes yet.
+        if (pm && pm->path_len == 0 && pm->has_fp &&
+            _downX >= _display->width() - 56 && _downY >= 18 + 76 - 16) {
+          uint8_t bph = 0, cnt = 0;
+          uint8_t hs[16];
+          int8_t sn[8];
+          the_mesh.getHeardBy(pm->path, 12, bph, cnt, hs, sn, 8);
+          if (cnt == 0) { _resendN = _pathMsgN; _showPath = false; return; }
         }
         _showPath = false; return;   // any tap dismisses the path overlay
       }

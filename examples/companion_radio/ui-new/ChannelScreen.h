@@ -100,7 +100,10 @@ private:
   UITask* _task;
   mesh::RTCClock* _rtc;
   
-  ChannelMessage _messages[CHANNEL_MSG_HISTORY_SIZE];
+  // History ring. Allocated from PSRAM in the constructor (the screen is
+  // new'd at runtime, after PSRAM is up) -- at 800 entries the ring is
+  // ~164 KB, far too big for internal SRAM as an inline array.
+  ChannelMessage* _messages;
   int _msgCount;      // Total messages stored
   int _newestIdx;     // Index of newest message (circular buffer)
   int _scrollPos;     // Current scroll position (0 = newest)
@@ -156,6 +159,8 @@ public:
       _replySelectMode(false), _replySelectPos(-1), _replyChannelMsgCount(0),
       _dmInboxMode(true), _dmInboxScroll(0), _dmContactIdx(-1), _dmContactPerms(0), _dmUnreadPtr(nullptr) {
     _dmFilterName[0] = '\0';
+    // PSRAM ring (same pattern as MyMesh's advert_paths / _rxlog tables)
+    _messages = (ChannelMessage*)ps_calloc(CHANNEL_MSG_HISTORY_SIZE, sizeof(ChannelMessage));
     // Initialize all messages as invalid
     for (int i = 0; i < CHANNEL_MSG_HISTORY_SIZE; i++) {
       _messages[i].valid = false;

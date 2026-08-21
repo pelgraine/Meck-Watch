@@ -561,7 +561,9 @@ private:
 
 #if defined(MECK_TWATCH)
       // Experimental Features (watch) -- placed above the Info section
-      addRow(ROW_EXPERIMENTAL_SUBMENU);
+#if defined(MECK_RX_DUTY_CYCLE)
+      addRow(ROW_EXPERIMENTAL_SUBMENU);   // RX duty cycle: SX126x builds only
+#endif
 #endif
 
       // Info section (stays at top level)
@@ -1145,6 +1147,25 @@ public:
     submitEditText(text ? text : "");
     return true;
   }
+
+  // Typed-entry clamp/snap toast: queued by the ROW_FREQ / ROW_TX_POWER /
+  // ROW_BW commit paths below when a typed value had to be adjusted, and
+  // consumed by UITask straight after applyComposedField() so the toast
+  // shows over the settings screen. Mirrors the canned-messages alert flag.
+  bool consumeClampAlert(char* out, size_t out_sz) {
+    if (_pendingClampAlert[0] == 0) return false;
+    strncpy(out, _pendingClampAlert, out_sz - 1);
+    out[out_sz - 1] = '\0';
+    _pendingClampAlert[0] = 0;
+    return true;
+  }
+private:
+  char _pendingClampAlert[28] = "";
+  void queueClampAlert(const char* msg) {
+    strncpy(_pendingClampAlert, msg, sizeof(_pendingClampAlert) - 1);
+    _pendingClampAlert[sizeof(_pendingClampAlert) - 1] = '\0';
+  }
+public:
 #endif
   const char* getEditBuf() const { return _editBuf; }
   SettingsRowType getCurrentRowType() const { return _rows[_cursor].type; }
@@ -3283,7 +3304,19 @@ public:
         } else if (type == ROW_FREQ) {
           if (_editPos > 0) {
             float f = strtof(_editBuf, nullptr);
+            float f_typed = f;
+#if defined(MECK_TWATCH_1280)
+            f = constrain(f, 2400.0f, 2500.0f);   // SX1280 tuning range
+#else
             f = constrain(f, 400.0f, 2500.0f);
+#endif
+#if defined(MECK_TWATCH)
+            if (f != f_typed) {
+              char m[28];
+              snprintf(m, sizeof(m), "Freq clamped to %.1f", f);
+              queueClampAlert(m);
+            }
+#endif
             _prefs->freq = f;
             _radioChanged = true;
             Serial.printf("Settings: Freq typed to %.3f\n", f);
@@ -3292,7 +3325,15 @@ public:
         } else if (type == ROW_TX_POWER) {
           if (_editPos > 0) {
             int p = atoi(_editBuf);
-            p = constrain(p, 1, 30);
+            int p_typed = p;
+            p = constrain(p, 1, MAX_LORA_TX_POWER);
+#if defined(MECK_TWATCH)
+            if (p != p_typed) {
+              char m[28];
+              snprintf(m, sizeof(m), "TX clamped to %d dBm", p);
+              queueClampAlert(m);
+            }
+#endif
             _prefs->tx_power_dbm = (uint8_t)p;
             _radioChanged = true;
             Serial.printf("Settings: TX power typed to %d\n", p);
@@ -3301,14 +3342,26 @@ public:
         } else if (type == ROW_BW) {
           if (_editPos > 0) {
             // Snap the typed value to the nearest valid bandwidth -- the same
-            // discrete set the W/S cycle uses (31.25/62.5/125/250/500 kHz).
+            // discrete set the W/S cycle uses.
+#if defined(MECK_TWATCH_1280)
+            // SX1280 (2.4 GHz) LoRa bandwidths (RadioLib accepts 203.125-1625).
+            static const float BW_STEPS[] = { 203.125f, 406.25f, 812.5f, 1625.0f };
+#else
             static const float BW_STEPS[] = { 31.25f, 62.5f, 125.0f, 250.0f, 500.0f };
+#endif
             float typed = atof(_editBuf);
             float best = BW_STEPS[0];
             for (unsigned i = 1; i < sizeof(BW_STEPS) / sizeof(BW_STEPS[0]); i++) {
               if (fabsf(typed - BW_STEPS[i]) < fabsf(typed - best)) best = BW_STEPS[i];
             }
             _prefs->bw = best;
+#if defined(MECK_TWATCH)
+            if (fabsf(typed - best) > 0.01f) {
+              char m[28];
+              snprintf(m, sizeof(m), "BW snapped to %.3f", best);
+              queueClampAlert(m);
+            }
+#endif
             _radioChanged = true;
             Serial.printf("Settings: BW typed, snapped to %.2f\n", best);
           }
@@ -3511,11 +3564,18 @@ public:
         switch (type) {
           case ROW_BW:
             // Cycle through common bandwidths
+#if defined(MECK_TWATCH_1280)
+            if (_editFloat < 203.125f) _editFloat = 203.125f;
+            else if (_editFloat < 406.25f) _editFloat = 406.25f;
+            else if (_editFloat < 812.5f) _editFloat = 812.5f;
+            else _editFloat = 1625.0f;
+#else
             if (_editFloat < 31.25f) _editFloat = 31.25f;
             else if (_editFloat < 62.5f) _editFloat = 62.5f;
             else if (_editFloat < 125.0f) _editFloat = 125.0f;
             else if (_editFloat < 250.0f) _editFloat = 250.0f;
             else _editFloat = 500.0f;
+#endif
             break;
           case ROW_SF:      if (_editInt < 12) _editInt++; break;
           case ROW_CR:      if (_editInt < 8)  _editInt++; break;
@@ -3531,10 +3591,17 @@ public:
       if (c == 's' || c == 'S') {
         switch (type) {
           case ROW_BW:
+#if defined(MECK_TWATCH_1280)
+            if (_editFloat > 812.5f) _editFloat = 812.5f;
+            else if (_editFloat > 406.25f) _editFloat = 406.25f;
+            else if (_editFloat > 203.125f) _editFloat = 203.125f;
+            else _editFloat = 203.125f;
+#else
             if (_editFloat > 250.0f) _editFloat = 250.0f;
             else if (_editFloat > 125.0f) _editFloat = 125.0f;
             else if (_editFloat > 62.5f) _editFloat = 62.5f;
             else _editFloat = 31.25f;
+#endif
             break;
           case ROW_SF:      if (_editInt > 5)  _editInt--; break;
           case ROW_CR:      if (_editInt > 5)  _editInt--; break;
