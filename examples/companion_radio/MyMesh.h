@@ -8,11 +8,11 @@
 #define FIRMWARE_VER_CODE 11
 
 #ifndef FIRMWARE_BUILD_DATE
-#define FIRMWARE_BUILD_DATE "21 August 2026"
+#define FIRMWARE_BUILD_DATE "16 August 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "Meck v1.4"
+#define FIRMWARE_VERSION "Meck v1.3"
 #endif
 
 #if   defined(ESP32)
@@ -132,6 +132,10 @@ public:
 
   const char *getNodeName();
   NodePrefs *getNodePrefs();
+  // Client repeat mode (upstream MeshCore): frequency whitelist (f in kHz),
+  // and the mesh-core hook that makes a companion forward flood packets.
+  bool isValidClientRepeatFreq(uint32_t f) const;
+  bool allowPacketForward(const mesh::Packet* packet) override;
   uint32_t getBLEPin();
 
   // RX packet counter for the radio details page. Returns the number of packets

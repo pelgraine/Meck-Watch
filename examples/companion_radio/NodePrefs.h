@@ -181,6 +181,20 @@ private:
   };
   GPSPrefs gps;
 
+  class RepeatPrefs : public ConfigSerializer {  // COPIED from CommonCLI (for now)
+  public:
+    uint8_t disable_fwd = 1;
+  protected:
+    void structure() override {
+      def("disable", disable_fwd);
+      //def("f_max", flood_max);
+      //def("f_max_uns", flood_max_unscoped);
+      //def("f_max_adv", flood_max_advert);
+      //def("loop", loop_detect);
+    }
+  };
+  RepeatPrefs repeat;
+
   class CompanionPrefs : public ConfigSerializer {
     NodePrefs* _parent;
   protected:
@@ -259,6 +273,7 @@ protected:
     def("lon", node_lon);
     def("radio", radio);
     def("gps", gps);
+    def("repeat", repeat);
     def("comp", companion);
     def("meck", meck);
     def("canned", canned);
@@ -272,6 +287,12 @@ public:
     memset(channel_notif, 0, sizeof(channel_notif));
     memset(canned_msgs, 0, sizeof(canned_msgs));
   }
+
+  // Client repeat mode (companion flood forwarding), upstream MeshCore.
+  // Stored inverted as repeat.disable_fwd, same as upstream, so a prefs.json
+  // is readable by either firmware.
+  bool isRepeatEn() const { return repeat.disable_fwd == 0; }
+  void setRepeatEn(bool en) { repeat.disable_fwd = en ? 0 : 1; }
 
   // --- Font helpers (inline, no overhead) ---
   // Returns the DisplayDriver text-size index for "small/body" text.

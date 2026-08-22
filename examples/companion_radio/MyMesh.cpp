@@ -67,6 +67,7 @@
 #define CMD_SET_FLOOD_SCOPE_KEY       54   // v8+ (per-channel scope key from BLE app)
 #define CMD_SEND_CONTROL_DATA         55   // v8+
 #define CMD_GET_STATS                 56   // v8+, second byte is stats type
+#define CMD_GET_ALLOWED_REPEAT_FREQ   60   // v9+, client repeat frequency whitelist
 
 // Control data sub-types for active node discovery
 #define CTL_TYPE_NODE_DISCOVER_REQ    0x80
@@ -1778,6 +1779,38 @@ uint32_t MyMesh::getBLEPin() {
   return _active_ble_pin;
 }
 
+// ---- Client repeat mode (upstream MeshCore) ----
+// Frequencies (kHz ranges) on which a companion is allowed to enable flood
+// forwarding. Same defaults as upstream, plus the 2.4 GHz ISM band row from
+// GrayHatGuy/MeshCore (only reachable by the SX1280 build, which is the only
+// radio here that can tune it).
+struct FreqRange {
+  uint32_t lower_freq, upper_freq;
+};
+
+static FreqRange repeat_freq_ranges[] = {
+  #ifdef ALLOWED_REPEAT_FREQ_RANGE
+  ALLOWED_REPEAT_FREQ_RANGE
+  #else
+  { 433000, 433000 },
+  { 869495, 869495 },
+  { 918000, 918000 },
+  { 2400000, 2500000 }   // 2.4 GHz ISM band (SX1280 / LR1121) -- allow client-repeat at e.g. 2450
+  #endif
+};
+
+bool MyMesh::isValidClientRepeatFreq(uint32_t f) const {
+  for (int i = 0; i < sizeof(repeat_freq_ranges)/sizeof(repeat_freq_ranges[0]); i++) {
+    auto r = &repeat_freq_ranges[i];
+    if (f >= r->lower_freq && f <= r->upper_freq) return true;
+  }
+  return false;
+}
+
+bool MyMesh::allowPacketForward(const mesh::Packet* packet) {
+  return _prefs.isRepeatEn();
+}
+
 void MyMesh::startInterface(BaseSerialInterface &serial) {
   _serial = &serial;
 #if defined(ESP32) && defined(BLE_PIN_CODE) && !defined(WIFI_SSID) && !defined(MECK_WIFI_COMPANION)
@@ -1810,6 +1843,8 @@ void MyMesh::handleCmdFrame(size_t len) {
     i += 40;
     StrHelper::strzcpy((char *)&out_frame[i], FIRMWARE_VERSION, 20);
     i += 20;
+    out_frame[i++] = _prefs.isRepeatEn() ? 1 : 0;   // v9+
+    out_frame[i++] = _prefs.path_hash_mode;  // v10+
     _serial->writeFrame(out_frame, i);
   } else if (cmd_frame[0] == CMD_APP_START &&
              len >= 8) { // sent when app establishes connection, respond with node ID
@@ -2146,7 +2181,14 @@ void MyMesh::handleCmdFrame(size_t len) {
     i += 4;
     uint8_t sf = cmd_frame[i++];
     uint8_t cr = cmd_frame[i++];
+    uint8_t repeat = 0;  // default - false
+    if (len > i) {
+      repeat = cmd_frame[i++];   // FIRMWARE_VER_CODE 9+ (client repeat toggle)
+    }
 
+    if (repeat && !isValidClientRepeatFreq(freq)) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else
 #if defined(MECK_TWATCH_1280)
     // SX1280 floors: the chip only tunes 2400-2500 MHz and 203.125+ kHz, so
     // reject sub-GHz values here rather than storing prefs the radio refuses.
@@ -2160,6 +2202,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       _prefs.cr = cr;
       _prefs.freq = (float)freq / 1000.0;
       _prefs.bw = (float)bw / 1000.0;
+      _prefs.setRepeatEn(repeat != 0);
       savePrefs();
 
       radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
@@ -2172,6 +2215,15 @@ void MyMesh::handleCmdFrame(size_t len) {
                          (uint32_t)cr);
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
+  } else if (cmd_frame[0] == CMD_GET_ALLOWED_REPEAT_FREQ) {
+    int i = 0;
+    out_frame[i++] = RESP_ALLOWED_REPEAT_FREQ;
+    for (int k = 0; k < sizeof(repeat_freq_ranges)/sizeof(repeat_freq_ranges[0]) && i + 8 < sizeof(out_frame); k++) {
+      auto r = &repeat_freq_ranges[k];
+      memcpy(&out_frame[i], &r->lower_freq, 4); i += 4;
+      memcpy(&out_frame[i], &r->upper_freq, 4); i += 4;
+    }
+    _serial->writeFrame(out_frame, i);
   } else if (cmd_frame[0] == CMD_SET_RADIO_TX_POWER) {
     if (cmd_frame[1] > MAX_LORA_TX_POWER) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);

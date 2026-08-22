@@ -183,6 +183,7 @@ enum SettingsRowType : uint8_t {
   ROW_RX_DUTY_CYCLE,        // Toggle: MCU-driven RX duty cycle (watch)
   ROW_RX_DUTY_LEVEL,        // Cycle: nap depth Light/Medium/Aggressive (watch)
   ROW_RX_DUTY_UNAVAIL,      // Note shown when SF > 9 (feature not applicable)
+  ROW_CLIENT_REPEAT,        // Companion client-repeat (flood forwarding) toggle
   ROW_CANNED_SUBMENU,       // Folder row: enters Canned Messages sub-screen (watch)
   ROW_CANNED_SLOT,          // A canned message slot; param = slot index 0..4 (watch)
 #endif
@@ -470,14 +471,20 @@ private:
 #if defined(MECK_TWATCH)
     } else if (_subScreen == SUB_EXPERIMENTAL) {
       // --- Experimental Features sub-screen (watch) ---
+#if defined(MECK_RX_DUTY_CYCLE)
       // RX duty cycle only helps at SF9 and below (higher SF/longer symbols
-      // gain nothing worth the wake cost); hide it entirely otherwise.
+      // gain nothing worth the wake cost); hide it entirely otherwise. Only
+      // offered on builds whose radio has the SX126x hardware duty cycle.
       if (_prefs->sf <= 9) {
         addRow(ROW_RX_DUTY_CYCLE);
         addRow(ROW_RX_DUTY_LEVEL);
       } else {
         addRow(ROW_RX_DUTY_UNAVAIL);   // note: only available at SF9 and below
       }
+#endif
+      // Companion client-repeat (upstream MeshCore): forward flood packets
+      // like a repeater. Only togglable on a whitelisted frequency.
+      addRow(ROW_CLIENT_REPEAT);
     } else if (_subScreen == SUB_CANNED) {
       // --- Canned Messages sub-screen (watch): five editable slots ---
       for (uint8_t i = 0; i < CANNED_MSG_SLOTS; i++) {
@@ -561,9 +568,7 @@ private:
 
 #if defined(MECK_TWATCH)
       // Experimental Features (watch) -- placed above the Info section
-#if defined(MECK_RX_DUTY_CYCLE)
-      addRow(ROW_EXPERIMENTAL_SUBMENU);   // RX duty cycle: SX126x builds only
-#endif
+      addRow(ROW_EXPERIMENTAL_SUBMENU);
 #endif
 
       // Info section (stays at top level)
@@ -2563,6 +2568,15 @@ public:
           display.print(tmp);
           break;
 
+        case ROW_CLIENT_REPEAT:
+          if (the_mesh.isValidClientRepeatFreq((uint32_t)(_prefs->freq * 1000.0f + 0.5f))) {
+            snprintf(tmp, sizeof(tmp), "Client Repeat: %s", _prefs->isRepeatEn() ? "On" : "Off");
+          } else {
+            snprintf(tmp, sizeof(tmp), "Client Repeat: n/a (freq)");
+          }
+          display.print(tmp);
+          break;
+
 #if defined(MECK_TWATCH)
         case ROW_MCU_TEMP:
           // ESP32-S3 on-die sensor via ESP32Board::getMCUTemperature() (whole degrees);
@@ -4055,6 +4069,15 @@ public:
           startEditText(_prefs->default_scope_name);
 #endif
           break;
+        case ROW_CLIENT_REPEAT:
+          // Toggle only on a whitelisted frequency (same rule the app is held
+          // to); on other frequencies the row reads "n/a" and does nothing.
+          if (the_mesh.isValidClientRepeatFreq((uint32_t)(_prefs->freq * 1000.0f + 0.5f))) {
+            _prefs->setRepeatEn(!_prefs->isRepeatEn());
+            the_mesh.savePrefs();
+          }
+          break;
+
         case ROW_PUB_KEY:
         case ROW_FIRMWARE:
 #if defined(MECK_TWATCH)
