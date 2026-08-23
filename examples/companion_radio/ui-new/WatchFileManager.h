@@ -11,10 +11,12 @@
 // single app slot (see meck_twatch_16mb.csv).
 //
 // Toggled from Settings -> File Manager; pumped from main.cpp loop().
+// Auto-stops after five minutes with no phone connected to the hotspot.
 
 #if defined(MECK_TWATCH)
 
 bool        wfmActive();
+bool        wfmTakeIdleStopped();  // true once, right after an idle-timeout auto-stop
 const char* wfmSSID();     // AP name, valid while active
 void        wfmStart();
 void        wfmStop();

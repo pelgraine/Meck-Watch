@@ -34,13 +34,27 @@
 //     share an SPI bus there; the watch radio has its own bus).
 // ---------------------------------------------------------------------------
 
+// Idle timeout: while no phone is associated with the hotspot, count down;
+// any connected station resets the clock. A quiet five minutes means the
+// user has walked away -- shut the AP down and return to the idle CPU speed
+// rather than burning the battery at 240 MHz indefinitely.
+#define WFM_IDLE_TIMEOUT_MS (5UL * 60UL * 1000UL)
+
 static WebServer* _wfm_srv = nullptr;
 static DNSServer* _wfm_dns = nullptr;
 static bool       _wfm_active = false;
 static char       _wfm_ssid[24] = "";
+static unsigned long _wfm_last_activity = 0;
+static bool       _wfm_idle_stopped = false;
 static File       _wfm_upload;
 
 bool wfmActive() { return _wfm_active; }
+
+bool wfmTakeIdleStopped() {
+  bool v = _wfm_idle_stopped;
+  _wfm_idle_stopped = false;
+  return v;
+}
 const char* wfmSSID() { return _wfm_ssid; }
 
 // --- Virtual path space: "/" is the drive list; "/maps/..." -> LittleFS,
@@ -450,6 +464,7 @@ void wfmStart() {
 
   _wfm_srv->begin();
   _wfm_active = true;
+  _wfm_last_activity = millis();
   Serial.println("FM: Web server started on port 80");
 }
 
@@ -466,6 +481,14 @@ void wfmStop() {
 
 void wfmLoop() {
   if (!_wfm_active) return;
+  if (WiFi.softAPgetStationNum() > 0) {
+    _wfm_last_activity = millis();      // a phone is connected: never time out
+  } else if (millis() - _wfm_last_activity >= WFM_IDLE_TIMEOUT_MS) {
+    Serial.println("FM: idle timeout, stopping");
+    wfmStop();
+    _wfm_idle_stopped = true;           // main.cpp shows the toast
+    return;
+  }
   // The lock screen / boost-expiry paths can drop the clock under WiFi's
   // floor; re-assert before serving.
   if (getCpuFrequencyMhz() < 80) setCpuFrequencyMhz(240);

@@ -14,6 +14,17 @@
 #include "target.h"    // For sensors, board, etc.
 #include "CPUPowerManager.h"
 
+// The ESP32 WiFi driver requires a CPU clock of 80 MHz or more. While the
+// File Manager access point is up, every path that could set a lower clock
+// (idle return, lock-screen low power, the 40 MHz standalone boost) must
+// stand down, or the AP drops clients within seconds. wfmStop() restores
+// the normal idle clock when the manager is switched off.
+#if defined(MECK_TWATCH)
+  #define MECK_CPU_CLAMP_OK (!wfmActive())
+#else
+  #define MECK_CPU_CLAMP_OK true
+#endif
+
 // T-Deck Pro Keyboard support
 
 // =============================================================================
@@ -1265,9 +1276,6 @@ void setup() {
   }
   MESH_DEBUG_PRINTLN("setup() - radio_init() done");
 
-  // CPU frequency scaling -- drop to 80 MHz for idle mesh listening
-  cpuPower.begin();
-
   MESH_DEBUG_PRINTLN("setup() - about to call fast_rng.begin()");
   fast_rng.begin(radio_get_rng_seed());
   MESH_DEBUG_PRINTLN("setup() - fast_rng.begin() done");
@@ -1327,6 +1335,14 @@ void setup() {
     Serial.println("maps: LittleFS mount FAILED");
   }
 #endif
+
+  // CPU frequency scaling -- drop to the idle clock for mesh listening.
+  // Deliberately AFTER the filesystem init above: on the standalone builds
+  // the idle cap is 40 MHz (20 on the 20 MHz env), and a first-boot SPIFFS
+  // format at that clock trips the TG1 watchdog mid-format, reboot-looping
+  // forever (the format never completes, so every boot re-enters it). At the
+  // boot clock the format finishes in the documented 1-2 minutes.
+  cpuPower.begin();
 
   // ---------------------------------------------------------------------------
   // Early SD card init -- needed BEFORE the_mesh.begin() so we can restore
@@ -1640,6 +1656,7 @@ void loop() {
     if (chanScr) chanScr->flushMessagesIfDue(30000UL);
   }
   wfmLoop();   // File Manager web server (no-op when inactive)
+  if (wfmTakeIdleStopped()) ui_task.showAlert("File Manager off (idle)", 1500);
   // Config export/import requests from Settings. On the watch these read and
   // write /meshcore/ on the internal LittleFS; the File Manager moves the
   // files on and off the device.
@@ -1755,7 +1772,7 @@ void loop() {
 #endif
 
   // CPU frequency auto-timeout back to idle
-  cpuPower.loop();
+  if (MECK_CPU_CLAMP_OK) cpuPower.loop();
 
   // Low-power mode — drop CPU to 40 MHz and throttle loop when lock screen
   // is active.  The mesh radio has its own FIFO so packets are buffered;
@@ -1766,11 +1783,11 @@ void loop() {
     static bool wasLocked = false;
     bool nowLocked = ui_task.isLocked();
     if (nowLocked && !wasLocked) {
-      cpuPower.setLowPower();
+      if (MECK_CPU_CLAMP_OK) cpuPower.setLowPower();
       Serial.printf("[Power] Low-power mode: CPU %d MHz, loop throttled\n",
                     cpuPower.getFrequencyMHz());
     } else if (!nowLocked && wasLocked) {
-      cpuPower.clearLowPower();
+      if (MECK_CPU_CLAMP_OK) cpuPower.clearLowPower();
       Serial.printf("[Power] Normal mode: CPU %d MHz\n",
                     cpuPower.getFrequencyMHz());
     }
@@ -1923,7 +1940,7 @@ void loop() {
             } else {
               ui_task.injectKey(c);
             }
-            cpuPower.setBoost();
+            if (MECK_CPU_CLAMP_OK) cpuPower.setBoost();
           }
           lastTouchEventMs = now;
           touchCooldown = true;
@@ -1989,7 +2006,7 @@ void loop() {
                 ui_task.gotoChannelScreen(false);
               }
             }
-            cpuPower.setBoost();
+            if (MECK_CPU_CLAMP_OK) cpuPower.setBoost();
           }
           lastTouchEventMs = now;
           touchCooldown = true;
@@ -2058,7 +2075,7 @@ void loop() {
               }
             }
           }
-          cpuPower.setBoost();
+          if (MECK_CPU_CLAMP_OK) cpuPower.setBoost();
           lastTouchEventMs = now;
           touchCooldown = true;
         }
