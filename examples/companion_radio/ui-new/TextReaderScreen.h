@@ -2,9 +2,22 @@
 
 #include <helpers/ui/UIScreen.h>
 #include <helpers/ui/DisplayDriver.h>
-#include <SD.h>
+#if defined(MECK_TWATCH)
+  #include <LittleFS.h>
+#else
+  #include <SD.h>
+#endif
 #include <vector>
 #include "Utf8CP437.h"
+// Filesystem the reader lives on: SD on the T-Deck family; on the watches the
+// internal LittleFS "maps" partition -- books under /books (uploadable via the
+// File Manager), and the epub cache and per-book resume index land there too.
+#if defined(MECK_TWATCH)
+static fs::FS& RDR_FS = LittleFS;
+#else
+static fs::FS& RDR_FS = SD;
+#endif
+
 #include "EpubProcessor.h"
 #include "../NodePrefs.h"
 
@@ -607,7 +620,7 @@ private:
 
   bool loadIndex(const String& filename, FileCache& cache) {
     String idxPath = getIndexPath(filename);
-    File idxFile = SD.open(idxPath.c_str(), FILE_READ);
+    File idxFile = RDR_FS.open(idxPath.c_str(), FILE_READ);
     if (!idxFile) return false;
 
     uint8_t version = 0;
@@ -619,7 +632,7 @@ private:
     if (version != INDEX_VERSION) {
       // Wrong version - discard and rebuild
       idxFile.close();
-      SD.remove(idxPath.c_str());
+      RDR_FS.remove(idxPath.c_str());
       return false;
     }
 
@@ -628,7 +641,7 @@ private:
     idxFile.read(&savedFontKey, 1);
     if (savedFontKey != _fontKey) {
       idxFile.close();
-      SD.remove(idxPath.c_str());
+      RDR_FS.remove(idxPath.c_str());
       return false;
     }
 
@@ -639,11 +652,11 @@ private:
 
     // Verify file hasn't changed - try current path first, then epub cache
     String fullPath = _currentPath + "/" + filename;
-    File txtFile = SD.open(fullPath.c_str(), FILE_READ);
+    File txtFile = RDR_FS.open(fullPath.c_str(), FILE_READ);
     if (!txtFile) {
       // Fallback: check epub cache directory
       String cachePath = String("/books/.epub_cache/") + filename;
-      txtFile = SD.open(cachePath.c_str(), FILE_READ);
+      txtFile = RDR_FS.open(cachePath.c_str(), FILE_READ);
     }
     if (!txtFile) { idxFile.close(); return false; }
     unsigned long curSize = txtFile.size();
@@ -651,7 +664,7 @@ private:
 
     if (savedSize != curSize) {
       idxFile.close();
-      SD.remove(idxPath.c_str());
+      RDR_FS.remove(idxPath.c_str());
       return false;
     }
 
@@ -673,12 +686,12 @@ private:
 
   bool saveIndex(const String& filename, const std::vector<long>& pages,
                  unsigned long fileSize, bool fullyIndexed, int lastReadPage) {
-    if (!SD.exists(INDEX_FOLDER)) SD.mkdir(INDEX_FOLDER);
+    if (!RDR_FS.exists(INDEX_FOLDER)) RDR_FS.mkdir(INDEX_FOLDER);
 
     String idxPath = getIndexPath(filename);
-    if (SD.exists(idxPath.c_str())) SD.remove(idxPath.c_str());
+    if (RDR_FS.exists(idxPath.c_str())) RDR_FS.remove(idxPath.c_str());
 
-    File idxFile = SD.open(idxPath.c_str(), FILE_WRITE);
+    File idxFile = RDR_FS.open(idxPath.c_str(), FILE_WRITE);
     if (!idxFile) return false;
 
     uint8_t version = INDEX_VERSION;
@@ -702,7 +715,7 @@ private:
 
   bool saveReadingPosition(const String& filename, int page) {
     String idxPath = getIndexPath(filename);
-    File idxFile = SD.open(idxPath.c_str(), "r+");
+    File idxFile = RDR_FS.open(idxPath.c_str(), "r+");
     if (!idxFile) return false;
 
     uint8_t version = 0;
@@ -786,12 +799,12 @@ private:
   void scanFiles() {
     _fileList.clear();
     _dirList.clear();
-    if (!SD.exists(BOOKS_FOLDER)) {
-      SD.mkdir(BOOKS_FOLDER);
+    if (!RDR_FS.exists(BOOKS_FOLDER)) {
+      RDR_FS.mkdir(BOOKS_FOLDER);
       Serial.printf("TextReader: Created %s\n", BOOKS_FOLDER);
     }
 
-    File root = SD.open(_currentPath.c_str());
+    File root = RDR_FS.open(_currentPath.c_str());
     if (!root || !root.isDirectory()) return;
 
     File f = root.openNextFile();
@@ -835,9 +848,13 @@ private:
       EpubProcessor::buildCachePath(actualFullPath.c_str(), cachePath, sizeof(cachePath));
 
       // Check if already converted
+#if !defined(MECK_TWATCH)
       digitalWrite(SDCARD_CS, LOW);
-      bool cached = SD.exists(cachePath);
+#endif
+      bool cached = RDR_FS.exists(cachePath);
+#if !defined(MECK_TWATCH)
       digitalWrite(SDCARD_CS, HIGH);
+#endif
 
       if (!cached) {
         // Show conversion splash on e-ink
@@ -854,10 +871,14 @@ private:
 
         Serial.printf("TextReader: Converting EPUB '%s'\n", filename.c_str());
         unsigned long t0 = millis();
+#if !defined(MECK_TWATCH)
 
         digitalWrite(SDCARD_CS, LOW);
+#endif
         bool ok = EpubProcessor::processToText(actualFullPath.c_str(), cachePath);
+#if !defined(MECK_TWATCH)
         digitalWrite(SDCARD_CS, HIGH);
+#endif
 
         if (!ok) {
           Serial.println("TextReader: EPUB conversion failed!");
@@ -886,12 +907,12 @@ private:
       }
     }
 
-    _file = SD.open(actualFullPath.c_str(), FILE_READ);
+    _file = RDR_FS.open(actualFullPath.c_str(), FILE_READ);
 
     // Fallback: try epub cache dir (for files discovered during boot scan)
     if (!_file && !isEpub) {
       String cacheFallback = String("/books/.epub_cache/") + actualFilename;
-      _file = SD.open(cacheFallback.c_str(), FILE_READ);
+      _file = RDR_FS.open(cacheFallback.c_str(), FILE_READ);
       if (_file) {
         actualFullPath = cacheFallback;
         Serial.printf("TextReader: Opened from epub cache: %s\n", actualFilename.c_str());
@@ -1026,7 +1047,9 @@ private:
     _pagePositions.clear();
     _pagePositions.shrink_to_fit();
     // Deselect SD to free SPI bus
+#if !defined(MECK_TWATCH)
     digitalWrite(SDCARD_CS, HIGH);
+#endif
     Serial.printf("TextReader: Closed, saved at page %d\n", _currentPage + 1);
   }
 
@@ -1058,7 +1081,9 @@ private:
     _contentDirty = false;
 
     // Deselect SD to free SPI bus for display
+#if !defined(MECK_TWATCH)
     digitalWrite(SDCARD_CS, HIGH);
+#endif
   }
 
   // ---- Rendering Helpers ----
@@ -1411,8 +1436,8 @@ public:
 
       // Also pick up previously converted EPUB cache files for this subfolder
       String epubCachePath = subPath + "/.epub_cache";
-      if (SD.exists(epubCachePath.c_str())) {
-        File cacheDir = SD.open(epubCachePath.c_str());
+      if (RDR_FS.exists(epubCachePath.c_str())) {
+        File cacheDir = RDR_FS.open(epubCachePath.c_str());
         if (cacheDir && cacheDir.isDirectory()) {
           File cf = cacheDir.openNextFile();
           while (cf && _fileList.size() < READER_MAX_FILES) {
@@ -1449,11 +1474,11 @@ public:
 
         // Index this .txt file
         String fullPath = _currentPath + "/" + _fileList[i];
-        File file = SD.open(fullPath.c_str(), FILE_READ);
+        File file = RDR_FS.open(fullPath.c_str(), FILE_READ);
         if (!file) {
           // Try epub cache fallback
           String cacheFallback = epubCachePath + "/" + _fileList[i];
-          file = SD.open(cacheFallback.c_str(), FILE_READ);
+          file = RDR_FS.open(cacheFallback.c_str(), FILE_READ);
         }
         if (!file) continue;
 
@@ -1507,8 +1532,8 @@ public:
     scanFiles();
 
     // Also pick up previously converted EPUB cache files
-    if (SD.exists("/books/.epub_cache")) {
-      File cacheDir = SD.open("/books/.epub_cache");
+    if (RDR_FS.exists("/books/.epub_cache")) {
+      File cacheDir = RDR_FS.open("/books/.epub_cache");
       if (cacheDir && cacheDir.isDirectory()) {
         File f = cacheDir.openNextFile();
         while (f && _fileList.size() < READER_MAX_FILES) {
@@ -1586,10 +1611,10 @@ public:
 
         // Try current path first, then epub cache fallback
         String fullPath = _currentPath + "/" + _fileList[i];
-        File file = SD.open(fullPath.c_str(), FILE_READ);
+        File file = RDR_FS.open(fullPath.c_str(), FILE_READ);
         if (!file) {
           String cacheFallback = String("/books/.epub_cache/") + _fileList[i];
-          file = SD.open(cacheFallback.c_str(), FILE_READ);
+          file = RDR_FS.open(cacheFallback.c_str(), FILE_READ);
         }
         if (!file) continue;
 
@@ -1640,7 +1665,9 @@ public:
 
 
     // Deselect SD to free SPI bus
+#if !defined(MECK_TWATCH)
     digitalWrite(SDCARD_CS, HIGH);
+#endif
 
     _bootIndexed = true;
     Serial.printf("TextReader: Boot indexing complete, %d files (%d cached, %d newly indexed)\n",
@@ -1838,11 +1865,11 @@ public:
         // For .txt files, index now
         if (!(_fileList[i].endsWith(".epub") || _fileList[i].endsWith(".EPUB"))) {
           String fullPath = _currentPath + "/" + _fileList[i];
-          File file = SD.open(fullPath.c_str(), FILE_READ);
+          File file = RDR_FS.open(fullPath.c_str(), FILE_READ);
           if (!file) {
             // Try epub cache fallback
             String cacheFallback = String("/books/.epub_cache/") + _fileList[i];
-            file = SD.open(cacheFallback.c_str(), FILE_READ);
+            file = RDR_FS.open(cacheFallback.c_str(), FILE_READ);
           }
           if (file) {
             FileCache& cache = _fileCache[i];
@@ -1869,7 +1896,9 @@ public:
       }
       yield();  // Feed WDT between files
     }
+#if !defined(MECK_TWATCH)
     digitalWrite(SDCARD_CS, HIGH);
+#endif
   }
 
   bool handleReadingInput(char c) {

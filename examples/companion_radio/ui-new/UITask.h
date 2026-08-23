@@ -98,6 +98,7 @@ class UITask : public AbstractUITask {
 #endif
   UIScreen* curr;
   bool _homeShowingTiles = false;  // Set by HomeScreen render when tile grid is visible
+  bool _tileScroll = false;      // tile page scrolled down to the hidden row
   int _tileGridVY = 44;           // Virtual Y of tile grid top (updated each render)
 #if defined(MECK_TWATCH)
   UIScreen* lock_screen;     // Lock screen (big clock + battery + unread)
@@ -258,7 +259,11 @@ public:
   bool isOnTextReader() const { return curr == text_reader; }  // *** NEW ***
   bool isOnHomeScreen() const { return curr == home; }
   bool isHomeShowingTiles() const { return _homeShowingTiles; }
-  void setHomeShowingTiles(bool v) { _homeShowingTiles = v; }
+  void setHomeShowingTiles(bool v) { _homeShowingTiles = v; if (!v) _tileScroll = false; }
+  // Tile page scroll: swipe down reveals the hidden fifth row (Reader),
+  // swipe up hides it again. Cleared whenever the tile page is left.
+  bool getTileScroll() const { return _tileScroll; }
+  void setTileScroll(bool v) { _tileScroll = v; }
   int  getTileGridVY() const { return _tileGridVY; }
   void setTileGridVY(int vy) { _tileGridVY = vy; }
   bool isOnNotesScreen() const { return curr == notes_screen; }

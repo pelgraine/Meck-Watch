@@ -15,7 +15,11 @@
 // Typical EPUB chapter is 5-50KB, well within ESP32-S3's 8MB PSRAM.
 // =============================================================================
 
-#include <SD.h>
+#if defined(MECK_TWATCH)
+  #include <LittleFS.h>   // RDR_FS (LittleFS here) is declared by TextReaderScreen.h
+#else
+  #include <SD.h>
+#endif
 #include <FS.h>
 
 // ROM tinfl decompressor - built into ESP32/ESP32-S3 ROM
@@ -428,7 +432,9 @@ private:
     *outSize = size;
 
     // Release SD CS pin for other SPI users
+#if !defined(MECK_TWATCH)
     digitalWrite(SDCARD_CS, HIGH);
+#endif
 
     return buf;
   }
@@ -475,7 +481,9 @@ private:
     }
 
     // Release SD CS pin for other SPI users
+#if !defined(MECK_TWATCH)
     digitalWrite(SDCARD_CS, HIGH);
+#endif
 
     // Decompress using ROM tinfl (low-level API to avoid stack allocation)
     // ZIP DEFLATE is raw deflate (no zlib header).

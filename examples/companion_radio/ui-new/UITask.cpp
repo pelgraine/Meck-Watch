@@ -557,7 +557,7 @@ public:
       // setRawColor() pushes exact RGB565 past the Color enum + watch grey remap.
       {
         struct Tile { const uint8_t* icon; const char* label; uint16_t color; };
-        const Tile tiles[4][2] = {
+        const Tile tiles[5][2] = {   // row 4 hidden until swiped down
           { {icon_envelope, "Messages", 0x0CB1}, {icon_people,  "Contacts", 0xCAA0} },
           { {icon_gear,     "Settings", 0x0560}, {icon_search,  "Discover", 0xF81F} },
 #if defined(LILYGO_TWATCH_S3) || defined(MECK_NO_MAPS)
@@ -566,21 +566,32 @@ public:
           { {icon_trace,    "Trace",    0xF800}, {icon_map,     "Maps",     0x231D} },
 #endif
           { {icon_notepad,  "Notes",    0x07FF}, {icon_star,    "Steps",    0xFFE0} },
+          // Hidden fifth row: swipe down on the tile page to reveal. The
+          // second cell is an empty expansion slot (icon == nullptr -> not
+          // drawn, taps ignored).
+          { {icon_book,     "Reader",   0x780F}, {nullptr,      "",         0x0000} },
         };
         const uint16_t TILE_FILL = 0x18C5;   // dark navy
 
-        const int cols = 2, rows = 4;
+        const int cols = 2, rows = 5;   // row 4 hidden until swiped down
         const int tileW = 56, tileH = 24, gapX = 4, gapY = 2;
         const int gridW = tileW * cols + gapX * (cols - 1);
         const int gridX = (display.width() - gridW) / 2;
-        const int gridY = y + 2;
+        // Swipe-down scroll: shift the whole grid up one row so the hidden
+        // fifth row enters at the bottom; rows that would land above the
+        // grid's home position are skipped (the header stays clean). The
+        // recorded VY keeps main.cpp's tap dispatch aligned automatically.
+        const int gridTop = y + 2;
+        const int gridY = gridTop - (_task->getTileScroll() ? (tileH + gapY) : 0);
         _task->setTileGridVY(gridY);
 
         LGFXDisplay* lcd = (LGFXDisplay*)&display;  // watch display is always LGFXDisplay
         for (int row = 0; row < rows; row++) {
           for (int col = 0; col < cols; col++) {
+            if (tiles[row][col].icon == nullptr) continue;   // empty slot
             int tx = gridX + col * (tileW + gapX);
             int ty = gridY + row * (tileH + gapY);
+            if (ty < gridTop) continue;   // scrolled off the top
             lcd->setRawColor(TILE_FILL);
             lcd->fillRoundRect(tx, ty, tileW, tileH, 4);
             lcd->setRawColor(tiles[row][col].color);

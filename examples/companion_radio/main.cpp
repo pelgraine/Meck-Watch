@@ -300,7 +300,11 @@ static void lastHeardToggleContact() {
       if (ui_task.isOnTextReader()) {
         TextReaderScreen* reader = (TextReaderScreen*)ui_task.getTextReaderScreen();
         if (reader && reader->isReading()) {
+#if defined(MECK_TWATCH)
+          return (vx < 60) ? 'a' : 'd';  // left half = previous page, right = next
+#else
           return 'd';  // reading mode: treat as next page
+#endif
         }
       }
 #if defined(MECK_TWATCH)
@@ -471,7 +475,11 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnTextReader()) {
       TextReaderScreen* reader = (TextReaderScreen*)ui_task.getTextReaderScreen();
       if (reader && reader->isReading()) {
+#if defined(MECK_TWATCH)
+        return (vx < 60) ? 'a' : 'd';  // left half = previous page, right = next
+#else
         return 'd';  // Tap anywhere else = next page
+#endif
       }
       // File list: tap-to-select, double-tap to open
       if (reader && reader->isInFileList()) {
@@ -842,6 +850,17 @@ static void lastHeardToggleContact() {
       }
     }
 
+#if defined(MECK_TWATCH)
+    // Home tile page: swipe down reveals the hidden fifth tile row (Reader),
+    // swipe up tucks it away again. Horizontal swipes fall through to the
+    // normal home page turning.
+    if (ui_task.isOnHomeScreen() && ui_task.isHomeShowingTiles() && !horizontal) {
+      ui_task.setTileScroll(dy > 0);
+      ui_task.forceRefresh();
+      return 0;
+    }
+#endif
+
     // Games menu: vertical swipe scrolls list
     if (ui_task.isOnGamesMenu()) {
       if (!horizontal) {
@@ -954,7 +973,7 @@ static void lastHeardToggleContact() {
       const int W = display.width();                       // logical width (120)
       int rvx = vx * W / 128;
       int rvy = vy * W / 128;
-      const int cols = 2, rows = 4;
+      const int cols = 2, rows = 5;   // includes the hidden Reader row
       const int tileW = 56, tileH = 24, gapX = 4, gapY = 2;
       const int gridW = tileW * cols + gapX * (cols - 1);  // 116
       const int gridX = (W - gridW) / 2;                   // 2
@@ -962,7 +981,9 @@ static void lastHeardToggleContact() {
       if (rvx >= gridX && rvx < gridX + gridW &&
           rvy >= gridY && rvy < gridY + rows * (tileH + gapY)) {
         int col = (rvx - gridX) / (tileW + gapX);  if (col > 1) col = 1;
-        int row = (rvy - gridY) / (tileH + gapY);  if (row > 3) row = 3;
+        // Scrolled: row 0 sits above the visible grid; ignore taps there.
+        if (ui_task.getTileScroll() && rvy < gridY + (tileH + gapY)) return 0;
+        int row = (rvy - gridY) / (tileH + gapY);  if (row > 4) row = 4;
         if (row == 0 && col == 0) { ui_task.openTWatchPicker(); return 0; }
         if (row == 0 && col == 1) { ui_task.gotoContactsScreen();      return 0; }
         if (row == 1 && col == 0) { ui_task.gotoSettingsScreen();      return 0; }
@@ -983,6 +1004,13 @@ static void lastHeardToggleContact() {
 #endif
         if (row == 3 && col == 0) { ui_task.gotoNotesScreen();         return 0; }
         if (row == 3 && col == 1) { ui_task.gotoStepsScreen();         return 0; }
+        // Hidden fifth row -- only reachable while scrolled down; when the
+        // grid is in its home position this region is below the tiles and
+        // taps there are consumed without action.
+        if (row == 4) {
+          if (ui_task.getTileScroll() && col == 0) { ui_task.gotoTextReader(); }
+          return 0;
+        }
       }
       return 0;  // consume long-press on the tile page
     }

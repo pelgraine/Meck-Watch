@@ -11,7 +11,11 @@
 // Dependencies: EpubZipReader.h (for ZIP extraction)
 // =============================================================================
 
-#include <SD.h>
+#if defined(MECK_TWATCH)
+  #include <LittleFS.h>   // RDR_FS (LittleFS here) is declared by TextReaderScreen.h
+#else
+  #include <SD.h>
+#endif
 #include <FS.h>
 #include "EpubZipReader.h"
 #include "Utf8CP437.h"
@@ -40,7 +44,7 @@ public:
   // ----------------------------------------------------------
   static bool processToText(const char* epubPath, const char* txtPath) {
     // Check if already cached
-    if (SD.exists(txtPath)) {
+    if (RDR_FS.exists(txtPath)) {
       Serial.printf("EpubProc: '%s' already cached\n", txtPath);
       return true;
     }
@@ -49,7 +53,7 @@ public:
     unsigned long t0 = millis();
 
     // Open the EPUB (ZIP archive)
-    File epubFile = SD.open(epubPath, FILE_READ);
+    File epubFile = RDR_FS.open(epubPath, FILE_READ);
     if (!epubFile) {
       Serial.println("EpubProc: Cannot open EPUB file");
       return false;
@@ -104,7 +108,7 @@ public:
     Serial.printf("EpubProc: Title='%s', %d chapters\n", title, chapterCount);
 
     // Step 3: Extract each chapter, strip XHTML, write to output .txt
-    File outFile = SD.open(txtPath, FILE_WRITE);
+    File outFile = RDR_FS.open(txtPath, FILE_WRITE);
     if (!outFile) {
       _freeChapterPaths(chapterPaths, chapterCount);
       delete zip;
@@ -156,7 +160,9 @@ public:
     outFile.close();
 
     // Release SD CS for other SPI users
+#if !defined(MECK_TWATCH)
     digitalWrite(SDCARD_CS, HIGH);
+#endif
 
     _freeChapterPaths(chapterPaths, chapterCount);
     delete zip;
@@ -174,7 +180,7 @@ public:
   // Returns false if it can't be determined.
   // ----------------------------------------------------------
   static bool getTitle(const char* epubPath, char* titleBuf, int titleBufSize) {
-    File epubFile = SD.open(epubPath, FILE_READ);
+    File epubFile = RDR_FS.open(epubPath, FILE_READ);
     if (!epubFile) return false;
 
     EpubZipReader* zip = new EpubZipReader();
@@ -229,8 +235,8 @@ public:
     // Create cache directory if needed
     char cacheDir[160];
     snprintf(cacheDir, sizeof(cacheDir), "%s/.epub_cache", dir);
-    if (!SD.exists(cacheDir)) {
-      SD.mkdir(cacheDir);
+    if (!RDR_FS.exists(cacheDir)) {
+      RDR_FS.mkdir(cacheDir);
     }
 
     // Strip .epub extension

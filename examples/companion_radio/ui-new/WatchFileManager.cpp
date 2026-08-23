@@ -249,7 +249,11 @@ static String fmBuildPage(const String& path, const String& msg) {
       "<p>Select files to upload</p>"
       "<input type='file' name='file' multiple><br><br>"
       "<button class='b' type='submit'>Upload</button>"
-      "</form></div>";
+      "</form>"
+      "<p style='color:#888;font-size:0.8em;margin:8px 0 0'>If Choose Files does "
+      "nothing here, open http://192.168.4.1/ in your phone's browser -- the "
+      "captive Wi-Fi window cannot open the file picker.</p>"
+      "</div>";
 
     // --- New folder (tiny inline form) -- LittleFS only; SPIFFS is flat ---
     if (path.startsWith("/maps")) {
