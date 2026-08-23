@@ -1394,8 +1394,10 @@ public:
       int barW = (int)(((uint64_t)(W - 6) * vals[i]) / maxv);
       if (barW < 2) barW = 2;
 
-      d->setRawColor(i == 0 ? 0x231D : 0x18C5);   // today in the tile blue
-      d->fillRoundRect(3, y, barW, 12, 2);
+      // fillRoundRectRaw: the plain fillRoundRect forwards the stored int
+      // colour, which LovyanGFX reads as RGB888 -- these RGB565 values then
+      // land near-black and the bars vanish. Today in the tile blue.
+      d->fillRoundRectRaw(3, y, barW, 12, 2, (i == 0) ? 0x231D : 0x18C5);
 
       const char* label = "-";
       if (i == 0) label = "Today";
@@ -2960,9 +2962,10 @@ void UITask::gotoTraceScreen() {
 // PWR key is a hardware power cut by the AXP2101 -- so saving is periodic.
 #define STEPS_FILE           "/steps.dat"
 #define STEPS_MAGIC          0x31505453UL   // "STP1"
-#define STEPS_VERSION        1
+#define STEPS_VERSION        2
 #define STEPS_SAVE_INTERVAL_MS  300000UL    // flush at most every 5 minutes
 
+// v1 layout (7 days: today + history[6]) -- read-only, for migration.
 struct StepStoreV1 {
   uint32_t magic;
   uint8_t  version;
@@ -2972,21 +2975,41 @@ struct StepStoreV1 {
   uint32_t history[6];
 };
 
+// v2 layout (14 days: today + history[13]). A v1 file is accepted once by
+// loadSteps() and re-saved as v2 on the next periodic flush; the extra seven
+// days start at zero.
+struct StepStoreV2 {
+  uint32_t magic;
+  uint8_t  version;
+  uint8_t  _pad[3];
+  int32_t  lastStepDay;
+  uint32_t todaySteps;
+  uint32_t history[13];
+};
+
 void UITask::loadSteps() {
   File f = LittleFS.open(STEPS_FILE, "r");
   if (!f) return;
-  StepStoreV1 st;
+  StepStoreV2 st;
+  memset(&st, 0, sizeof(st));
   size_t n = f.read((uint8_t*)&st, sizeof(st));
   f.close();
-  if (n != sizeof(st) || st.magic != STEPS_MAGIC || st.version != STEPS_VERSION) return;
+  if (n < sizeof(StepStoreV1) || st.magic != STEPS_MAGIC) return;
 
-  _lastStepDay = st.lastStepDay;
-  _todaySteps  = st.todaySteps;
-  memcpy(_stepHistory, st.history, sizeof(_stepHistory));
+  if (st.version == 2 && n == sizeof(StepStoreV2)) {
+    _lastStepDay = st.lastStepDay;
+    _todaySteps  = st.todaySteps;
+    memcpy(_stepHistory, st.history, sizeof(_stepHistory));
+  } else if (st.version == 1 && n == sizeof(StepStoreV1)) {
+    // One-time migration from the 7-day store: same header, shorter history.
+    _lastStepDay = st.lastStepDay;
+    _todaySteps  = st.todaySteps;
+    memcpy(_stepHistory, st.history, sizeof(uint32_t) * 6);   // [6..12] stay 0
+  }
 }
 
 void UITask::saveSteps() {
-  StepStoreV1 st;
+  StepStoreV2 st;
   memset(&st, 0, sizeof(st));
   st.magic       = STEPS_MAGIC;
   st.version     = STEPS_VERSION;
@@ -3005,7 +3028,7 @@ void UITask::saveSteps() {
 }
 
 void UITask::shiftStepHistory(uint32_t completedDay) {
-  for (int i = 5; i > 0; i--) _stepHistory[i] = _stepHistory[i - 1];
+  for (int i = 12; i > 0; i--) _stepHistory[i] = _stepHistory[i - 1];
   _stepHistory[0] = completedDay;
 }
 
@@ -3016,7 +3039,7 @@ void UITask::rollStepDays(int32_t newDay) {
     return;
   }
   shiftStepHistory(_todaySteps);                    // the day that just ended
-  for (int32_t d = 1; d < gap && d < 6; d++) {
+  for (int32_t d = 1; d < gap && d < 13; d++) {
     shiftStepHistory(0);                            // days the watch was switched off
   }
   _todaySteps  = 0;
@@ -3060,7 +3083,7 @@ uint32_t UITask::getTodaySteps() {
 
 uint32_t UITask::getStepHistory(int daysAgo) {
   if (daysAgo <= 0) return _todaySteps;
-  if (daysAgo > 6)  return 0;
+  if (daysAgo > 13) return 0;
   return _stepHistory[daysAgo - 1];
 }
 

@@ -111,7 +111,7 @@ class UITask : public AbstractUITask {
   // rather than from the file, which is correct whether or not the count survived.
   int32_t  _lastStepDay = 0;      // local day-of-epoch that _todaySteps belongs to
   uint32_t _todaySteps = 0;       // accumulated steps for _lastStepDay
-  uint32_t _stepHistory[6] = {0}; // [0] = yesterday ... [5] = six days ago
+  uint32_t _stepHistory[13] = {0}; // [0] = yesterday ... [12] = 13 days ago (14 days incl. today)
   uint32_t _lastRaw = 0;          // last raw BMA423 count seen (runtime only)
   bool     _stepsSeeded = false;  // _lastRaw has been seeded from the chip
   unsigned long _stepsDirtySince = 0;  // millis of oldest unsaved change; 0 = clean
@@ -218,7 +218,7 @@ public:
   void gotoStepsScreen();                  // Navigate to the step counter screen
   void gotoStepsHistoryScreen();           // Navigate to the 7-day step history
   uint32_t getTodaySteps();                // Steps accumulated today
-  uint32_t getStepHistory(int daysAgo);    // 0 = today, 1..6 = previous days
+  uint32_t getStepHistory(int daysAgo);    // 0 = today, 1..13 = previous days
 #endif
 #if HAS_GPS && !defined(MECK_NO_MAPS)
   void gotoMapScreen();         // Navigate to map tile screen

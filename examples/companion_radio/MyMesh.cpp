@@ -1795,6 +1795,12 @@ static FreqRange repeat_freq_ranges[] = {
   { 433000, 433000 },
   { 869495, 869495 },
   { 918000, 918000 },
+  // Meck: band rows so client repeat is enableable on the frequencies the
+  // preset table actually uses (upstream's exact rows above are kept and
+  // subsumed where they overlap). Same pattern as the 2.4 GHz row below.
+  { 433050, 434790 },    // 433 MHz ISM -- covers the 433.375 / 433.650 presets
+  { 863000, 870000 },    // EU 863-870 SRD -- covers 869.432 / 869.525 / 869.618
+  { 902000, 928000 },    // 902-928 MHz ISM (AU/NZ/US) -- covers 910.525 through 923.125, incl. Sydney 916.575 / 915.075
   { 2400000, 2500000 }   // 2.4 GHz ISM band (SX1280 / LR1121) -- allow client-repeat at e.g. 2450
   #endif
 };

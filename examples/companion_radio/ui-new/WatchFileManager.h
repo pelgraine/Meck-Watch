@@ -1,0 +1,21 @@
+#pragma once
+
+// Watch File Manager: a browser-based file explorer for the internal
+// filesystems, in the same manner as the upstream Meck OTA Tools' SD File
+// Manager -- the watch starts a WiFi access point and serves a page at
+// http://192.168.4.1/ where files on the LittleFS ("maps") and SPIFFS
+// (DataStore) partitions can be listed, downloaded, uploaded and deleted.
+// There is no firmware-update path here: the watch partition table has a
+// single app slot (see meck_twatch_16mb.csv).
+//
+// Toggled from Settings -> File Manager; pumped from main.cpp loop().
+
+#if defined(MECK_TWATCH)
+
+bool        wfmActive();
+const char* wfmSSID();     // AP name, valid while active
+void        wfmStart();
+void        wfmStop();
+void        wfmLoop();     // no-op when inactive
+
+#endif

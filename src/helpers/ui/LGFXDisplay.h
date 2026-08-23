@@ -34,6 +34,13 @@ public:
   void setRawColor(uint16_t c) { _color = c; buffer.setTextColor(c); }
   // Rounded-rect helpers for the P4-style tile grid (LovyanGFX buffer).
   void fillRoundRect(int x, int y, int w, int h, int r) { buffer.fillRoundRect(x, y, w, h, r, _color); }
+  // As fillRoundRect but with the colour given explicitly as uint16_t.
+  // NOTE: the variant above forwards the stored `int _color`, and LovyanGFX
+  // selects its colour format by argument type -- an int is read as RGB888,
+  // so RGB565 values set via setRawColor() come out very dark (0x231D lands
+  // as #00231D, i.e. black). The steps bar graph uses this overload so the
+  // bars render in the RGB565 colour actually intended.
+  void fillRoundRectRaw(int x, int y, int w, int h, int r, uint16_t c) { buffer.fillRoundRect(x, y, w, h, r, c); }
   void drawRoundRect(int x, int y, int w, int h, int r) { buffer.drawRoundRect(x, y, w, h, r, _color); }
   // Plot a single pixel at an exact RGB565 colour directly into the sprite
   // buffer. Used by WatchMapScreen to draw decoded map tiles, markers and the

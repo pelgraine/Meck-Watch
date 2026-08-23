@@ -32,6 +32,9 @@
   #endif
 #endif
 
+#if defined(MECK_TWATCH)
+#include "WatchFileManager.h"
+#endif
 #ifdef MECK_OTA_UPDATE
   #ifndef MECK_WIFI_COMPANION
     #include <WiFi.h>
@@ -178,6 +181,7 @@ enum SettingsRowType : uint8_t {
   ROW_EXPORT_NOW,        // ">> Export Now" action trigger
   #endif
   ROW_RXLOG,          // Rx Log packet sniffer (opens RxLogScreen)
+  ROW_FILE_MANAGER,   // WiFi AP file explorer over LittleFS + SPIFFS (watch)
 #if defined(MECK_TWATCH)
   ROW_EXPERIMENTAL_SUBMENU, // Folder row: enters Experimental Features sub-screen (watch)
   ROW_RX_DUTY_CYCLE,        // Toggle: MCU-driven RX duty cycle (watch)
@@ -565,6 +569,9 @@ private:
 
       // Rx Log packet sniffer (opens RxLogScreen)
       addRow(ROW_RXLOG);
+#if defined(MECK_TWATCH)
+      addRow(ROW_FILE_MANAGER);
+#endif
 
 #if defined(MECK_TWATCH)
       // Experimental Features (watch) -- placed above the Info section
@@ -2315,6 +2322,18 @@ public:
           break;
 
 #if defined(MECK_TWATCH)
+        case ROW_FILE_MANAGER:
+          display.setColor(selected ? DisplayDriver::DARK : DisplayDriver::GREEN);
+          if (wfmActive()) {
+            snprintf(tmp, sizeof(tmp), "File Mgr: %s", wfmSSID());
+            display.print(tmp);
+          } else {
+            display.print("File Manager: Off");
+          }
+          break;
+#endif
+
+#if defined(MECK_TWATCH)
         case ROW_EXPERIMENTAL_SUBMENU:
           display.setColor(selected ? DisplayDriver::DARK : DisplayDriver::GREEN);
           display.print("Experimental Features >>");
@@ -3910,6 +3929,14 @@ public:
         case ROW_RXLOG:
           _rxlogRequested = true;
           break;
+
+#if defined(MECK_TWATCH)
+        case ROW_FILE_MANAGER:
+          // Toggle the WiFi AP file explorer. While active the row shows the
+          // AP name; browse to http://192.168.4.1/ once connected.
+          if (wfmActive()) wfmStop(); else wfmStart();
+          break;
+#endif
 
 #if defined(MECK_TWATCH)
         case ROW_EXPERIMENTAL_SUBMENU:

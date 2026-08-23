@@ -43,6 +43,7 @@
   #include "PathEditorScreen.h"
   #include "Tracescreen.h"
   #include "GamesMenuScreen.h"
+  #include "WatchFileManager.h"
   #include "SnakeScreen.h"
   #include "MinesweeperScreen.h"
 #endif
@@ -1638,6 +1639,7 @@ void loop() {
     ChannelScreen* chanScr = (ChannelScreen*)ui_task.getChannelScreen();
     if (chanScr) chanScr->flushMessagesIfDue(30000UL);
   }
+  wfmLoop();   // File Manager web server (no-op when inactive)
 #endif
   // T-Echo Card: lazy Codec2 init from shallow stack context.
   // codec2_create needs ~3KB stack for FFT/trig init. The loop task
