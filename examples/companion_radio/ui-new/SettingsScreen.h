@@ -35,6 +35,11 @@
 #if defined(MECK_TWATCH)
 #include "WatchFileManager.h"
 #endif
+// Config export/import is available wherever there is somewhere to write it:
+// SD on the T-Deck family, the internal LittleFS ("maps") on the watches.
+#if defined(HAS_SDCARD) || defined(MECK_TWATCH)
+  #define MECK_HAS_CONFIG_EXPORT 1
+#endif
 #ifdef MECK_OTA_UPDATE
   #ifndef MECK_WIFI_COMPANION
     #include <WiFi.h>
@@ -169,7 +174,7 @@ enum SettingsRowType : uint8_t {
   ROW_CH_HEADER,      // "--- Channels ---" separator
   ROW_CHANNEL,        // A channel entry (dynamic, index stored separately)
   ROW_ADD_CHANNEL,    // "+ Add Channel (# = public)"
-  #ifdef HAS_SDCARD
+  #ifdef MECK_HAS_CONFIG_EXPORT
   ROW_EXPORT_IMPORT_SUBMENU, // Folder row: "Export/Import >>"
   ROW_EXPORT_TO_SD,      // "Export to SD >>" (enters flags sub-screen)
   ROW_IMPORT_FROM_SD,    // "Import from SD" action
@@ -238,7 +243,7 @@ enum SubScreen : uint8_t {
   #ifdef MECK_OTA_UPDATE
   SUB_OTA_TOOLS,   // OTA Tools sub-screen (FW update + File Manager)
   #endif
-  #ifdef HAS_SDCARD
+  #ifdef MECK_HAS_CONFIG_EXPORT
   SUB_EXPORT_IMPORT,  // Export/Import menu
   SUB_EXPORT_FLAGS,   // Export checkboxes + trigger
   #endif
@@ -311,7 +316,7 @@ private:
   // Sub-screen navigation
   SubScreen _subScreen;
   int _savedTopCursor;  // cursor position to restore when leaving sub-screen
-  #ifdef HAS_SDCARD
+  #ifdef MECK_HAS_CONFIG_EXPORT
   int _savedExportCursor;  // cursor in SUB_EXPORT_IMPORT when entering SUB_EXPORT_FLAGS
   uint8_t _exportFlags;    // bitmask of MECK_EXPORT_* flags for export checkboxes
   bool _exportRequested;   // set by key handler, cleared by main.cpp after calling export
@@ -501,7 +506,7 @@ private:
       addRow(ROW_FW_UPDATE);
       addRow(ROW_SD_FILE_MGR);
     #endif
-    #ifdef HAS_SDCARD
+    #ifdef MECK_HAS_CONFIG_EXPORT
     } else if (_subScreen == SUB_EXPORT_IMPORT) {
       // --- Export/Import sub-screen ---
       addRow(ROW_EXPORT_TO_SD);
@@ -563,7 +568,7 @@ private:
       #ifdef MECK_OTA_UPDATE
       addRow(ROW_OTA_TOOLS_SUBMENU);
       #endif
-      #ifdef HAS_SDCARD
+      #ifdef MECK_HAS_CONFIG_EXPORT
       addRow(ROW_EXPORT_IMPORT_SUBMENU);
       #endif
 
@@ -772,7 +777,7 @@ public:
 #ifdef MECK_WIFI_COMPANION
     _wantsWifiPwKb = false;
 #endif
-    #ifdef HAS_SDCARD
+    #ifdef MECK_HAS_CONFIG_EXPORT
     _savedExportCursor = 0;
     _exportFlags = 0x1F;  // MECK_EXPORT_ALL
     _exportRequested = false;
@@ -803,7 +808,7 @@ public:
     _cursor = 0;
     _scrollTop = 0;
     _radioChanged = false;
-    #ifdef HAS_SDCARD
+    #ifdef MECK_HAS_CONFIG_EXPORT
     _savedExportCursor = 0;
     _exportFlags = 0x1F;  // MECK_EXPORT_ALL
     _exportRequested = false;
@@ -1190,7 +1195,7 @@ public:
   }
 
   // Export/Import request flags — checked and cleared by main.cpp
-  #ifdef HAS_SDCARD
+  #ifdef MECK_HAS_CONFIG_EXPORT
   bool isExportRequested() const { return _exportRequested; }
   uint8_t getExportFlags() const { return _exportFlags; }
   void clearExportRequest() { _exportRequested = false; }
@@ -2401,7 +2406,7 @@ public:
           break;
 #endif
 
-        #ifdef HAS_SDCARD
+        #ifdef MECK_HAS_CONFIG_EXPORT
         case ROW_EXPORT_IMPORT_SUBMENU:
           display.setColor(selected ? DisplayDriver::DARK : DisplayDriver::GREEN);
           display.print("Export/Import >>");
@@ -2409,11 +2414,19 @@ public:
 
         case ROW_EXPORT_TO_SD:
           display.setColor(selected ? DisplayDriver::DARK : DisplayDriver::GREEN);
+#if defined(MECK_TWATCH)
+          display.print("Export to storage >>");
+#else
           display.print("Export to SD >>");
+#endif
           break;
 
         case ROW_IMPORT_FROM_SD:
+#if defined(MECK_TWATCH)
+          display.print("Import from storage");
+#else
           display.print("Import from SD");
+#endif
           break;
 
         case ROW_EXPORT_IDENTITY:
@@ -4029,7 +4042,7 @@ public:
           break;
         #endif
 
-        #ifdef HAS_SDCARD
+        #ifdef MECK_HAS_CONFIG_EXPORT
         case ROW_EXPORT_IMPORT_SUBMENU:
           _savedTopCursor = _cursor;
           _subScreen = SUB_EXPORT_IMPORT;
@@ -4195,7 +4208,7 @@ public:
 
     // Shift+Del: back -- if in sub-screen, return to top level; else exit settings
     if (c == KEY_CANCEL || c == 'q') {
-      #ifdef HAS_SDCARD
+      #ifdef MECK_HAS_CONFIG_EXPORT
       if (_subScreen == SUB_EXPORT_FLAGS) {
         // Return to Export/Import sub-screen
         _subScreen = SUB_EXPORT_IMPORT;

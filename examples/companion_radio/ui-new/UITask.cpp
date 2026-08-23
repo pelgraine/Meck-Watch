@@ -2987,6 +2987,21 @@ struct StepStoreV2 {
   uint32_t history[13];
 };
 
+// Day-of-epoch -> calendar date (civil-from-days, Howard Hinnant's algorithm)
+// for the readable steps.csv companion file.
+static void meckCivilFromDays(int32_t z, int& y, int& m, int& d) {
+  z += 719468;
+  int32_t era = (z >= 0 ? z : z - 146096) / 146097;
+  uint32_t doe = (uint32_t)(z - era * 146097);
+  uint32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  int32_t yr = (int32_t)yoe + era * 400;
+  uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  uint32_t mp = (5 * doy + 2) / 153;
+  d = (int)(doy - (153 * mp + 2) / 5 + 1);
+  m = (int)(mp < 10 ? mp + 3 : mp - 9);
+  y = (int)(yr + (m <= 2));
+}
+
 void UITask::loadSteps() {
   File f = LittleFS.open(STEPS_FILE, "r");
   if (!f) return;
@@ -3024,6 +3039,23 @@ void UITask::saveSteps() {
   }
   f.write((const uint8_t*)&st, sizeof(st));
   f.close();
+
+  // Readable companion file beside the binary store: one date,steps row per
+  // day of the 14-day window. Rewritten on every flush; download it from the
+  // File Manager (maps drive) and open it in any spreadsheet.
+  File c = LittleFS.open("/steps.csv", "w");
+  if (c) {
+    c.print("date,steps\n");
+    for (int i = 0; i <= 13; i++) {
+      int32_t day = _lastStepDay - i;
+      if (day <= 0) break;
+      int y, mo, d;
+      meckCivilFromDays(day, y, mo, d);
+      uint32_t v = (i == 0) ? _todaySteps : _stepHistory[i - 1];
+      c.printf("%04d-%02d-%02d,%lu\n", y, mo, d, (unsigned long)v);
+    }
+    c.close();
+  }
   _stepsDirtySince = 0;
 }
 

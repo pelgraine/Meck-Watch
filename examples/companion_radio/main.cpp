@@ -1640,6 +1640,26 @@ void loop() {
     if (chanScr) chanScr->flushMessagesIfDue(30000UL);
   }
   wfmLoop();   // File Manager web server (no-op when inactive)
+  // Config export/import requests from Settings. On the watch these read and
+  // write /meshcore/ on the internal LittleFS; the File Manager moves the
+  // files on and off the device.
+  {
+    SettingsScreen* xss = (SettingsScreen*)ui_task.getSettingsScreen();
+    if (xss && xss->isExportRequested()) {
+      xss->clearExportRequest();
+      int r = meckExportConfig(the_mesh, xss->getExportFlags(),
+                               sensors.node_lat, sensors.node_lon,
+                               rtc_clock, true);
+      ui_task.showAlert(r >= 0 ? "Config exported" : "Export failed", 1200);
+    }
+    if (xss && xss->isImportRequested()) {
+      xss->clearImportRequest();
+      int r = meckImportConfig(the_mesh, sensors.node_lat, sensors.node_lon, true);
+      if (r > 0) ui_task.showAlert("Config imported", 1200);
+      else if (r == 0) ui_task.showAlert("No import.json found", 1500);
+      else ui_task.showAlert("Import failed", 1200);
+    }
+  }
 #endif
   // T-Echo Card: lazy Codec2 init from shallow stack context.
   // codec2_create needs ~3KB stack for FFT/trig init. The loop task
