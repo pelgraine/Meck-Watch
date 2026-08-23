@@ -1336,14 +1336,6 @@ void setup() {
   }
 #endif
 
-  // CPU frequency scaling -- drop to the idle clock for mesh listening.
-  // Deliberately AFTER the filesystem init above: on the standalone builds
-  // the idle cap is 40 MHz (20 on the 20 MHz env), and a first-boot SPIFFS
-  // format at that clock trips the TG1 watchdog mid-format, reboot-looping
-  // forever (the format never completes, so every boot re-enters it). At the
-  // boot clock the format finishes in the documented 1-2 minutes.
-  cpuPower.begin();
-
   // ---------------------------------------------------------------------------
   // Early SD card init -- needed BEFORE the_mesh.begin() so we can restore
   // settings from a previous firmware flash.  The display SPI bus is already
@@ -1368,6 +1360,17 @@ void setup() {
     #endif
   );
   MESH_DEBUG_PRINTLN("setup() - the_mesh.begin() done");
+
+  // CPU frequency scaling -- drop to the idle clock for mesh listening.
+  // Late in setup on purpose: the first-boot filesystem format cannot run at
+  // the standalone builds' reduced clocks (TG1 watchdog mid-format, permanent
+  // reboot loop), so the cap must only engage after storage is up. Separately,
+  // the SX1280 builds must not cap below 80 at all: verified 23 Aug 2026, a
+  // 40 MHz clock kills that build with a TG1 watchdog within moments of the
+  // transition, in setup and in steady state alike (source of the stall
+  // unidentified; empirically absolute). Their envs therefore carry no
+  // CPU_FREQ_IDLE/BOOST override. The SX1262 builds run 40 fine.
+  cpuPower.begin();
 
 
   // Boot-time config import: check for /meshcore/import.json on SD
