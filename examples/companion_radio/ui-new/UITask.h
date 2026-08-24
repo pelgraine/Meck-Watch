@@ -259,7 +259,7 @@ public:
   bool isOnTextReader() const { return curr == text_reader; }  // *** NEW ***
   bool isOnHomeScreen() const { return curr == home; }
   bool isHomeShowingTiles() const { return _homeShowingTiles; }
-  void setHomeShowingTiles(bool v) { _homeShowingTiles = v; if (!v) _tileScroll = false; }
+  void setHomeShowingTiles(bool v) { _homeShowingTiles = v; }
   // Tile page scroll: swipe down reveals the hidden fifth row (Reader),
   // swipe up hides it again. Cleared whenever the tile page is left.
   bool getTileScroll() const { return _tileScroll; }

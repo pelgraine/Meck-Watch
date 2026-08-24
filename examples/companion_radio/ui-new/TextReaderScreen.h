@@ -14,8 +14,13 @@
 // File Manager), and the epub cache and per-book resume index land there too.
 #if defined(MECK_TWATCH)
 static fs::FS& RDR_FS = LittleFS;
+#include "../../../src/helpers/ui/LGFXDisplay.h"
+// Lock the canonical reading font (6x8, size 1) so measurement and drawing
+// always agree, whatever font a prior screen left active.
+#define RDR_LOCK_FONT(d) (((LGFXDisplay*)&(d))->resetTextFont())
 #else
 static fs::FS& RDR_FS = SD;
+#define RDR_LOCK_FONT(d) {}
 #endif
 
 #include "EpubProcessor.h"
@@ -29,7 +34,7 @@ class UITask;
 // ============================================================================
 #define BOOKS_FOLDER      "/books"
 #define INDEX_FOLDER      "/.indexes"
-#define INDEX_VERSION     14  // v14: indexer wrap choice keyed to getFontStyle() (matches renderer); invalidates v13 caches
+#define INDEX_VERSION     17  // v17: watch locks the canonical reading font before layout measurement and rendering; boot-time ambient font skewed chars-per-line, so the index packed lines the renderer could not fit (clipped page tails)
 #define PREINDEX_PAGES    100
 #define READER_MAX_FILES  50
 #define READER_BUF_SIZE   4096
@@ -281,6 +286,12 @@ inline int indexPagesWordWrap(File& file, long startPos,
         ? findLineBreakPixel(buffer, bufLen, pos, pixelDisplay, charsPerLine)
         : findLineBreak(buffer, bufLen, pos, charsPerLine);
       if (wrap.nextStart <= pos && wrap.lineEnd >= bufLen) break;
+#ifdef MECK_TOUCH_DIAG
+      if (pagesAdded < 10)
+        Serial.printf("[TouchDiag] iL: %ld..%ld n=%ld bufEnd=%ld\n",
+                      chunkFileStart + lineStart, chunkFileStart + wrap.lineEnd,
+                      chunkFileStart + wrap.nextStart, chunkFileStart + bufLen);
+#endif
 
       // Blank line = newline at line start (no printable content before it)
       bool isBlankLine = (wrap.lineEnd == lineStart);
@@ -296,6 +307,15 @@ inline int indexPagesWordWrap(File& file, long startPos,
           long pageFilePos = chunkFileStart + lineStart;
           pagePositions.push_back(pageFilePos);
           pagesAdded++;
+#ifdef MECK_TOUCH_DIAG
+          if (pagesAdded <= 10) {
+            char pk[25]; int pn = 0;
+            for (int k = lineStart; k < bufLen && pn < 24; k++, pn++)
+              pk[pn] = (buffer[k] >= 32 && buffer[k] < 127) ? buffer[k] : '.';
+            pk[pn] = '\0';
+            Serial.printf("[TouchDiag] iPAGE %d @%ld: \"%s\"\n", pagesAdded, pageFilePos, pk);
+          }
+#endif
           accHeight = 0;
           if (maxPages > 0 && pagesAdded >= maxPages) break;
         }
@@ -654,7 +674,9 @@ private:
     String fullPath = _currentPath + "/" + filename;
     File txtFile = RDR_FS.open(fullPath.c_str(), FILE_READ);
     if (!txtFile) {
-      // Fallback: check epub cache directory
+      // Fallback: check epub cache directory. Index keys for epubs are the
+      // cache file's own name ("<original>.epub.txt"), so the name is used
+      // verbatim here.
       String cachePath = String("/books/.epub_cache/") + filename;
       txtFile = RDR_FS.open(cachePath.c_str(), FILE_READ);
     }
@@ -909,6 +931,17 @@ private:
 
     _file = RDR_FS.open(actualFullPath.c_str(), FILE_READ);
 
+    // Stale-index guard: an index entry is only valid for the byte stream it
+    // was built from. If the matched entry's recorded size differs from the
+    // file just opened, it belongs to a different rendition -- discard it and
+    // re-index rather than marrying this file's bytes to foreign positions.
+    if (cache && _file && cache->fileSize != _file.size()) {
+      Serial.printf("TextReader: index for '%s' is for a different file size (%lu vs %lu) - rebuilding\n",
+                    actualFilename.c_str(), (unsigned long)cache->fileSize,
+                    (unsigned long)_file.size());
+      cache = nullptr;
+    }
+
     // Fallback: try epub cache dir (for files discovered during boot scan)
     if (!_file && !isEpub) {
       String cacheFallback = String("/books/.epub_cache/") + actualFilename;
@@ -1071,6 +1104,10 @@ private:
       // Last page - read remaining file content
       pageEnd = _file.size();
     }
+#ifdef MECK_TOUCH_DIAG
+    Serial.printf("[TouchDiag] reader slice: page=%d start=%ld end=%ld\n",
+                  _currentPage, pageStart, pageEnd);
+#endif
 
     long pageSpan = pageEnd - pageStart;
     int toRead = (int)min((long)(READER_BUF_SIZE - 1), pageSpan);
@@ -1079,6 +1116,16 @@ private:
     _pageBufLen = _file.readBytes(_pageBuf, toRead);
     _pageBuf[_pageBufLen] = '\0';
     _contentDirty = false;
+#ifdef MECK_TOUCH_DIAG
+    {
+      char pk[25]; int pn = 0;
+      for (int k = 0; k < _pageBufLen && pn < 24; k++, pn++)
+        pk[pn] = (_pageBuf[k] >= 32 && (uint8_t)_pageBuf[k] < 127) ? _pageBuf[k] : '.';
+      pk[pn] = '\0';
+      Serial.printf("[TouchDiag] rPAGE %d @%ld len=%d: \"%s\"\n",
+                    _currentPage, pageStart, _pageBufLen, pk);
+    }
+#endif
 
     // Deselect SD to free SPI bus for display
 #if !defined(MECK_TWATCH)
@@ -1121,7 +1168,11 @@ private:
       display.setCursor(0, 30);
       display.print("Add .txt or .epub to");
       display.setCursor(0, 42);
+#if defined(MECK_TWATCH)
+      display.print("/books/ on internal storage");
+#else
       display.print("/books/ on SD card");
+#endif
     } else {
       display.setTextSize(_prefs->smallTextSize());  // Tiny font for file list
       int listLineH = _prefs->smallLineH();
@@ -1188,9 +1239,14 @@ private:
     display.setColor(DisplayDriver::YELLOW);
 
     display.setCursor(0, footerY);
+#if defined(MECK_TWATCH)
+    display.print("Top:Home");
+    const char* right = "Tap:Sel/Open";
+#else
     display.print("Q:Bk");
 
     const char* right = "Tap/Ent:Open";
+#endif
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
   }
@@ -1200,6 +1256,7 @@ private:
     display.setTextSize(_prefs->smallTextSize());
     display.setColor(DisplayDriver::LIGHT);
 
+    RDR_LOCK_FONT(display);
     int y = 0;
     int lineCount = 0;
     int pos = 0;
@@ -1215,57 +1272,59 @@ private:
       WrapResult wrap = usePixelWrap
         ? findLineBreakPixel(_pageBuf, _pageBufLen, pos, &display, _charsPerLine)
         : findLineBreak(_pageBuf, _pageBufLen, pos, _charsPerLine);
+#ifdef MECK_TOUCH_DIAG
+      Serial.printf("[TouchDiag] rL%02d: %d..%d n=%d\n",
+                    lineCount, pos, wrap.lineEnd, wrap.nextStart);
+#endif
 
-      // Safety: stop if wrap made no progress (stuck at end of buffer)
-      if (wrap.nextStart <= oldPos && wrap.lineEnd >= _pageBufLen) break;
+      // Safety: stop if wrap made no progress. Unconditional -- a wrap that
+      // does not advance can only loop forever (this froze the watch when a
+      // bad layout produced a zero character budget).
+      if (wrap.nextStart <= oldPos) break;
 
       // Height-aware stop check — must match the indexer exactly.
       // Blank lines (lineEnd == lineStart) get reduced height.
       // Check BEFORE rendering: does this line fit on the current page?
       bool isBlankLine = (wrap.lineEnd == pos);
       int thisH = isBlankLine ? max(2, _lineHeight * 2 / 5) : _lineHeight;
-      if (y > 0 && y + thisH > textArea) break;
+      if (y > 0 && y + thisH > textArea) {
+#ifdef MECK_TOUCH_DIAG
+        Serial.printf("[TouchDiag] reader clip: y=%d thisH=%d area=%d pos=%d len=%d\n",
+                      y, thisH, textArea, pos, _pageBufLen);
+#endif
+        break;
+      }
 
       display.setCursor(0, y);
-      // Print line with UTF-8 decoding: multi-byte sequences are decoded
-      // to Unicode codepoints, then mapped to CP437 for the built-in font.
+      // Build the visual line into a buffer and print it ONCE. Per-character
+      // print() calls collapse on the watch: LGFXDisplay::print() is a
+      // println(), so every call ends the line -- one glyph per row down the
+      // left edge. One print per visual line matches how every other screen
+      // draws. UTF-8 sequences are decoded to codepoints, mapped to CP437.
       bool lineHasContent = false;
-      char charStr[2] = {0, 0};
+      char lineOut[96];
+      int outLen = 0;
       int j = pos;
-      while (j < wrap.lineEnd && j < _pageBufLen) {
+      while (j < wrap.lineEnd && j < _pageBufLen && outLen < (int)sizeof(lineOut) - 1) {
         uint8_t b = (uint8_t)_pageBuf[j];
-
-        if (b < 32) {
-          // Control character — skip
+        if (b < 32) { j++; continue; }             // control character
+        if (b < 0x80) {                            // plain ASCII
+          lineOut[outLen++] = (char)b;
           j++;
-          continue;
-        }
-
-        if (b < 0x80) {
-          // Plain ASCII — print directly
-          charStr[0] = (char)b;
-          display.print(charStr);
-          lineHasContent = true;
-          j++;
-        } else if (b >= 0xC0) {
-          // UTF-8 lead byte — decode full sequence and map to CP437
-          int savedJ = j;
+        } else if (b >= 0xC0) {                    // UTF-8 lead byte -> CP437
           uint32_t cp = decodeUtf8Char(_pageBuf, wrap.lineEnd, &j);
           uint8_t glyph = unicodeToCP437(cp);
-          if (glyph) {
-            charStr[0] = (char)glyph;
-            display.print(charStr);
-            lineHasContent = true;
-          }
-          // If unmappable (glyph==0), just skip the character
-        } else {
-          // Standalone byte 0x80-0xBF: not a valid UTF-8 lead byte.
-          // Treat as CP437 pass-through (e.g. from EPUB numeric entity decoding).
-          charStr[0] = (char)b;
-          display.print(charStr);
-          lineHasContent = true;
+          if (glyph) lineOut[outLen++] = (char)glyph;
+          // unmappable (glyph == 0): skip the character
+        } else {                                   // 0x80-0xBF: CP437 pass-through
+          lineOut[outLen++] = (char)b;
           j++;
         }
+      }
+      if (outLen > 0) {
+        lineOut[outLen] = '\0';
+        display.print(lineOut);
+        lineHasContent = true;
       }
 
       // Blank lines (paragraph breaks) get reduced height for compact layout.
@@ -1281,6 +1340,12 @@ private:
       pos = wrap.nextStart;
       if (pos >= _pageBufLen) break;
     }
+
+#ifdef MECK_TOUCH_DIAG
+    if (pos < _pageBufLen)
+      Serial.printf("[TouchDiag] reader undrawn: %d of %d bytes (page %d)\n",
+                    _pageBufLen - pos, _pageBufLen, _currentPage);
+#endif
 
     // Restore text size for footer
     display.setTextSize(1);
@@ -1303,7 +1368,11 @@ private:
     display.setCursor(0, footerY);
     display.print(status);
 
+#if defined(MECK_TWATCH)
+    const char* right = "Hold:List";   // top strip goes home; taps/swipes page
+#else
     const char* right = _gotoMode ? "Ent:Go Sh+Del:Cancel" : "Entr:Pg# Q:Bk";
+#endif
     display.setCursor(display.width() - display.getTextWidth(right) - 2, footerY);
     display.print(right);
   }
@@ -1350,6 +1419,7 @@ public:
     _display = &display;
 
     // Measure tiny font metrics using the display driver
+    RDR_LOCK_FONT(display);
     display.setTextSize(_prefs->smallTextSize());
 
     // Measure character width: use 10 M's for monospace (T-Deck Pro tiny font).
@@ -1373,6 +1443,12 @@ public:
     }
     if (_charsPerLine < 15) _charsPerLine = 15;
     if (_charsPerLine > 60) _charsPerLine = 60;
+#ifdef MECK_TOUCH_DIAG
+    Serial.printf("[TouchDiag] reader layout: smallSz=%d large=%d style=%d tenM=%u cpl=%d\n",
+                  (int)(_prefs ? _prefs->smallTextSize() : 255),
+                  (int)(_prefs ? _prefs->large_font : 255),
+                  (int)display.getFontStyle(), (unsigned)tenCharsW, _charsPerLine);
+#endif
 
     // Line height for built-in 6x8 font:
     // setCursor adds +5 to y, so effective text top = (y+5)*scale_y
@@ -1677,6 +1753,12 @@ public:
   // ---- Public Interface ----
 
   void setSDReady(bool ready) { _sdReady = ready; }
+  // Close any open book and return to the file list. Watch tile entry uses
+  // this so the Reader always opens on the list; the page is already saved.
+  void resetToList() {
+    if (_mode == READING) { closeBook(); _mode = FILE_LIST; }
+    _gotoMode = false;
+  }
   bool isSDReady() const { return _sdReady; }
 
   // Called when entering the reader screen (press R).
@@ -1759,9 +1841,15 @@ public:
       display.setCursor(0, 20);
       display.setTextSize(1);
       display.setColor(DisplayDriver::LIGHT);
+#if defined(MECK_TWATCH)
+      display.print("Storage not available");
+      display.setCursor(0, 35);
+      display.print("(maps partition failed)");
+#else
       display.print("SD card not found");
       display.setCursor(0, 35);
       display.print("Insert SD with /books/");
+#endif
       return 5000;
     }
 
@@ -1923,11 +2011,18 @@ public:
       return false;
     }
 
-    // Enter - go-to-page input mode
+    // Enter - go-to-page input mode. On the watch there is no digit entry,
+    // so the long-press (which arrives as KEY_ENTER) closes the book instead
+    // -- go-to-page mode is unreachable there.
     if (c == '\r' || c == 13) {
+#if defined(MECK_TWATCH)
+      closeBook();
+      _mode = FILE_LIST;
+#else
       _gotoMode = true;
       _gotoBufLen = 0;
       _gotoBuf[0] = '\0';
+#endif
       return true;
     }
 

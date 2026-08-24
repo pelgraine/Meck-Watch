@@ -297,16 +297,17 @@ static void lastHeardToggleContact() {
     // --- Status bar tap (top ~18 virtual units) → go home from any non-home screen ---
     // Exception: text reader reading mode uses full screen for content (no header)
     if (vy < 18 && !ui_task.isOnHomeScreen()) {
+#if !defined(MECK_TWATCH)
+      // T-Deck/T5S3: reading mode repurposes the top strip as next-page.
+      // The watch keeps the universal rule -- the top strip goes home --
+      // since paging has the left/right tap zones and the swipes.
       if (ui_task.isOnTextReader()) {
         TextReaderScreen* reader = (TextReaderScreen*)ui_task.getTextReaderScreen();
         if (reader && reader->isReading()) {
-#if defined(MECK_TWATCH)
-          return (vx < 60) ? 'a' : 'd';  // left half = previous page, right = next
-#else
           return 'd';  // reading mode: treat as next page
-#endif
         }
       }
+#endif
 #if defined(MECK_TWATCH)
       // Repeater admin: unwind one level rather than leaving the screen, so
       // the admin session (and password) is kept -- response/error -> command
@@ -856,6 +857,9 @@ static void lastHeardToggleContact() {
     // normal home page turning.
     if (ui_task.isOnHomeScreen() && ui_task.isHomeShowingTiles() && !horizontal) {
       ui_task.setTileScroll(dy > 0);
+#ifdef MECK_TOUCH_DIAG
+      Serial.printf("[TouchDiag] tileScroll set -> %d\n", (int)(dy > 0));
+#endif
       ui_task.forceRefresh();
       return 0;
     }
@@ -1355,7 +1359,8 @@ void setup() {
   // kept separate from the SPIFFS DataStore that holds identity/contacts).
   // formatOnFail=true so a freshly flashed (raw) maps partition is formatted
   // and immediately usable for ESPConnect tile uploads.
-  if (LittleFS.begin(true, "/maps", 10, "maps")) {
+  bool mapsFsReady = LittleFS.begin(true, "/maps", 10, "maps");
+  if (mapsFsReady) {
     Serial.printf("maps: LittleFS mounted (%u KB total, %u KB used)\n",
                   (unsigned)(LittleFS.totalBytes() / 1024),
                   (unsigned)(LittleFS.usedBytes() / 1024));
@@ -1547,6 +1552,16 @@ void setup() {
   MESH_DEBUG_PRINTLN("setup() - about to call ui_task.begin()");
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());
   MESH_DEBUG_PRINTLN("setup() - ui_task.begin() done");
+
+#if defined(MECK_TWATCH)
+  // The reader's readiness gate: on the watch its "SD" is the maps LittleFS
+  // partition, mounted above. Without this call _sdReady stays false and the
+  // reader shows "SD card not found" forever.
+  {
+    TextReaderScreen* rdr = (TextReaderScreen*)ui_task.getTextReaderScreen();
+    if (rdr) rdr->setSDReady(mapsFsReady);
+  }
+#endif
 
   // T-Echo Card: replace the generic HomeScreen with the 72x40 OLED home screen
 #endif
@@ -1948,6 +1963,12 @@ void loop() {
         if (!swipeHandled && !longPressHandled && dist >= TOUCH_SWIPE_THRESHOLD) {
           swipeHandled = true;
           char c = mapTouchSwipe(dx, dy);
+#ifdef MECK_TOUCH_DIAG
+          Serial.printf("[TouchDiag] swipe dx=%d dy=%d horiz=%d -> c=0x%02x home=%d tiles=%d scroll=%d\n",
+                        (int)dx, (int)dy, (int)(abs(dx) > abs(dy)), (unsigned)(uint8_t)c,
+                        (int)ui_task.isOnHomeScreen(), (int)ui_task.isHomeShowingTiles(),
+                        (int)ui_task.getTileScroll());
+#endif
           if (c) {
             // Channel screen: horizontal swipe opens picker instead of cycling
             if (ui_task.isOnChannelScreen() && (c == 'a' || c == 'd')) {

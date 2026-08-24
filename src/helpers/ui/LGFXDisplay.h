@@ -27,6 +27,10 @@ public:
   void clear() override;
   void startFrame(Color bkg = DARK) override;
   void setTextSize(int sz) override;
+  // Restore the canonical body-text state: default 6x8 GLCD font, size 1.
+  // Layout measurement and the text reader call this so boot-time ambient
+  // font state (a prior screen's leftover font) can never skew metrics.
+  void resetTextFont() { buffer.setFont(&fonts::Font0); buffer.setTextSize(1); }
   void setColor(Color c) override;
 #if defined(MECK_TWATCH)
   // Set an exact RGB565 colour, bypassing the Color enum + watch grey remap.

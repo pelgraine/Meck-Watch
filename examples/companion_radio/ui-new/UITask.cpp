@@ -376,6 +376,11 @@ public:
     char tmp[80];
 #if defined(MECK_TWATCH)
     _task->setHomeShowingTiles(false);  // Reset — only set true on FIRST page
+    // The tile-row scroll must NOT be cleared here: this reset runs at the top
+    // of every render, and wiping the scroll with it erases a swipe before the
+    // grid ever draws (the v1.5 hidden-row bug). Clear it only when the home
+    // view has actually moved off the tile page.
+    if (_page != HomePage::FIRST) _task->setTileScroll(false);
 #endif
 
     // Power off: full-screen message, no header
@@ -584,6 +589,10 @@ public:
         const int gridTop = y + 2;
         const int gridY = gridTop - (_task->getTileScroll() ? (tileH + gapY) : 0);
         _task->setTileGridVY(gridY);
+#ifdef MECK_TOUCH_DIAG
+        Serial.printf("[TouchDiag] tiles render scroll=%d gridTop=%d gridY=%d rows=%d\n",
+                      (int)_task->getTileScroll(), gridTop, gridY, rows);
+#endif
 
         LGFXDisplay* lcd = (LGFXDisplay*)&display;  // watch display is always LGFXDisplay
         for (int row = 0; row < rows; row++) {
@@ -2728,6 +2737,9 @@ void UITask::gotoContactsScreen() {
 void UITask::gotoTextReader() {
   if (!text_reader) return;  // Not available on this platform
   TextReaderScreen* reader = (TextReaderScreen*)text_reader;
+#if defined(MECK_TWATCH)
+  reader->resetToList();   // tile always lands on the file list
+#endif
   if (_display != NULL) {
     reader->enter(*_display);
   }

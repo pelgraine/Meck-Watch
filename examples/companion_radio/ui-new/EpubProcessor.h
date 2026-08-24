@@ -214,7 +214,11 @@ public:
 
   // ----------------------------------------------------------
   // Build a cache .txt path from an .epub path.
-  // e.g., "/books/mybook.epub" -> "/books/.epub_cache/mybook.txt"
+  // e.g., "/books/mybook.epub" -> "/books/.epub_cache/mybook.epub.txt"
+  // The FULL epub name is kept: stripping the extension made the cache's
+  // basename collide with a sibling "mybook.txt" in /books, and openBook's
+  // index lookup (keyed by basename) then married the sibling's page index
+  // to the epub cache's bytes -- drifting pages and clipped line tails.
   // ----------------------------------------------------------
   static void buildCachePath(const char* epubPath, char* cachePath, int cachePathSize) {
     // Extract filename without extension
@@ -239,14 +243,7 @@ public:
       RDR_FS.mkdir(cacheDir);
     }
 
-    // Strip .epub extension
-    char baseName[128];
-    strncpy(baseName, filename, sizeof(baseName) - 1);
-    baseName[sizeof(baseName) - 1] = '\0';
-    char* dot = strrchr(baseName, '.');
-    if (dot) *dot = '\0';
-
-    snprintf(cachePath, cachePathSize, "%s/%s.txt", cacheDir, baseName);
+    snprintf(cachePath, cachePathSize, "%s/%s.txt", cacheDir, filename);
   }
 
 private:

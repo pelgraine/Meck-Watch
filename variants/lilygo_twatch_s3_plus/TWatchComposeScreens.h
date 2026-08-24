@@ -246,11 +246,21 @@ class TWatchChannelScreen : public UIScreen {
   int           _pathMsgN;        // recency index the overlay describes
   char          _replyPrefill[40] = "";  // "@[sender] " armed by the overlay's Reply button
   int           _resendN = -1;           // recency index armed by the overlay's Send Again button
+  int           _dragLastY = 0;          // updated while the finger is down, for swipe detection
+  uint16_t      _histOffset = 0;         // 0 = live view; N = viewing N messages back in history
 
   static const int HEADER_H      = 14;
   static const int COMPOSE_BAR_H = 18;
   static const int MSG_LINE_H    = 11;
   static const int MSG_TOP       = HEADER_H + 2;
+
+  // Total messages stored for this channel (walks the shared history store).
+  int totalMsgs() const {
+    if (!_store) return 0;
+    int n = 0;
+    while (n < CHANNEL_MSG_HISTORY_SIZE && _store->getChannelMsgByRecency(_channelIdx, n)) n++;
+    return n;
+  }
 
   int rowsThatFit() const {
     int h = _display ? _display->height() : 120;
@@ -258,12 +268,13 @@ class TWatchChannelScreen : public UIScreen {
     return rows < 1 ? 1 : rows;
   }
 
-  // Store messages available for this channel, capped at what fits on screen.
+  // Store messages available at the current history offset, capped at what
+  // fits on screen.
   int visibleCount() const {
     if (!_store) return 0;
     int maxRows = rowsThatFit();
     int n = 0;
-    while (n < maxRows && _store->getChannelMsgByRecency(_channelIdx, n)) n++;
+    while (n < maxRows && _store->getChannelMsgByRecency(_channelIdx, _histOffset + n)) n++;
     return n;
   }
 
@@ -522,6 +533,7 @@ public:
   // Opening a channel marks its messages as read.
   void activate(uint8_t idx, const char* name) {
     _channelIdx = idx;
+    _histOffset = 0;   // opening a channel always lands on the live view
     strncpy(_channelName, name ? name : "", TW_CH_NAME_LEN - 1);
     _channelName[TW_CH_NAME_LEN - 1] = 0;
     _touchDown = false; _wantsCompose = false; _wantsExit = false;
@@ -565,7 +577,7 @@ public:
   bool handleInput(char c) override {
     if (c == KEY_ENTER || c == KEY_NEXT) {
       if (_showPath) { _showPath = false; return true; }
-      int n = (_selectedN >= 0) ? _selectedN : 0;
+      int n = (_selectedN >= 0) ? _selectedN : (int)_histOffset;   // newest visible
       if (_store && _store->getChannelMsgByRecency(_channelIdx, n)) {
         _pathMsgN = n;
         _showPath = true;
@@ -580,7 +592,9 @@ public:
     int x, y;
     bool now = ((LGFXDisplay*)_display)->getTouch(&x, &y);
     if (now && !_touchDown) {
-      _touchDown = true; _downX = x; _downY = y;
+      _touchDown = true; _downX = x; _downY = y; _dragLastY = y;
+    } else if (now && _touchDown) {
+      _dragLastY = y;                                // track the drag
     } else if (!now && _touchDown) {
       _touchDown = false;
       int H = _display->height();
@@ -610,14 +624,30 @@ public:
         }
         _showPath = false; return;   // any tap dismisses the path overlay
       }
-      if (_downX < 20 && _downY < HEADER_H) { _selectedN = -1; _wantsExit = true; return; }   // back arrow
+      // Vertical swipe pages the message history one screenful per swipe:
+      // swipe up = older messages, swipe down = back towards live. Checked
+      // before the tap actions so a drag never opens the composer or exits
+      // (same idiom as the channel picker; TOUCH_SWIPE_THRESHOLD=16).
+      int dy = _dragLastY - _downY;
+      if (abs(dy) >= 16) {
+        int vis = rowsThatFit();
+        int maxOff = totalMsgs() - vis;
+        if (maxOff < 0) maxOff = 0;
+        int off = (int)_histOffset + ((dy < 0) ? vis : -vis);
+        if (off < 0) off = 0;
+        if (off > maxOff) off = maxOff;
+        _histOffset = (uint16_t)off;
+        _selectedN = -1;
+        return;
+      }
+      if (_downX < 20 && _downY < HEADER_H) { _selectedN = -1; _histOffset = 0; _wantsExit = true; return; }   // back arrow
       if (_downY >= H - COMPOSE_BAR_H) { _selectedN = -1; _wantsCompose = true; return; }      // compose bar
       // message area -> tap to open/close ticker
       if (_downY >= MSG_TOP && _downY < H - COMPOSE_BAR_H) {
         int visualRow = (_downY - MSG_TOP) / MSG_LINE_H;
         int count = visibleCount();
         if (visualRow >= 0 && visualRow < count) {
-          int n = (count - 1) - visualRow;   // top row = oldest visible
+          int n = _histOffset + (count - 1) - visualRow;   // top row = oldest visible
           if (_selectedN == n) _selectedN = -1;
           else { _selectedN = n; _tickerStartMs = millis(); }
         }
@@ -635,6 +665,15 @@ public:
     display.print("<");
     display.setColor(DisplayDriver::GREEN);
     display.drawTextCentered(W / 2, 0, _channelName);
+    if (_histOffset > 0) {
+      // Depth marker while viewing history: how many messages back the top
+      // of the current page sits. Swipe down returns towards live.
+      char hb[10];
+      snprintf(hb, sizeof(hb), "-%u", (unsigned)_histOffset);
+      display.setColor(DisplayDriver::YELLOW);
+      display.setCursor(W - display.getTextWidth(hb) - 2, 0);
+      display.print(hb);
+    }
     display.setColor(DisplayDriver::LIGHT);
     display.drawRect(0, HEADER_H - 2, W, 1);
 
@@ -645,7 +684,15 @@ public:
     if (newest != _lastNewest || (newest && newest->timestamp != _lastNewestTs)) {
       _lastNewest = newest;
       _lastNewestTs = newest ? newest->timestamp : 0;
-      _selectedN = -1;
+      if (_histOffset > 0) {
+        // Reading history: a new arrival shifts every recency index by one,
+        // so advance the offset (and any ticker) to keep the SAME messages
+        // on screen instead of the view sliding underfoot.
+        if (_histOffset < 0xFFFF) _histOffset++;
+        if (_selectedN >= 0) _selectedN++;
+      } else {
+        _selectedN = -1;
+      }
     }
 
     int count = visibleCount();
@@ -656,7 +703,7 @@ public:
     } else {
       int y = MSG_TOP;
       for (int n = count - 1; n >= 0; n--) {   // oldest visible (top) -> newest (bottom)
-        const ChannelScreen::ChannelMessage* m = _store->getChannelMsgByRecency(_channelIdx, n);
+        const ChannelScreen::ChannelMessage* m = _store->getChannelMsgByRecency(_channelIdx, _histOffset + n);
         if (!m) continue;
         bool sent = isSent(m);
         if (n == _selectedN) drawTicker(display, y, m->text, sent);
