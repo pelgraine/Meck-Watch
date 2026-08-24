@@ -480,6 +480,16 @@ class TWatchChannelScreen : public UIScreen {
       d->drawTextRightAlign(bx + bw - 4, by + bh - 10, "[Reply]");
     }
 
+    // Region scope (received scoped channel messages only): bottom-left of
+    // the box, same row as [Reply], TomThumb so the longest names
+    // ("au-nsw-syd-iwc") fit beside the button. getScopeName() returns
+    // nullptr for unscoped -- sent bubbles and DMs always are.
+    const char* rgn = the_mesh.getScopeName(m->scope_idx);
+    if (rgn) {
+      d->setRawColor(0xC618);
+      d->printSmallFont(bx + 5, by + bh - 10, rgn);
+    }
+
     if (m->path_len == 0 || m->path_len == 0xFF) return;
 
     int byteLen = (int)mesh::Packet::getPathByteLenFor(m->path_len);
