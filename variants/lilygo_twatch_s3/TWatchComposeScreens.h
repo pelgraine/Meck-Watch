@@ -240,8 +240,8 @@ class TWatchChannelScreen : public UIScreen {
 
   int           _selectedN;       // recency index shown as ticker, -1 = none
   unsigned long _tickerStartMs;
-  const void*   _lastNewest;      // newest store entry seen last render
-  uint32_t      _lastNewestTs;    //   (a change dismisses the ticker)
+  const void*   _lastNewest;      // newest store entry seen last poll
+  uint32_t      _lastNewestTs;    //   (a change compensates offset/selection/overlay)
   bool          _showPath;        // hop-path overlay visible
   int           _pathMsgN;        // recency index the overlay describes
   char          _replyPrefill[40] = "";  // "@[sender] " armed by the overlay's Reply button
@@ -599,6 +599,39 @@ public:
 
   void poll() override {
     if (!_display) return;
+
+    // A new message (sent or received) shifts every recency index by one,
+    // so compensate the view, any selection, and an open path overlay when
+    // the newest store entry for this channel changes. Runs at the top of
+    // poll() -- before any hit-test -- so a tap released in the same UITask
+    // pass as an arrival (mesh loop runs first) already resolves against
+    // compensated indices; render() follows poll() within a pass, so the
+    // drawn rows agree too.
+    const ChannelScreen::ChannelMessage* newest =
+        _store ? _store->getChannelMsgByRecency(_channelIdx, 0) : nullptr;
+    if (newest != _lastNewest || (newest && newest->timestamp != _lastNewestTs)) {
+      _lastNewest = newest;
+      _lastNewestTs = newest ? newest->timestamp : 0;
+      if (_histOffset > 0) {
+        // Reading history: advance the offset (and any ticker) to keep the
+        // SAME messages on screen instead of the view sliding underfoot.
+        if (_histOffset < 0xFFFF) _histOffset++;
+        if (_selectedN >= 0) _selectedN++;
+      } else if (_selectedN >= 0) {
+        // Live view: same compensation, so a just-made selection survives
+        // arrivals instead of being orphaned (the PWR-key overlay then fell
+        // back to the newest message). Drop it once the selected row has
+        // shifted off the top of the page.
+        _selectedN++;
+        if (_selectedN >= visibleCount()) _selectedN = -1;
+      }
+      // An open path overlay is pinned to its message the same way; without
+      // this, each arrival made _pathMsgN describe -- and [Reply] answer --
+      // a message one newer than the one it was opened on. If the message
+      // is ever evicted from the store, drawPathOverlay self-dismisses.
+      if (_showPath) _pathMsgN++;
+    }
+
     int x, y;
     bool now = ((LGFXDisplay*)_display)->getTouch(&x, &y);
     if (now && !_touchDown) {
@@ -687,24 +720,6 @@ public:
     display.setColor(DisplayDriver::LIGHT);
     display.drawRect(0, HEADER_H - 2, W, 1);
 
-    // A new message (sent or received) shifts the rows, so dismiss any open
-    // ticker when the newest store entry for this channel changes.
-    const ChannelScreen::ChannelMessage* newest =
-        _store ? _store->getChannelMsgByRecency(_channelIdx, 0) : nullptr;
-    if (newest != _lastNewest || (newest && newest->timestamp != _lastNewestTs)) {
-      _lastNewest = newest;
-      _lastNewestTs = newest ? newest->timestamp : 0;
-      if (_histOffset > 0) {
-        // Reading history: a new arrival shifts every recency index by one,
-        // so advance the offset (and any ticker) to keep the SAME messages
-        // on screen instead of the view sliding underfoot.
-        if (_histOffset < 0xFFFF) _histOffset++;
-        if (_selectedN >= 0) _selectedN++;
-      } else {
-        _selectedN = -1;
-      }
-    }
-
     int count = visibleCount();
     if (count == 0) {
       display.setColor(DisplayDriver::LIGHT);
@@ -716,8 +731,8 @@ public:
         const ChannelScreen::ChannelMessage* m = _store->getChannelMsgByRecency(_channelIdx, _histOffset + n);
         if (!m) continue;
         bool sent = isSent(m);
-        if (n == _selectedN) drawTicker(display, y, m->text, sent);
-        else                 drawMsgLine(display, y, m->text, sent);
+        if ((int)_histOffset + n == _selectedN) drawTicker(display, y, m->text, sent);
+        else                                    drawMsgLine(display, y, m->text, sent);
         y += MSG_LINE_H;
       }
     }
