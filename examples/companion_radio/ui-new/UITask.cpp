@@ -1560,6 +1560,25 @@ void UITask::showAlert(const char* text, int duration_millis) {
   _next_refresh = millis() + 100;  // trigger re-render to show updated text
 }
 
+// Synchronous toast for long blocking operations (slot-switch saves): the
+// normal alert renders on the next loop pass, which never comes while the
+// caller is blocking, so this draws a complete frame immediately.
+void UITask::showBlockingToast(const char* line1, const char* line2) {
+  if (_display == NULL) return;
+  _display->startFrame();
+  int W = _display->width();
+  int bh = (line2 != NULL) ? 44 : 30;
+  int by = (_display->height() - bh) / 2;
+  _display->setColor(DisplayDriver::DARK);
+  _display->fillRect(4, by, W - 8, bh);
+  _display->setColor(DisplayDriver::LIGHT);
+  _display->drawRect(4, by, W - 8, bh);
+  _display->setTextSize(1);
+  _display->drawTextCentered(W / 2, by + 8, line1);
+  if (line2 != NULL) _display->drawTextCentered(W / 2, by + 24, line2);
+  _display->endFrame();
+}
+
 void UITask::showBootHint(bool immediate) {
   if (immediate) {
     // Activate now — used when hint should overlay the current screen (e.g. onboarding)

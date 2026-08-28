@@ -20,7 +20,12 @@
 // stand down, or the AP drops clients within seconds. wfmStop() restores
 // the normal idle clock when the manager is switched off.
 #if defined(MECK_TWATCH)
+  #ifdef MECK_OTA_UPDATE
+  bool otaIsActive();   // defined beside the OTA radio-pause helpers below
+  #define MECK_CPU_CLAMP_OK (!wfmActive() && !otaIsActive())
+  #else
   #define MECK_CPU_CLAMP_OK (!wfmActive())
+  #endif
 #else
   #define MECK_CPU_CLAMP_OK true
 #endif
@@ -1270,6 +1275,38 @@ void setup() {
   board.begin();
   MESH_DEBUG_PRINTLN("setup() - board.begin() done");
 
+#if defined(MECK_OTA_UPDATE) && defined(MECK_TWATCH)
+  // Boot escape hatch (E, Aug 2026): a FRESH crown press within the first
+  // 800 ms after board.begin() switches boot to the other OTA slot and
+  // restarts -- reachable even when a bad build dies later in setup. The
+  // power-on hold itself cannot trigger it: latched edges are cleared
+  // first, so only a release-and-re-press counts. Reads the same AXP2101
+  // IRQ registers PMUButton polls.
+  {
+    auto* hatch_pmu = board.getPMU();
+    if (hatch_pmu) {
+      hatch_pmu->getIrqStatus();
+      hatch_pmu->clearIrqStatus();       // discard the power-on press
+      bool hatch_held = false;
+      unsigned long hatch_t0 = millis();
+      while (millis() - hatch_t0 < 800) {
+        delay(30);
+        hatch_pmu->getIrqStatus();
+        if (hatch_pmu->isPekeyNegativeIrq()) hatch_held = true;   // fresh press
+        if (hatch_pmu->isPekeyPositiveIrq()) hatch_held = false;  // released
+        hatch_pmu->clearIrqStatus();
+      }
+      if (hatch_held) {
+        const esp_partition_t* hatch_next = esp_ota_get_next_update_partition(NULL);
+        if (hatch_next && esp_ota_set_boot_partition(hatch_next) == ESP_OK) {
+          Serial.printf("Hatch: crown held, rebooting into %s\n", hatch_next->label);
+          esp_restart();
+        }
+      }
+    }
+  }
+#endif
+
   // Initialize touch input (CST328) HERE, immediately after board.begin(),
   // while the I2C bus is freshly initialised and quiet -- mirroring LilyGo's
   // working example, which calls touch.begin() first thing. Running it later
@@ -1691,6 +1728,10 @@ void otaResumeRadio() {
   otaRadioPaused = false;
   Serial.println("OTA: Radio receive resumed, mesh loop active");
 }
+
+// True while the OTA AP session is running (pause at AP start, resume at
+// stop). Keys the CPU clamp: WiFi needs >= 80 MHz on the watch.
+bool otaIsActive() { return otaRadioPaused; }
 #endif
 
 void loop() {
@@ -1721,6 +1762,51 @@ void loop() {
       if (r > 0) ui_task.showAlert("Config imported", 1200);
       else if (r == 0) ui_task.showAlert("No import.json found", 1500);
       else ui_task.showAlert("Import failed", 1200);
+    }
+  }
+#endif
+#if defined(MECK_OTA_UPDATE) && defined(MECK_TWATCH)
+  // Dual-firmware slot switch (E, Aug 2026): flush everything pending to the
+  // shared data partitions so the other firmware wakes with current state --
+  // identity, prefs (name/frequency/timezone), channels + region scopes,
+  // contacts, steps, channel-message history -- then flip the boot slot.
+  {
+    SettingsScreen* bss = (SettingsScreen*)ui_task.getSettingsScreen();
+    if (bss && bss->isBootOtherSlotRequested()) {
+      bss->clearBootOtherSlotRequest();
+      // Staged toasts (E, Aug 2026): the saves below block the loop for tens
+      // of seconds on a large contact store, so each stage draws its own
+      // frame synchronously -- the first appears within ~100 ms of the tap.
+      ui_task.showBlockingToast("Saving Contacts...");
+      the_mesh.saveMainIdentity();
+      the_mesh.savePrefs();
+      the_mesh.saveContacts();
+      {
+        char cbuf[40];
+        int nc = the_mesh.getNumContacts();
+        snprintf(cbuf, sizeof(cbuf), "%d/%d contacts saved!", nc, nc);
+        ui_task.showBlockingToast(cbuf);
+      }
+      delay(500);
+      ui_task.showBlockingToast("Saving Channels...");
+      the_mesh.saveChannels();
+      ui_task.saveSteps();
+      {
+        ChannelScreen* bssChan = (ChannelScreen*)ui_task.getChannelScreen();
+        if (bssChan) bssChan->flushMessagesIfDue(0);
+      }
+      ui_task.showBlockingToast("Channels saved!");
+      delay(500);
+      const esp_partition_t* bssNext = esp_ota_get_next_update_partition(NULL);
+      if (bssNext && esp_ota_set_boot_partition(bssNext) == ESP_OK) {
+        Serial.printf("Slot switch: state flushed, rebooting into %s\n", bssNext->label);
+        ui_task.showBlockingToast("Rebooting -", "Please Wait...");
+        delay(400);
+        ESP.restart();
+      } else {
+        Serial.println("Slot switch: esp_ota_set_boot_partition failed");
+        ui_task.showAlert("Slot switch failed", 1500);
+      }
     }
   }
 #endif

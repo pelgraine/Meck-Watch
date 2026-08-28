@@ -201,6 +201,9 @@ enum SettingsRowType : uint8_t {
   ROW_OTA_TOOLS_SUBMENU, // Folder row → enters OTA Tools sub-screen
   ROW_FW_UPDATE,      // "Firmware Update" — WiFi upload + flash
   ROW_SD_FILE_MGR,    // "SD File Manager" — WiFi file browser
+  #if defined(MECK_TWATCH)
+  ROW_BOOT_OTHER_SLOT, // Switch boot to the other OTA slot (dual-firmware swap)
+  #endif
   #endif
   ROW_PUB_KEY,        // Public key display
   ROW_FIRMWARE,       // Firmware version
@@ -321,6 +324,10 @@ private:
   uint8_t _exportFlags;    // bitmask of MECK_EXPORT_* flags for export checkboxes
   bool _exportRequested;   // set by key handler, cleared by main.cpp after calling export
   bool _importRequested;   // set by key handler, cleared by main.cpp after calling import
+  #endif
+
+  #if defined(MECK_OTA_UPDATE) && defined(MECK_TWATCH)
+  bool _bootOtherSlotRequested = false;  // set by key handler; main.cpp flushes state, flips the boot slot, reboots
   #endif
 
   bool _rxlogRequested = false;  // set by key handler, cleared by main.cpp after opening Rx Log
@@ -504,7 +511,11 @@ private:
     } else if (_subScreen == SUB_OTA_TOOLS) {
       // --- OTA Tools sub-screen ---
       addRow(ROW_FW_UPDATE);
-      addRow(ROW_SD_FILE_MGR);
+      #if defined(MECK_TWATCH)
+      addRow(ROW_FILE_MANAGER);  // watch WiFi file explorer, housed here as upstream houses its SD browser
+      #else
+      addRow(ROW_SD_FILE_MGR);   // upstream SD browser
+      #endif
     #endif
     #ifdef MECK_HAS_CONFIG_EXPORT
     } else if (_subScreen == SUB_EXPORT_IMPORT) {
@@ -574,7 +585,9 @@ private:
 
       // Rx Log packet sniffer (opens RxLogScreen)
       addRow(ROW_RXLOG);
-#if defined(MECK_TWATCH)
+#if defined(MECK_TWATCH) && !defined(MECK_OTA_UPDATE)
+      // Without the OTA Tools folder the File Manager lives at top level;
+      // with MECK_OTA_UPDATE it moves inside OTA Tools (E, Aug 2026).
       addRow(ROW_FILE_MANAGER);
 #endif
 
@@ -582,6 +595,10 @@ private:
       // Experimental Features (watch) -- placed above the Info section
       addRow(ROW_EXPERIMENTAL_SUBMENU);
 #endif
+      #if defined(MECK_OTA_UPDATE) && defined(MECK_TWATCH)
+      // Dual-firmware slot switch -- bottom of the actionable list (E, Aug 2026)
+      addRow(ROW_BOOT_OTHER_SLOT);
+      #endif
 
       // Info section (stays at top level)
       addRow(ROW_INFO_HEADER);
@@ -1201,6 +1218,10 @@ public:
   void clearExportRequest() { _exportRequested = false; }
   bool isImportRequested() const { return _importRequested; }
   void clearImportRequest() { _importRequested = false; }
+  #if defined(MECK_OTA_UPDATE) && defined(MECK_TWATCH)
+  bool isBootOtherSlotRequested() const { return _bootOtherSlotRequested; }
+  void clearBootOtherSlotRequest() { _bootOtherSlotRequested = false; }
+  #endif
   #endif
 
   // Rx Log open request -- checked and cleared by main.cpp
@@ -1262,6 +1283,9 @@ public:
   }
 
   void startOTAServer() {
+    #if defined(MECK_TWATCH)
+    if (wfmActive()) wfmStop();   // one WiFi AP and one port-80 server at a time
+    #endif
     // Build AP name with last 4 of MAC for uniqueness
     uint8_t mac[6];
     WiFi.macAddress(mac);
@@ -1310,6 +1334,49 @@ public:
       [this]() {
         HTTPUpload& upload = _otaServer->upload();
 
+        #if defined(MECK_TWATCH)
+        // Watch: stream chunks straight into the inactive OTA slot -- no SD.
+        // Update.end(true) validates the image checksum and sets the boot
+        // partition; the running firmware stays intact in its own slot, so a
+        // failed or aborted upload leaves nothing to clean up.
+        if (upload.status == UPLOAD_FILE_START) {
+          Serial.printf("OTA: Receiving: %s\n", upload.filename.c_str());
+          _otaUploadOk = false;
+          _otaBytesReceived = 0;
+          if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+            Serial.printf("OTA: Update.begin failed: %s\n", Update.errorString());
+            return;
+          }
+          _otaPhase = OTA_PHASE_RECEIVING;
+
+        } else if (upload.status == UPLOAD_FILE_WRITE) {
+          if (Update.isRunning()) {
+            if (_otaBytesReceived == 0 && upload.currentSize > 0 && upload.buf[0] != 0xE9) {
+              Serial.printf("OTA: Bad magic 0x%02X, aborting\n", upload.buf[0]);
+              Update.abort();
+              return;
+            }
+            if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+              Serial.printf("OTA: write failed: %s\n", Update.errorString());
+              Update.abort();
+            } else {
+              _otaBytesReceived += upload.currentSize;
+            }
+          }
+
+        } else if (upload.status == UPLOAD_FILE_END) {
+          if (Update.isRunning() && Update.end(true)) {
+            Serial.printf("OTA: Received %d bytes, image valid, boot set to inactive slot\n", _otaBytesReceived);
+            _otaUploadOk = (_otaBytesReceived > 0);
+          } else {
+            Serial.printf("OTA: Update.end failed: %s\n", Update.errorString());
+          }
+
+        } else if (upload.status == UPLOAD_FILE_ABORTED) {
+          if (Update.isRunning()) Update.abort();
+          Serial.println("OTA: Upload aborted");
+        }
+        #else
         if (upload.status == UPLOAD_FILE_START) {
           Serial.printf("OTA: Receiving: %s\n", upload.filename.c_str());
           _otaUploadOk = false;
@@ -1346,6 +1413,7 @@ public:
           digitalWrite(SDCARD_CS, HIGH);
           Serial.println("OTA: Upload aborted");
         }
+        #endif
       }
     );
 
@@ -1494,6 +1562,12 @@ public:
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);
 
+    #if defined(MECK_TWATCH)
+    // Direct-streamed: the image checksum was validated and the boot
+    // partition set by Update.end() inside the upload handler. The shared
+    // data partitions are never touched, so there is nothing to back up.
+    _otaPhase = OTA_PHASE_DONE;
+    #else
     _otaPhase = OTA_PHASE_VERIFY;
     if (!verifyFirmwareFile()) {
       _otaPhase = OTA_PHASE_ERROR;
@@ -1512,6 +1586,7 @@ public:
     }
 
     _otaPhase = OTA_PHASE_DONE;
+    #endif
     // Show success screen then reboot
     display.startFrame();
     display.setColor(DisplayDriver::DARK);
@@ -1522,16 +1597,24 @@ public:
     display.setColor(DisplayDriver::GREEN);
     display.drawTextCentered(display.width() / 2, 30, "Update Complete!");
     display.setColor(DisplayDriver::LIGHT);
-    File fw = SD.open("/firmware/update.bin", FILE_READ);
     char tmp[48];
+    #if defined(MECK_TWATCH)
+    snprintf(tmp, sizeof(tmp), "Firmware: %d KB", (int)(_otaBytesReceived / 1024));
+    #else
+    File fw = SD.open("/firmware/update.bin", FILE_READ);
     if (fw) {
       snprintf(tmp, sizeof(tmp), "Firmware: %d KB", (int)(fw.size() / 1024));
       fw.close(); digitalWrite(SDCARD_CS, HIGH);
     } else {
       strcpy(tmp, "Firmware written");
     }
+    #endif
     display.drawTextCentered(display.width() / 2, 48, tmp);
+    #if defined(MECK_TWATCH)
+    display.drawTextCentered(display.width() / 2, 66, "Rebooting...");
+    #else
     display.drawTextCentered(display.width() / 2, 66, "Rebooting in 3 seconds...");
+    #endif
     display.endFrame();
 
     delay(3000);
@@ -2579,6 +2662,12 @@ public:
         case ROW_SD_FILE_MGR:
           display.print("SD File Manager");
           break;
+
+        #if defined(MECK_TWATCH)
+        case ROW_BOOT_OTHER_SLOT:
+          display.print("Boot Other Slot");
+          break;
+        #endif
         #endif
 
         case ROW_INFO_HEADER:
@@ -2678,7 +2767,11 @@ public:
         display.drawTextCentered(display.width() / 2, by + 4, "Region not set.");
         display.drawTextCentered(display.width() / 2, by + 15, "Leave unset?");
       }
+      #if defined(MECK_TWATCH)
+      display.drawTextCentered(display.width() / 2, by + bh - 14, "Tap:Yes  Back:No");
+      #else
       display.drawTextCentered(display.width() / 2, by + bh - 14, "Enter:Yes  Q:No");
+      #endif
       display.setTextSize(1);
     }
 
@@ -2783,6 +2876,17 @@ public:
         display.drawTextCentered(display.width() / 2, oy, "Firmware Update");
         oy += 14;
         display.setCursor(bx + 4, oy);
+        #if defined(MECK_TWATCH)
+        // 120 px logical width: keep every line to 18 chars or fewer, or
+        // LGFX print wraps mid-word into the next row.
+        display.print("Start WiFi upload?");
+        oy += 10;
+        display.setCursor(bx + 4, oy);
+        display.print("Upload .bin from");
+        oy += 8;
+        display.setCursor(bx + 4, oy);
+        display.print("phone browser.");
+        #else
         display.print("Start WiFi upload server?");
         oy += 10;
         display.setCursor(bx + 4, oy);
@@ -2790,6 +2894,7 @@ public:
         oy += 8;
         display.setCursor(bx + 4, oy);
         display.print("from your device's browser.");
+        #endif
 
       } else if (_otaPhase == OTA_PHASE_AP_START) {
         display.drawTextCentered(display.width() / 2, oy + 20, "Starting WiFi...");
@@ -2798,6 +2903,25 @@ public:
         display.drawTextCentered(display.width() / 2, oy, "Firmware Update");
         oy += 14;
         display.setCursor(bx + 4, oy);
+        #if defined(MECK_TWATCH)
+        display.print("Join WiFi:");
+        oy += 10;
+        display.setColor(DisplayDriver::GREEN);
+        display.setCursor(bx + 4, oy);
+        display.print(_otaApName);
+        display.setColor(DisplayDriver::LIGHT);
+        oy += 12;
+        display.setCursor(bx + 4, oy);
+        display.print("Then browse to:");
+        oy += 10;
+        display.setColor(DisplayDriver::GREEN);
+        display.setCursor(bx + 4, oy);
+        display.print(WiFi.softAPIP().toString().c_str());
+        display.setColor(DisplayDriver::LIGHT);
+        oy += 12;
+        display.setCursor(bx + 4, oy);
+        display.print("Waiting...");
+        #else
         display.print("Connect to WiFi network:");
         oy += 10;
         display.setColor(DisplayDriver::GREEN);
@@ -2817,6 +2941,7 @@ public:
         oy += 12;
         display.setCursor(bx + 4, oy);
         display.print("Waiting for upload...");
+        #endif
 
         // Poll the web server during render
         pollOTAServer();
@@ -2829,7 +2954,11 @@ public:
         display.drawTextCentered(display.width() / 2, oy, progBuf);
         oy += 14;
         display.setCursor(bx + 4, oy);
+        #if defined(MECK_TWATCH)
+        display.print("Keep browser open");
+        #else
         display.print("Do not close browser");
+        #endif
 
         // Keep polling during receive
         pollOTAServer();
@@ -3027,11 +3156,23 @@ public:
     #ifdef MECK_OTA_UPDATE
     } else if (_editMode == EDIT_OTA) {
       if (_otaPhase == OTA_PHASE_CONFIRM) {
+        #if defined(MECK_TWATCH)
+        display.print("Tap:Start Back:No");
+        #else
         display.print("Enter:Start  Q:Cancel");
+        #endif
       } else if (_otaPhase == OTA_PHASE_WAITING) {
+        #if defined(MECK_TWATCH)
+        display.print("Back:Cancel");
+        #else
         display.print("Q:Cancel");
+        #endif
       } else if (_otaPhase == OTA_PHASE_ERROR) {
+        #if defined(MECK_TWATCH)
+        display.print("Back:Close");
+        #else
         display.print("Q:Back");
+        #endif
       } else {
         display.print("Please wait...");
       }
@@ -4040,6 +4181,13 @@ public:
         case ROW_SD_FILE_MGR:
           startFileMgr();
           break;
+
+        #if defined(MECK_TWATCH)
+        case ROW_BOOT_OTHER_SLOT:
+          _bootOtherSlotRequested = true;
+          Serial.println("Settings: boot-other-slot requested");
+          break;
+        #endif
         #endif
 
         #ifdef MECK_HAS_CONFIG_EXPORT

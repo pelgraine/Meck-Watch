@@ -117,7 +117,6 @@ class UITask : public AbstractUITask {
   bool     _stepsSeeded = false;  // _lastRaw has been seeded from the chip
   unsigned long _stepsDirtySince = 0;  // millis of oldest unsaved change; 0 = clean
   void loadSteps();
-  void saveSteps();
   void updateSteps();             // called every loop()
   void rollStepDays(int32_t newDay);
   void shiftStepHistory(uint32_t completedDay);
@@ -175,6 +174,12 @@ class UITask : public AbstractUITask {
   void setCurrScreen(UIScreen* c);
 
 public:
+
+  void saveSteps();   // public: the slot-switch flush (main.cpp) writes pending steps before reboot
+  // Synchronous centred toast: draws a complete frame NOW. For feedback
+  // around long blocking work (slot-switch saves), where the normal alert
+  // would never render because the loop is blocked.
+  void showBlockingToast(const char* line1, const char* line2 = nullptr);
 
   UITask(mesh::MainBoard* board, BaseSerialInterface* serial) : AbstractUITask(board, serial), _display(NULL), _sensors(NULL) {
     next_batt_chck = _next_refresh = 0;
