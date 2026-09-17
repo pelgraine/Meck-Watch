@@ -122,6 +122,7 @@ private:
     if (fb) d.pushImageToPanel565(0, WGBC_GAME_Y, WGBC_OUT_W, WGBC_OUT_H, fb);
     drawLabels(d);
     wgbc_hold_cpu();
+    wgbc_poll_save();   // writes the .sav only if the game just finished saving
 #endif
     return 33;   // ~30 Hz, matching the drawn frame rate
   }

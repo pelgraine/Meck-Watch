@@ -85,6 +85,11 @@ void wgbc_hold_cpu();
 // Set the joypad from a touch hit-test mask; the task applies it each frame.
 void wgbc_set_joypad(uint8_t mask);
 
+// Write the .sav out if the game has just finished saving. UI thread only --
+// the write blocks on flash. Call once per render while a game is running.
+// Saves also happen once on quit, inside wgbc_stop(). There is no save timer.
+void wgbc_poll_save();
+
 // Hit-test a point in game-buffer space: wgbc_hittest returns a joypad mask,
 // wgbc_hit_exit is true over the on-screen EXIT button.
 uint8_t wgbc_hittest(int gx, int gy);

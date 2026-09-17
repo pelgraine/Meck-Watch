@@ -36,6 +36,7 @@
 #define GBC_TASK_PRIO      2
 #define GBC_TASK_CORE      0
 #define GBC_STOP_WAIT_MS   200                // max wait for the task to park on quit
+#define GBC_PATH_MAX       128                // "/roms/" + filename + ".sav"
 
 // ---- State ------------------------------------------------------------------
 static struct gb_s     *s_gb        = NULL;
@@ -50,6 +51,11 @@ static uint8_t         *s_rom       = NULL;
 static size_t           s_rom_cap   = 0;               // arena capacity
 static size_t           s_rom_size  = 0;               // bytes of the loaded ROM
 static uint8_t         *s_cram      = NULL;            // 128 KB, PSRAM
+static size_t           s_save_size = 0;               // cart RAM this game really has, from the header
+static char             s_save_path[GBC_PATH_MAX];     // the ROM path with the extension swapped to .sav
+static volatile bool    s_cram_dirty   = false;        // the game has written cart RAM (emulator task)
+static volatile bool    s_save_pending = false;        // save finished; the UI thread should write it out
+static uint32_t         s_saved_sum    = 0;            // checksum of cart RAM as last written to .sav
 
 static uint16_t         s_srcx[OUT_W];                 // nearest-neighbour output col -> source col
 static uint16_t         s_srcy[OUT_H];                 // nearest-neighbour output row -> source row
@@ -73,7 +79,8 @@ static uint8_t cram_read(struct gb_s *gb, const uint_fast32_t addr) {
 }
 static void cram_write(struct gb_s *gb, const uint_fast32_t addr, const uint8_t val) {
   (void)gb;
-  s_cram[addr] = val;      // no battery saves yet -- discarded on quit
+  s_cram[addr] = val;
+  s_cram_dirty = true;     // a .sav write falls due once the game switches cart RAM off
 }
 static void gb_error_cb(struct gb_s *gb, const enum gb_error_e err, const uint16_t addr) {
   (void)gb;
@@ -205,6 +212,10 @@ static void gbc_task(void *arg) {
   while (!s_stop) {
     s_gb->direct.joypad = (uint8_t)~s_touch_mask;   // active-low; set from touch
     gb_run_frame(s_gb);
+    // A game enables cart RAM, writes its save, then switches it off again.
+    // That switch-off is the game reporting the save is complete. Flag it for
+    // the UI thread: the flash write must not happen on this task.
+    if (s_cram_dirty && !s_gb->enable_cart_ram) { s_cram_dirty = false; s_save_pending = true; }
     if (s_drew) { blit_publish(); s_drew = false; }
 
     // Pace to the accumulated deadline. If we fall behind, keep the deficit and
@@ -252,6 +263,58 @@ static bool ensure_buffers(void) {
 }
 
 // ---- Public API -------------------------------------------------------------
+// ---- Battery saves ----------------------------------------------------------
+// The .sav sits beside the ROM and holds the cartridge's battery-backed RAM,
+// at the size the ROM header declares. It is written when the game finishes a
+// save and once more on quit -- never on a timer.
+static uint32_t cram_sum(void) {
+  uint32_t s = 0;
+  for (size_t i = 0; i < s_save_size; i++) s = s * 31u + s_cram[i];
+  return s;
+}
+// "/roms/Game.gbc" -> "/roms/Game.sav"
+static void build_save_path(const char *romPath) {
+  snprintf(s_save_path, sizeof(s_save_path), "%s", romPath);
+  char *dot = strrchr(s_save_path, '.');
+  const char *slash = strrchr(s_save_path, '/');
+  if (dot && (!slash || dot > slash)) *dot = 0;
+  strncat(s_save_path, ".sav", sizeof(s_save_path) - strlen(s_save_path) - 1);
+}
+// Read the .sav into cart RAM. Before the task starts, so no lock is needed.
+static void load_save(void) {
+  if (s_save_size) {
+    File f = LittleFS.open(s_save_path, "r");
+    if (f) {
+      const size_t avail = (size_t)f.size();
+      const size_t want  = (avail < s_save_size) ? avail : s_save_size;
+      const size_t got   = f.read(s_cram, want);
+      f.close();
+      Serial.printf("[GBC] save loaded: %u bytes from %s\n", (unsigned)got, s_save_path);
+    } else {
+      Serial.printf("[GBC] no save yet at %s\n", s_save_path);
+    }
+  }
+  s_cram_dirty   = false;      // the load is not the game writing
+  s_save_pending = false;
+  s_saved_sum    = cram_sum(); // cart RAM now matches what is on disk
+}
+// Write cart RAM out. UI thread only -- this blocks on flash.
+static void write_save(void) {
+  if (!s_save_size || !s_cram) return;
+  const uint32_t sum = cram_sum();
+  if (sum == s_saved_sum) return;     // identical to the file already there
+  File f = LittleFS.open(s_save_path, "w");
+  if (!f) { Serial.printf("[GBC] cannot write %s\n", s_save_path); return; }
+  const size_t got = f.write(s_cram, s_save_size);
+  f.close();
+  if (got == s_save_size) {
+    s_saved_sum = sum;
+    Serial.printf("[GBC] saved %u bytes to %s\n", (unsigned)got, s_save_path);
+  } else {
+    Serial.printf("[GBC] short save write (%u/%u)\n", (unsigned)got, (unsigned)s_save_size);
+  }
+}
+
 bool wgbc_start(const char* romPath) {
   if (s_running) return false;
   if (!ensure_buffers()) return false;
@@ -286,6 +349,12 @@ bool wgbc_start(const char* romPath) {
   gb_init_lcd(s_gb, draw_line);
   s_gb->direct.frame_skip = 1;
 
+  // Header is parsed now, so the real cart RAM size is known.
+  s_save_size = (size_t)gb_get_save_size(s_gb);
+  if (s_save_size > GBC_CRAM_SIZE) s_save_size = GBC_CRAM_SIZE;
+  build_save_path(romPath);
+  load_save();
+
   memset(s_gbfb, 0, (size_t)GB_W * GB_H * sizeof(uint16_t));
   memset(s_outfb[0], 0, (size_t)OUT_W * OUT_H * sizeof(uint16_t));
   memset(s_outfb[1], 0, (size_t)OUT_W * OUT_H * sizeof(uint16_t));
@@ -315,6 +384,7 @@ void wgbc_stop() {
   while (!s_task_stopped && (uint32_t)(millis() - t0) < GBC_STOP_WAIT_MS) delay(1);
   s_task = NULL;
   s_running = false;
+  write_save();              // last write, so quitting never loses the save
   setCpuFrequencyMhz(CPU_FREQ_IDLE);
 }
 
@@ -330,6 +400,12 @@ void wgbc_hold_cpu() {
 }
 
 void wgbc_set_joypad(uint8_t mask) { s_touch_mask = mask; }
+
+void wgbc_poll_save() {
+  if (!s_save_pending) return;
+  s_save_pending = false;
+  write_save();
+}
 
 uint8_t wgbc_hittest(int gx, int gy) {
   uint8_t mask = 0;
