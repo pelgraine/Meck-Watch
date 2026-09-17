@@ -11,6 +11,7 @@
 #include "GamesMenuScreen.h"
 #include "SnakeScreen.h"
 #include "MinesweeperScreen.h"
+#include "WatchGBCScreen.h"
 #ifdef MECK_WEB_READER
   #include "WebReaderScreen.h"
 #endif
@@ -1522,6 +1523,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   games_menu_screen = new GamesMenuScreen(this);
   snake_screen = new SnakeScreen(this, &rtc_clock);
   minesweeper_screen = new MinesweeperScreen(this);
+  gbc_screen = new WatchGBCScreen(this);
 #if defined(MECK_TWATCH)
   lock_screen = new ClockScreen(this, &rtc_clock, node_prefs);
   steps_screen = new StepsScreen(this);
@@ -2349,6 +2351,14 @@ if (curr) curr->poll();
         _next_refresh = millis() + 200;  // Defer e-ink refresh during notif tone (SPI bus contention)
       } else if (_serial != NULL && _serial->hasPendingData()) {
         _next_refresh = millis() + 500;  // Re-check in 500ms
+      } else if (isOnGBCScreen() && ((WatchGBCScreen*)gbc_screen)->isInGame()) {
+        // A Game Boy game owns the panel: WatchGBCScreen::render() pushes the
+        // emulator frame straight to the panel, so skip the sprite frame and
+        // the 2x push that would otherwise overwrite it every cycle. Keep the
+        // screen awake while a game is running.
+        int delay_millis = curr->render(*_display);
+        _auto_off = millis() + AUTO_OFF_MILLIS;
+        _next_refresh = millis() + delay_millis;
       } else {
       // Sync dark mode with prefs (settings toggle takes effect here)
       // Sync font style with prefs (settings toggle takes effect here)
@@ -3207,6 +3217,17 @@ void UITask::gotoMinesweeperScreen() {
   MinesweeperScreen* ms = (MinesweeperScreen*)minesweeper_screen;
   ms->enter();
   setCurrScreen(minesweeper_screen);
+  if (_display != NULL && !_display->isOn()) {
+    _display->turnOn();
+  }
+  _auto_off = millis() + AUTO_OFF_MILLIS;
+  _next_refresh = 100;
+}
+
+void UITask::gotoGBCScreen() {
+  WatchGBCScreen* gb = (WatchGBCScreen*)gbc_screen;
+  gb->enter();
+  setCurrScreen(gbc_screen);
   if (_display != NULL && !_display->isOn()) {
     _display->turnOn();
   }

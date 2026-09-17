@@ -62,6 +62,7 @@
   #include "WatchFileManager.h"
   #include "SnakeScreen.h"
   #include "MinesweeperScreen.h"
+  #include "WatchGBCScreen.h"
 #endif
 
 // --- T5S3: GT911 capacitive touch driver ---
@@ -375,6 +376,17 @@ static void lastHeardToggleContact() {
     // Minesweeper screen: tap = Enter (reveal cell / start / restart)
     if (ui_task.isOnMinesweeperScreen()) {
       return '\r';
+    }
+
+    // Game Boy screen: file list = tap-to-select / tap-to-open; placeholder = ignore
+    if (ui_task.isOnGBCScreen()) {
+      WatchGBCScreen* gb = (WatchGBCScreen*)ui_task.getGBCScreen();
+      if (gb && gb->isInFileList()) {
+        int result = gb->selectRowAtVY(vy);
+        if (result == 1) { ui_task.forceRefresh(); return 0; }  // moved selection
+        if (result == 2) return KEY_ENTER;                       // same row -- open
+      }
+      return 0;
     }
 
 #if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
@@ -969,6 +981,11 @@ static void lastHeardToggleContact() {
 
     // Games menu: long press exits to home
     if (ui_task.isOnGamesMenu()) {
+      return 'q';
+    }
+
+    // Game Boy screen: long press = back one level (placeholder -> list -> menu)
+    if (ui_task.isOnGBCScreen()) {
       return 'q';
     }
 
@@ -2124,6 +2141,13 @@ void loop() {
                 ui_task.gotoGamesMenu();
               }
             }
+            // Game Boy screen: check if Exit was triggered
+            if (ui_task.isOnGBCScreen()) {
+              WatchGBCScreen* gb = (WatchGBCScreen*)ui_task.getGBCScreen();
+              if (gb && gb->wantsExit()) {
+                ui_task.gotoGamesMenu();
+              }
+            }
             // Games menu: check if game launch was triggered
             if (ui_task.isOnGamesMenu()) {
               GamesMenuScreen* gm = (GamesMenuScreen*)ui_task.getGamesMenuScreen();
@@ -2133,6 +2157,7 @@ void loop() {
                 switch (sel) {
                   case GAME_SNAKE: ui_task.gotoSnakeScreen(); break;
                   case GAME_MINESWEEPER: ui_task.gotoMinesweeperScreen(); break;
+                  case GAME_GBC: ui_task.gotoGBCScreen(); break;
                   default: break;
                 }
               }
@@ -2192,6 +2217,13 @@ void loop() {
                 ui_task.gotoGamesMenu();
               }
             }
+            // Game Boy screen: check if Exit was triggered
+            if (ui_task.isOnGBCScreen()) {
+              WatchGBCScreen* gb = (WatchGBCScreen*)ui_task.getGBCScreen();
+              if (gb && gb->wantsExit()) {
+                ui_task.gotoGamesMenu();
+              }
+            }
             // Games menu: check if game launch was triggered
             if (ui_task.isOnGamesMenu()) {
               GamesMenuScreen* gm = (GamesMenuScreen*)ui_task.getGamesMenuScreen();
@@ -2201,6 +2233,7 @@ void loop() {
                 switch (sel) {
                   case GAME_SNAKE: ui_task.gotoSnakeScreen(); break;
                   case GAME_MINESWEEPER: ui_task.gotoMinesweeperScreen(); break;
+                  case GAME_GBC: ui_task.gotoGBCScreen(); break;
                   default: break;
                 }
               }

@@ -58,6 +58,18 @@ public:
   void pushImage332(int x, int y, int w, int h, const uint8_t* data, uint8_t key) {
     buffer.pushImage(x, y, w, h, (const lgfx::rgb332_t*)data, lgfx::rgb332_t(key));
   }
+  // Fill the whole panel with an RGB565 colour, straight to the panel (not the
+  // sprite buffer). The Game Boy screen uses it to clear the letterbox bars
+  // once before a game starts drawing.
+  void fillPanel565(uint16_t c) {
+    display->fillRect(0, 0, display->width(), display->height(), c);
+  }
+  // Push an RGB565 image straight to the panel (not via the sprite + 2x path),
+  // at panel coordinates. The Game Boy screen blits the scaled game frame with
+  // this; LovyanGFX converts it to the panel's 8-bit depth.
+  void pushImageToPanel565(int x, int y, int w, int h, const uint16_t* data) {
+    display->pushImage(x, y, w, h, (const lgfx::rgb565_t*)data);
+  }
   // Render a string in a very small font at (x,y) so long node names fit
   // beside the centred clock, then restore the default GLCD font + size so
   // later text is unaffected. Uses the colour set via setColor()/setRawColor().

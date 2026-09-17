@@ -19,6 +19,7 @@ enum GameID {
   GAME_NONE = 0,
   GAME_SNAKE,
   GAME_MINESWEEPER,
+  GAME_GBC,
   // GAME_2048,
   GAME_COUNT   // Must be last -- used for array sizing
 };
@@ -38,12 +39,13 @@ private:
     const char* description;
   };
 
-  static constexpr int NUM_GAMES = 2;  // Increment as games are added
+  static constexpr int NUM_GAMES = 3;  // Increment as games are added
 
   static const GameEntry* getGames() {
     static const GameEntry games[NUM_GAMES] = {
       { GAME_SNAKE,       "Snake",       "Classic Nokia-style" },
       { GAME_MINESWEEPER, "Minesweeper", "Find the mines" },
+      { GAME_GBC,         "Game Boy",    "Game Boy emulator" },
       // { GAME_2048,        "2048",        "Slide and merge" },
     };
     return games;
