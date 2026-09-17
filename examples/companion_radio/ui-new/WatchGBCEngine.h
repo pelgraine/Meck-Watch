@@ -43,3 +43,49 @@ const uint16_t* wgbc_frame();
 // the power manager's boost, which caps at 80 MHz). Call once per UI cycle
 // while a game runs.
 void wgbc_hold_cpu();
+
+// ---- On-screen controls (stage 3) -------------------------------------------
+// Layout in game-buffer pixels: (0,0) is the top-left of the 240x216 picture.
+// Shared by the engine (which draws the overlay and hit-tests) and the screen
+// (which labels the buttons and converts touch coordinates). WGBC_GAME_Y is the
+// panel row the picture is pushed to, so panel_y = game_y + WGBC_GAME_Y.
+// Positions and sizes follow the 240x240 control mockup: back top-right, the
+// D-pad lower-left, A/B right, sel/start along the bottom.
+#define WGBC_GAME_Y     12
+#define WGBC_DPAD_CX    52
+#define WGBC_DPAD_CY    98
+#define WGBC_DPAD_HALF  43
+#define WGBC_DPAD_DEAD  14
+#define WGBC_A_CX       204
+#define WGBC_A_CY       82
+#define WGBC_B_CX       160
+#define WGBC_B_CY       118
+#define WGBC_BTN_R      24
+#define WGBC_SEL_CX     32
+#define WGBC_SEL_CY     19
+#define WGBC_SEL_W      46
+#define WGBC_START_CX   98
+#define WGBC_START_CY   19
+#define WGBC_START_W    56
+#define WGBC_PILL_H     20
+#define WGBC_BACK_CX    216
+#define WGBC_BACK_CY    19
+#define WGBC_BACK_R     18
+
+// Joypad mask bits: 0=A 1=B 2=Select 3=Start 4=Right 5=Left 6=Up 7=Down.
+#define WGBC_A      0x01
+#define WGBC_B      0x02
+#define WGBC_SELECT 0x04
+#define WGBC_START  0x08
+#define WGBC_RIGHT  0x10
+#define WGBC_LEFT   0x20
+#define WGBC_UP     0x40
+#define WGBC_DOWN   0x80
+
+// Set the joypad from a touch hit-test mask; the task applies it each frame.
+void wgbc_set_joypad(uint8_t mask);
+
+// Hit-test a point in game-buffer space: wgbc_hittest returns a joypad mask,
+// wgbc_hit_exit is true over the on-screen EXIT button.
+uint8_t wgbc_hittest(int gx, int gy);
+bool    wgbc_hit_exit(int gx, int gy);

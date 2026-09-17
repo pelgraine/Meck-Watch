@@ -44,6 +44,7 @@ static uint16_t        *s_outfb[2]  = { NULL, NULL };   // OUT_W*OUT_H each, RGB
 static volatile int     s_ready     = 0;               // buffer index holding the last full frame
 static int              s_write     = 0;               // buffer index the task writes into
 static volatile bool    s_drew      = false;           // a drawn (not skipped) frame is ready to blit
+static volatile uint8_t s_touch_mask = 0;              // held controls, set by the UI thread each cycle
 
 static uint8_t         *s_rom       = NULL;
 static size_t           s_rom_cap   = 0;               // arena capacity
@@ -94,8 +95,93 @@ static void draw_line(struct gb_s *gb, const uint8_t *pixels, const uint_fast8_t
   if (line == GB_H - 1) s_drew = true;
 }
 
+// ---- On-screen control overlay ----------------------------------------------
+// Controls follow the mockup: a translucent dark-navy fill (which stays visible
+// on a light game background) with an opaque white outline (visible on a dark
+// one), and a brighter fill on the held control. Labels are drawn on top by the
+// screen.
+static inline int iabs(int v) { return v < 0 ? -v : v; }
+
+// Alpha-blend a foreground RGB565 over a background one. `a` is the foreground
+// weight on a 0..32 scale.
+static inline uint16_t blend565(uint16_t bg, uint16_t fg, uint8_t a) {
+  const uint8_t ia = 32 - a;
+  const uint16_t br = (bg >> 11) & 0x1F, bgc = (bg >> 5) & 0x3F, bb = bg & 0x1F;
+  const uint16_t fr = (fg >> 11) & 0x1F, fgc = (fg >> 5) & 0x3F, fb = fg & 0x1F;
+  return (uint16_t)((((br*ia + fr*a) >> 5) << 11) |
+                    (((bgc*ia + fgc*a) >> 5) << 5) |
+                     ((bb*ia + fb*a) >> 5));
+}
+// A disc: opaque white 2px ring, translucent fill inside.
+static void draw_disc(uint16_t *out, int cx, int cy, int r, uint16_t fill, uint8_t a) {
+  const int r2 = r * r, ri2 = (r - 2) * (r - 2);
+  for (int dy = -r; dy <= r; dy++) {
+    const int yy = cy + dy; if (yy < 0 || yy >= OUT_H) continue;
+    for (int dx = -r; dx <= r; dx++) {
+      const int xx = cx + dx; if (xx < 0 || xx >= OUT_W) continue;
+      const int d2 = dx*dx + dy*dy; if (d2 > r2) continue;
+      uint16_t *p = &out[(size_t)yy * OUT_W + xx];
+      *p = (d2 > ri2) ? 0xFFFF : blend565(*p, fill, a);
+    }
+  }
+}
+// A pill: opaque white 2px border, translucent fill inside. (x,y) = top-left.
+static void draw_pill(uint16_t *out, int x, int y, int w, int h, uint16_t fill, uint8_t a) {
+  for (int j = 0; j < h; j++) {
+    const int yy = y + j; if (yy < 0 || yy >= OUT_H) continue;
+    for (int i = 0; i < w; i++) {
+      const int xx = x + i; if (xx < 0 || xx >= OUT_W) continue;
+      uint16_t *p = &out[(size_t)yy * OUT_W + xx];
+      *p = (i < 2 || i >= w - 2 || j < 2 || j >= h - 2) ? 0xFFFF : blend565(*p, fill, a);
+    }
+  }
+}
+static inline bool in_plus(int dx, int dy, int arm, int th) {
+  return (iabs(dx) <= th/2 && iabs(dy) <= arm) || (iabs(dy) <= th/2 && iabs(dx) <= arm);
+}
+// A d-pad plus: opaque white 2px outline, translucent fill, pressed arm brighter.
+static void draw_dpad(uint16_t *out, int cx, int cy, int arm, int th, int dead,
+                      uint8_t mask, uint16_t fill, uint16_t press, uint8_t a) {
+  for (int dy = -arm; dy <= arm; dy++) {
+    const int yy = cy + dy; if (yy < 0 || yy >= OUT_H) continue;
+    for (int dx = -arm; dx <= arm; dx++) {
+      const int xx = cx + dx; if (xx < 0 || xx >= OUT_W) continue;
+      if (!in_plus(dx, dy, arm, th)) continue;
+      uint16_t *p = &out[(size_t)yy * OUT_W + xx];
+      if (!in_plus(dx-2, dy, arm, th) || !in_plus(dx+2, dy, arm, th) ||
+          !in_plus(dx, dy-2, arm, th) || !in_plus(dx, dy+2, arm, th)) { *p = 0xFFFF; continue; }
+      uint16_t c = fill;
+      if      ((mask & WGBC_UP)    && iabs(dx) <= th/2 && dy < -dead) c = press;
+      else if ((mask & WGBC_DOWN)  && iabs(dx) <= th/2 && dy >  dead) c = press;
+      else if ((mask & WGBC_LEFT)  && iabs(dy) <= th/2 && dx < -dead) c = press;
+      else if ((mask & WGBC_RIGHT) && iabs(dy) <= th/2 && dx >  dead) c = press;
+      *p = blend565(*p, c, a);
+    }
+  }
+}
+// Dark controls with white outlines; the held one brightens. Labels are drawn
+// on top by the screen (this buffer has no font).
+static void composite_overlay(uint16_t *out, uint8_t mask) {
+  const uint16_t fill  = 0x214B;   // dark navy
+  const uint16_t press = 0x4BDB;   // brighter blue when pressed
+  const uint8_t  a = 10;           // fill opacity on the 0..32 scale -- light
+                                   // enough to read the game through; the
+                                   // outlines stay solid for definition
+
+  draw_dpad(out, WGBC_DPAD_CX, WGBC_DPAD_CY, WGBC_DPAD_HALF, WGBC_DPAD_HALF*2/3,
+            WGBC_DPAD_DEAD, mask, fill, press, a);
+  draw_disc(out, WGBC_A_CX, WGBC_A_CY, WGBC_BTN_R, (mask & WGBC_A) ? press : fill, a);
+  draw_disc(out, WGBC_B_CX, WGBC_B_CY, WGBC_BTN_R, (mask & WGBC_B) ? press : fill, a);
+  draw_pill(out, WGBC_SEL_CX - WGBC_SEL_W/2, WGBC_SEL_CY - WGBC_PILL_H/2,
+            WGBC_SEL_W, WGBC_PILL_H, (mask & WGBC_SELECT) ? press : fill, a);
+  draw_pill(out, WGBC_START_CX - WGBC_START_W/2, WGBC_START_CY - WGBC_PILL_H/2,
+            WGBC_START_W, WGBC_PILL_H, (mask & WGBC_START) ? press : fill, a);
+  draw_disc(out, WGBC_BACK_CX, WGBC_BACK_CY, WGBC_BACK_R, fill, a);
+}
+
 // Nearest-neighbour scale 160x144 -> 240x216 into the write buffer via the
-// precomputed source-index tables, then publish it for the UI thread.
+// precomputed source-index tables, composite the control overlay, then publish
+// it for the UI thread.
 static void blit_publish(void) {
   uint16_t *out = s_outfb[s_write];
   for (int oy = 0; oy < OUT_H; oy++) {
@@ -103,6 +189,7 @@ static void blit_publish(void) {
     uint16_t *d = &out[(size_t)oy * OUT_W];
     for (int ox = 0; ox < OUT_W; ox++) d[ox] = src[s_srcx[ox]];
   }
+  composite_overlay(out, s_touch_mask);
   s_ready = s_write;
   s_write ^= 1;
 }
@@ -111,12 +198,12 @@ static void blit_publish(void) {
 static void gbc_task(void *arg) {
   (void)arg;
   Serial.printf("[GBC] task start on core %d\n", (int)xPortGetCoreID());
-  s_gb->direct.joypad = 0xFF;    // active-low: nothing pressed (no controls yet)
 
   int64_t next = esp_timer_get_time();
   unsigned frames_since_delay = 0;
 
   while (!s_stop) {
+    s_gb->direct.joypad = (uint8_t)~s_touch_mask;   // active-low; set from touch
     gb_run_frame(s_gb);
     if (s_drew) { blit_publish(); s_drew = false; }
 
@@ -240,4 +327,31 @@ const uint16_t* wgbc_frame() {
 
 void wgbc_hold_cpu() {
   if (getCpuFrequencyMhz() < 240) setCpuFrequencyMhz(240);
+}
+
+void wgbc_set_joypad(uint8_t mask) { s_touch_mask = mask; }
+
+uint8_t wgbc_hittest(int gx, int gy) {
+  uint8_t mask = 0;
+  { const int dx = gx - WGBC_DPAD_CX, dy = gy - WGBC_DPAD_CY;
+    if (dx >= -WGBC_DPAD_HALF && dx <= WGBC_DPAD_HALF && dy >= -WGBC_DPAD_HALF && dy <= WGBC_DPAD_HALF) {
+      if (dx >  WGBC_DPAD_DEAD) mask |= WGBC_RIGHT;
+      if (dx < -WGBC_DPAD_DEAD) mask |= WGBC_LEFT;
+      if (dy < -WGBC_DPAD_DEAD) mask |= WGBC_UP;
+      if (dy >  WGBC_DPAD_DEAD) mask |= WGBC_DOWN;
+    } }
+  { const int r2 = WGBC_BTN_R * WGBC_BTN_R;
+    int dx = gx - WGBC_A_CX, dy = gy - WGBC_A_CY; if (dx*dx + dy*dy <= r2) mask |= WGBC_A;
+    dx = gx - WGBC_B_CX; dy = gy - WGBC_B_CY;     if (dx*dx + dy*dy <= r2) mask |= WGBC_B; }
+  { const int hh = WGBC_PILL_H/2 + 6;
+    if (gx >= WGBC_SEL_CX - WGBC_SEL_W/2 - 6 && gx <= WGBC_SEL_CX + WGBC_SEL_W/2 + 6 &&
+        gy >= WGBC_SEL_CY - hh && gy <= WGBC_SEL_CY + hh) mask |= WGBC_SELECT;
+    if (gx >= WGBC_START_CX - WGBC_START_W/2 - 6 && gx <= WGBC_START_CX + WGBC_START_W/2 + 6 &&
+        gy >= WGBC_START_CY - hh && gy <= WGBC_START_CY + hh) mask |= WGBC_START; }
+  return mask;
+}
+
+bool wgbc_hit_exit(int gx, int gy) {
+  const int dx = gx - WGBC_BACK_CX, dy = gy - WGBC_BACK_CY, r = WGBC_BACK_R + 6;
+  return dx*dx + dy*dy <= r*r;
 }

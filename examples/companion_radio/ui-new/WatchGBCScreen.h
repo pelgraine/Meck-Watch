@@ -90,12 +90,37 @@ private:
     }
   }
 
+#if defined(MECK_TWATCH)
+  // Button labels, drawn straight to the panel on top of the game frame. The
+  // frame push covers the composited overlay, so these are redrawn every frame.
+  void drawLabels(LGFXDisplay& d) {
+    const uint16_t ink = 0xFFFF;   // white, to sit on the dark control fills
+    d.drawPanelText(WGBC_A_CX,     WGBC_A_CY     + WGBC_GAME_Y, "A",     ink, 2);
+    d.drawPanelText(WGBC_B_CX,     WGBC_B_CY     + WGBC_GAME_Y, "B",     ink, 2);
+    d.drawPanelText(WGBC_SEL_CX,   WGBC_SEL_CY   + WGBC_GAME_Y, "sel",   ink, 1);
+    d.drawPanelText(WGBC_START_CX, WGBC_START_CY + WGBC_GAME_Y, "start", ink, 1);
+    d.drawPanelText(WGBC_BACK_CX,  WGBC_BACK_CY  + WGBC_GAME_Y, "back",  ink, 1);
+  }
+#endif
+
   int renderGame(DisplayDriver& display) {
 #if defined(MECK_TWATCH)
     LGFXDisplay& d = (LGFXDisplay&)display;
     if (_gameFirstFrame) { d.fillPanel565(0x0000); _gameFirstFrame = false; }
+
+    // Single touch point (0..119); map it to the joypad, or to EXIT.
+    int tx, ty;
+    if (d.getTouch(&tx, &ty)) {
+      const int gx = tx * 2, gy = ty * 2 - WGBC_GAME_Y;   // game-buffer coords
+      if (wgbc_hit_exit(gx, gy)) { wgbc_stop(); _mode = BROWSER; scanRoms(); return 0; }
+      wgbc_set_joypad(wgbc_hittest(gx, gy));
+    } else {
+      wgbc_set_joypad(0);
+    }
+
     const uint16_t* fb = wgbc_frame();
-    if (fb) d.pushImageToPanel565(0, (240 - WGBC_OUT_H) / 2, WGBC_OUT_W, WGBC_OUT_H, fb);
+    if (fb) d.pushImageToPanel565(0, WGBC_GAME_Y, WGBC_OUT_W, WGBC_OUT_H, fb);
+    drawLabels(d);
     wgbc_hold_cpu();
 #endif
     return 33;   // ~30 Hz, matching the drawn frame rate
@@ -201,7 +226,10 @@ public:
           return false;
       }
     } else {  // GAME
-      if (c == 'q') { wgbc_stop(); _mode = BROWSER; scanRoms(); return true; }
+      // Controls and EXIT are handled by touch in renderGame(); synthesised
+      // gesture keys (including the long-press 'q') are ignored so a finger
+      // held on a direction never quits the game.
+      (void)c;
       return false;
     }
   }

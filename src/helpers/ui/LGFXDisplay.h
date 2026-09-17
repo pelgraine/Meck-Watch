@@ -70,6 +70,18 @@ public:
   void pushImageToPanel565(int x, int y, int w, int h, const uint16_t* data) {
     display->pushImage(x, y, w, h, (const lgfx::rgb565_t*)data);
   }
+  // Draw a short string centred at panel (px,py), straight to the panel. The
+  // Game Boy screen labels its on-screen buttons with this after pushing the
+  // game frame. Transparent background, default GLCD font.
+  void drawPanelText(int px, int py, const char* s, uint16_t color, uint8_t size) {
+    display->setFont(&fonts::Font0);
+    display->setTextSize(size);
+    display->setTextColor(color);
+    const int w = display->textWidth(s);
+    display->setCursor(px - w / 2, py - 4 * size);
+    display->print(s);
+    display->setTextSize(1);
+  }
   // Render a string in a very small font at (x,y) so long node names fit
   // beside the centred clock, then restore the default GLCD font + size so
   // later text is unaffected. Uses the colour set via setColor()/setRawColor().

@@ -294,6 +294,12 @@ static void lastHeardToggleContact() {
     int vx, vy;
     touchToVirtual(x, y, vx, vy);
 
+    // While a Game Boy game is running, the game reads touch itself in its
+    // render() (joypad + on-screen EXIT); a tap must not synthesise a UI key
+    // or the top-strip "home".
+    if (ui_task.isOnGBCScreen() &&
+        ((WatchGBCScreen*)ui_task.getGBCScreen())->isInGame()) return 0;
+
     // Dismiss boot navigation hint on any tap
     if (ui_task.isHintActive()) {
       ui_task.dismissBootHint();
