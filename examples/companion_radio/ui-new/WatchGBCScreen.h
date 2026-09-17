@@ -130,12 +130,14 @@ private:
     display.startFrame();
     display.setTextSize(1);
 
-    // Header
+    // Header -- double height, so the ROM rows sit clear of the top strip
     display.setColor(DisplayDriver::GREEN);
-    display.setCursor(2, 2);
+    display.setTextSize(2);
+    display.setCursor(2, 6);
     display.print("Game Boy");
+    display.setTextSize(1);
     display.setColor(DisplayDriver::LIGHT);
-    display.drawRect(0, 12, display.width(), 1);
+    display.drawRect(0, 28, display.width(), 1);
 
     if (_romCount == 0) {
       display.setColor(DisplayDriver::LIGHT);
@@ -153,7 +155,7 @@ private:
       return 1000;
     }
 
-    const int listTop = 18, lineH = 16;
+    const int listTop = 36, lineH = 16;
     int footerY = display.height() - 14;
     _maxVisible = (footerY - listTop) / lineH;
     if (_maxVisible < 1) _maxVisible = 1;
@@ -237,7 +239,7 @@ public:
   // ------- Touch: tap-to-select in the ROM list -------
   int selectRowAtVY(int vy) {
     if (_mode != BROWSER || _romCount == 0) return 0;
-    const int listTop = 18, lineH = 16;
+    const int listTop = 36, lineH = 16;
     if (vy < listTop) return 0;
     int row = _startIdx + (vy - listTop) / lineH;
     if (row < 0 || row >= _romCount || row >= _startIdx + _maxVisible) return 0;
