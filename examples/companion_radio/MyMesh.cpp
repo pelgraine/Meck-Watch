@@ -16,6 +16,10 @@
 #if defined(LILYGO_TWATCH_S3)
   #include "DRV2605Haptic.h"     // inline haptic driver for the 'buzz' CLI test command
 #endif
+#if defined(MECK_TWATCH) && defined(MECK_WIFI_COMPANION)
+  #include <WiFi.h>       // app CLI wifi.* commands (CMD_RUN_CLI_COMMAND)
+  #include <LittleFS.h>   // the saved network lives in LittleFS /wifi.cfg
+#endif
 
 #define CMD_APP_START                 1
 #define CMD_SEND_TXT_MSG              2
@@ -79,6 +83,9 @@
 #define CMD_SEND_CHANNEL_DATA         62
 #define CMD_SET_DEFAULT_FLOOD_SCOPE   63   // v1.15+ (device-wide default scope name+key)
 #define CMD_GET_DEFAULT_FLOOD_SCOPE   64   // v1.15+ (query current default scope)
+#define CMD_SEND_RAW_PACKET           65
+#define CMD_RUN_CLI_COMMAND           66   // v14+
+#define RESP_CODE_CLI_REPLY           29   // v14+, a reply to CMD_RUN_CLI_COMMAND
 
 // Stats sub-types for CMD_GET_STATS
 #define STATS_TYPE_CORE               0
@@ -113,6 +120,7 @@
 #define RESP_CODE_AUTOADD_CONFIG      25
 #define RESP_ALLOWED_REPEAT_FREQ      26
 #define RESP_CODE_CHANNEL_DATA_RECV   27
+#define MAX_CHANNEL_DATA_LENGTH       (MAX_FRAME_SIZE - 9)
 #define RESP_CODE_DEFAULT_FLOOD_SCOPE 28   // v1.15+
 
 #define SEND_TIMEOUT_BASE_MILLIS        500
@@ -233,7 +241,8 @@ void MyMesh::updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, co
 }
 
 bool MyMesh::Frame::isChannelMsg() const {
-  return buf[0] == RESP_CODE_CHANNEL_MSG_RECV || buf[0] == RESP_CODE_CHANNEL_MSG_RECV_V3;
+  return buf[0] == RESP_CODE_CHANNEL_MSG_RECV || buf[0] == RESP_CODE_CHANNEL_MSG_RECV_V3 ||
+         buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
 }
 
 void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
@@ -281,6 +290,9 @@ float MyMesh::getAirtimeBudgetFactor() const {
 int MyMesh::getInterferenceThreshold() const {
   return _prefs.interference_threshold;
 }
+bool MyMesh::getCADEnabled() const {
+  return _prefs.cad_enabled;
+}
 
 uint8_t MyMesh::getTxFailResetThreshold() const {
   return _prefs.tx_fail_reset_threshold;
@@ -302,12 +314,12 @@ uint8_t MyMesh::getExtraAckTransmitCount() const {
 }
 
 uint32_t MyMesh::getRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (uint32_t)(_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * 0.5f);
+  uint32_t t = (uint32_t)(_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * _prefs.tx_delay_factor);
   return getRNG()->nextInt(0, 5*t + 1);
 }
 
 uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (uint32_t)(_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * 0.2f);
+  uint32_t t = (uint32_t)(_radio->getEstAirtimeFor(packet->getPathByteLen() + packet->payload_len + 2) * _prefs.direct_tx_delay_factor);
   return getRNG()->nextInt(0, 5*t + 1);
 }
 
@@ -706,10 +718,17 @@ void MyMesh::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint3
 void MyMesh::sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis) {
   Serial.printf("[sendFloodScoped] to '%s', delay=%lu, hash_mode=%d, bph=%d\n",
                 recipient.name, delay_millis, _prefs.path_hash_mode, _prefs.path_hash_mode + 1);
-  // DMs: use device default scope (no per-contact scope)
-  TransportKey default_scope;
-  memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
-  sendFloodScoped(default_scope, pkt, delay_millis);
+  // Contact floods (DMs, acks, logins, requests): the BLE app's CMD 54 choice
+  // first (explicit un-scoped, or its scope key), otherwise the device default
+  TransportKey scope;
+  if (send_unscoped) {
+    memset(scope.key, 0, sizeof(scope.key));  // app explicitly requested un-scoped (ver 12+)
+  } else if (!send_scope.isNull()) {
+    memcpy(scope.key, send_scope.key, sizeof(scope.key));
+  } else {
+    memcpy(scope.key, _prefs.default_scope_key, sizeof(scope.key));
+  }
+  sendFloodScoped(scope, pkt, delay_millis);
 }
 // Copy-out lookup for the per-channel scope key: finds the named channel
 // whose secret matches and copies its set-time-derived scope_key bytes.
@@ -744,7 +763,10 @@ void MyMesh::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pk
 
   // Scope priority: BLE app send_scope → per-channel scope → device default → unscoped
   TransportKey scope;
-  if (!send_scope.isNull()) {
+  if (send_unscoped) {
+    // BLE app has explicitly requested un-scoped via CMD 54 (ver 12+) -- null key
+    memset(scope.key, 0, sizeof(scope.key));
+  } else if (!send_scope.isNull()) {
     // BLE app has set a scope via CMD 54 — use it (highest priority)
     memcpy(scope.key, send_scope.key, sizeof(scope.key));
   } else {
@@ -999,6 +1021,43 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 #endif
 }
 
+// Channel datagram received (upstream 9b842786, via Meck e9ec6e46): passed to
+// the companion app as RESP_CODE_CHANNEL_DATA_RECV. Not shown on the device.
+void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
+                               const uint8_t *data, size_t data_len) {
+  if (data_len > MAX_CHANNEL_DATA_LENGTH) {
+    MESH_DEBUG_PRINTLN("onChannelDataRecv: dropping payload_len=%d exceeds frame limit=%d",
+                       (uint32_t)data_len, (uint32_t)MAX_CHANNEL_DATA_LENGTH);
+    return;
+  }
+
+  int i = 0;
+  out_frame[i++] = RESP_CODE_CHANNEL_DATA_RECV;
+  out_frame[i++] = (int8_t)(pkt->getSNR() * 4);
+  out_frame[i++] = 0; // reserved1
+  out_frame[i++] = 0; // reserved2
+
+  uint8_t channel_idx = findChannelIdx(channel);
+  out_frame[i++] = channel_idx;
+  out_frame[i++] = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
+  out_frame[i++] = (uint8_t)(data_type & 0xFF);
+  out_frame[i++] = (uint8_t)(data_type >> 8);
+  out_frame[i++] = (uint8_t)data_len;
+
+  int copy_len = (int)data_len;
+  if (copy_len > 0) {
+    memcpy(&out_frame[i], data, copy_len);
+    i += copy_len;
+  }
+  addToOfflineQueue(out_frame, i);
+
+  if (_serial->isConnected()) {
+    uint8_t frame[1];
+    frame[0] = PUSH_CODE_MSG_WAITING; // send push 'tickle'
+    _serial->writeFrame(frame, 1);
+  }
+}
+
 void MyMesh::queueSentChannelMessage(uint8_t channel_idx, uint32_t timestamp, const char* sender, const char* text) {
   // Format message the same way as onChannelMessageRecv for BLE app sync
   // This allows sent messages from device keyboard to appear in the app
@@ -1183,7 +1242,7 @@ bool MyMesh::uiSendCliCommand(uint32_t contact_idx, const char* command) {
 
   uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
   uint32_t est_timeout;
-  int result = sendCommandData(*recipient, timestamp, 0, command, est_timeout);
+  int result = sendCommandData(*recipient, timestamp, 0, TXT_TYPE_CLI_DATA, command, est_timeout);
   if (result == MSG_SEND_FAILED) {
     MESH_DEBUG_PRINTLN("UI: CLI command send failed to %s: %s", recipient->name, command);
     return false;
@@ -1400,6 +1459,13 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
     i += 4;
     memcpy(&out_frame[i], &data[4], len - 4);
     i += (len - 4);
+    _serial->writeFrame(out_frame, i);
+  } else {   // let the app know about unknown/unhandled responses (eg. push telemetry packets)
+    int i = 0;
+    out_frame[i++] = PUSH_CODE_BINARY_RESPONSE;
+    out_frame[i++] = 0; // reserved
+    memcpy(&out_frame[i], data, len);
+    i += len;
     _serial->writeFrame(out_frame, i);
   }
 }
@@ -1644,6 +1710,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _rxlog_head = 0;
   _rxlog_count = 0;
   memset(send_scope.key, 0, sizeof(send_scope.key));
+  send_unscoped = false;
   memset(_sent_track, 0, sizeof(_sent_track));
   _sent_track_idx = 0;
   _admin_contact_idx = -1;
@@ -1656,6 +1723,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   // NOTE: no memset() here any more -- NodePrefs is a ConfigSerializer subclass
   // (vtable + sub-objects) and every scalar field has an in-class default of 0.
   _prefs.airtime_factor = 1.0; // one half
+  _prefs.tx_delay_factor = 0.5f;         // flood retransmit delay factor (the fixed 0.5 before)
+  _prefs.direct_tx_delay_factor = 0.2f;  // direct retransmit delay factor (the fixed 0.2 before)
   _prefs.multi_acks = 1;      // redundant ACKs on by default
   strcpy(_prefs.node_name, "NONAME");
   _prefs.freq = LORA_FREQ;
@@ -1703,6 +1772,8 @@ void MyMesh::begin(bool has_display) {
   // sanitise bad pref values
   _prefs.rx_delay_base = constrain(_prefs.rx_delay_base, 0, 20.0f);
   _prefs.airtime_factor = constrain(_prefs.airtime_factor, 0, 9.0f);
+  _prefs.tx_delay_factor = constrain(_prefs.tx_delay_factor, 0, 2.0f);
+  _prefs.direct_tx_delay_factor = constrain(_prefs.direct_tx_delay_factor, 0, 2.0f);
   _prefs.freq = constrain(_prefs.freq, 400.0f, 2500.0f);
   _prefs.bw = constrain(_prefs.bw, 7.8f, LORA_MAX_BW);
   _prefs.sf = constrain(_prefs.sf, 5, 12);
@@ -1909,16 +1980,16 @@ void MyMesh::handleCmdFrame(size_t len) {
     uint8_t *pub_key_prefix = &cmd_frame[i];
     i += 6;
     ContactInfo *recipient = lookupContactByPubKey(pub_key_prefix, 6);
-    if (recipient && (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_CLI_DATA)) {
+    if (recipient && (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_CLI_DATA || txt_type == TXT_TYPE_CLI_COMMAND)) {
       char *text = (char *)&cmd_frame[i];
       int tlen = len - i;
       uint32_t est_timeout;
       text[tlen] = 0; // ensure null
       int result;
       uint32_t expected_ack;
-      if (txt_type == TXT_TYPE_CLI_DATA) {
+      if (txt_type == TXT_TYPE_CLI_DATA || txt_type == TXT_TYPE_CLI_COMMAND) {
         msg_timestamp = getRTCClock()->getCurrentTimeUnique(); // Use node's RTC instead of app timestamp to avoid tripping replay protection
-        result = sendCommandData(*recipient, msg_timestamp, attempt, text, est_timeout);
+        result = sendCommandData(*recipient, msg_timestamp, attempt, txt_type, text, est_timeout);
         expected_ack = 0; // no Ack expected
       } else {
         result = sendMessage(*recipient, msg_timestamp, attempt, text, expected_ack, est_timeout);
@@ -1971,6 +2042,46 @@ void MyMesh::handleCmdFrame(size_t len) {
       } else {
         writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
       }
+    }
+  } else if (cmd_frame[0] == CMD_SEND_CHANNEL_DATA) { // send GroupChannel datagram (upstream 9b842786, ed326255)
+    if (len < 4) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
+    int i = 1;
+    uint8_t channel_idx = cmd_frame[i++];
+    uint8_t path_len = cmd_frame[i++];
+
+    // validate path len, allowing 0xFF for flood
+    if (!mesh::Packet::isValidPathLen(path_len) && path_len != OUT_PATH_UNKNOWN) {
+      MESH_DEBUG_PRINTLN("CMD_SEND_CHANNEL_DATA invalid path size: %d", path_len);
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      return;
+    }
+
+    // parse provided path if not flood
+    uint8_t path[MAX_PATH_SIZE];
+    if (path_len != OUT_PATH_UNKNOWN) {
+      i += mesh::Packet::writePath(path, &cmd_frame[i], path_len);
+    }
+
+    uint16_t data_type = ((uint16_t)cmd_frame[i]) | (((uint16_t)cmd_frame[i + 1]) << 8);
+    i += 2;
+    const uint8_t *payload = &cmd_frame[i];
+    int payload_len = (len > (size_t)i) ? (int)(len - i) : 0;
+
+    ChannelDetails channel;
+    if (!getChannel(channel_idx, channel)) {
+      writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
+    } else if (data_type == DATA_TYPE_RESERVED) {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else if (payload_len > MAX_GROUP_DATA_LENGTH) {
+      MESH_DEBUG_PRINTLN("CMD_SEND_CHANNEL_DATA payload too long: %d > %d", payload_len, MAX_GROUP_DATA_LENGTH);
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+    } else if (sendGroupData(channel.channel, path, path_len, data_type, payload, payload_len)) {
+      writeOKFrame();
+    } else {
+      writeErrFrame(ERR_CODE_TABLE_FULL);
     }
   } else if (cmd_frame[0] == CMD_GET_CONTACTS) { // get Contact list
     if (_iter_started) {
@@ -2329,7 +2440,8 @@ void MyMesh::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_SEND_RAW_DATA && len >= 6) {
     int i = 1;
     uint8_t path_len = cmd_frame[i++];
-    if (path_len != OUT_PATH_UNKNOWN && i + mesh::Packet::getPathByteLenFor(path_len) + 4 <= len) { // minimum 4 byte payload
+    if (path_len != OUT_PATH_UNKNOWN && mesh::Packet::isValidPathLen(path_len)
+        && i + mesh::Packet::getPathByteLenFor(path_len) + 4 <= len) { // minimum 4 byte payload
       uint8_t *path = &cmd_frame[i];
       i += mesh::Packet::getPathByteLenFor(path_len);
       auto pkt = createRawData(&cmd_frame[i], len - i);
@@ -2367,6 +2479,16 @@ void MyMesh::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_SEND_ANON_REQ && len > 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
     ContactInfo *recipient = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
+    ContactInfo anon;
+    if (recipient == NULL) { // FIRMWARE_VER_CODE 13+,  allow non-contact requests
+      memset(&anon, 0, sizeof(anon));
+      memcpy(anon.id.pub_key, pub_key, PUB_KEY_SIZE);
+      anon.out_path_len = 0;   // default to zero-hop direct
+      anon.type = ADV_TYPE_NONE;  // unknown
+      anon.lastmod = getRTCClock()->getCurrentTime();
+
+      if (addAnonContact(anon)) recipient = &anon;
+    }
     uint8_t *data = &cmd_frame[1 + PUB_KEY_SIZE];
     if (recipient) {
       uint32_t tag, est_timeout;
@@ -2383,7 +2505,7 @@ void MyMesh::handleCmdFrame(size_t len) {
         _serial->writeFrame(out_frame, 10);
       }
     } else {
-      writeErrFrame(ERR_CODE_NOT_FOUND); // contact not found
+      writeErrFrame(ERR_CODE_TABLE_FULL); // contacts full
     }
   } else if (cmd_frame[0] == CMD_SEND_STATUS_REQ && len >= 1 + PUB_KEY_SIZE) {
     uint8_t *pub_key = &cmd_frame[1];
@@ -2590,7 +2712,7 @@ void MyMesh::handleCmdFrame(size_t len) {
         sendDirect(pkt, &cmd_frame[10], path_len);
 
         uint32_t t = _radio->getEstAirtimeFor(pkt->payload_len + pkt->path_len + 2);
-        uint32_t est_timeout = calcDirectTimeoutMillisFor(t, path_len);
+        uint32_t est_timeout = calcDirectTimeoutMillisFor(t, path_len >> path_sz);
 
         out_frame[0] = RESP_CODE_SENT;
         out_frame[1] = 0;
@@ -2756,6 +2878,10 @@ void MyMesh::handleCmdFrame(size_t len) {
       memset(send_scope.key, 0, sizeof(send_scope.key));  // set scope to null
       Serial.println("[CMD54] Per-channel scope cleared");
     }
+    send_unscoped = false;
+    writeOKFrame();
+  } else if (cmd_frame[0] == CMD_SET_FLOOD_SCOPE_KEY && len >= 2 && cmd_frame[1] == 1) {  // ver 12+
+    send_unscoped = true;
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_SET_DEFAULT_FLOOD_SCOPE && len >= 1) {
     // v1.15+ — set device-wide default flood scope (name[31] + key[16])
@@ -2803,10 +2929,432 @@ void MyMesh::handleCmdFrame(size_t len) {
     out_frame[i++] = RESP_CODE_AUTOADD_CONFIG;
     out_frame[i++] = _prefs.autoadd_config;
     _serial->writeFrame(out_frame, i);
+  } else if (cmd_frame[0] == CMD_SEND_RAW_PACKET && len >= 4) {
+    auto pkt = obtainNewPacket();
+    if (pkt) {
+      uint8_t priority = cmd_frame[1];
+      if (tryParsePacket(pkt, &cmd_frame[2], len - 2)) {
+        sendPacket(pkt, priority, 0);
+        writeOKFrame();
+      } else {
+        releasePacket(pkt);
+        writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      }
+    } else {
+      writeErrFrame(ERR_CODE_TABLE_FULL);
+    }
+  } else if (cmd_frame[0] == CMD_RUN_CLI_COMMAND && len >= 3) { // V14+
+    int i = 1;
+    char *text = (char *)&cmd_frame[i];
+    int tlen = len - i;
+    text[tlen] = 0; // ensure null
+
+    reply_buf[0] = 0;
+    if (!handleCommand(text, 0, reply_buf)) {
+      strcat(reply_buf, "Unknown command");   // reply_buf may have cmd prefix from 'text'
+    }
+    out_frame[0] = RESP_CODE_CLI_REPLY;
+    int rlen = strlen(reply_buf);
+    memcpy(&out_frame[1], reply_buf, rlen);
+    _serial->writeFrame(out_frame, 1 + rlen);
   } else {
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
     MESH_DEBUG_PRINTLN("ERROR: unknown command: %02X", cmd_frame[0]);
   }
+}
+
+// ---------------------------------------------------------------------------
+// App command line (CMD_RUN_CLI_COMMAND, protocol v14). A port of upstream
+// MeshCore v1.18's MyMesh::handleCommand() and CommonRadioPrefs::handleCommand()
+// (including upstream's later companion CLI fixes e3d0f9fc and 5d82ed35), with
+// the replies word for word. Values map onto the watch's NodePrefs. Not ported:
+// the variant hook (this MainBoard has no handleCommand) and remote CLI from
+// contacts. The watch boards have no software power-off, so poweroff and
+// shutdown reply "Error: unsupported".
+// ---------------------------------------------------------------------------
+#if defined(MECK_TWATCH) && defined(MECK_WIFI_COMPANION)
+// The watch keeps its saved network in LittleFS /wifi.cfg: line 1 SSID,
+// line 2 password (written by Settings > WiFi, read at boot by main.cpp).
+static void cliWifiCfgRead(char* ssid, size_t ssid_sz, char* pass, size_t pass_sz) {
+  ssid[0] = 0;
+  pass[0] = 0;
+  File f = LittleFS.open("/wifi.cfg", "r");
+  if (f) {
+    String s = f.readStringUntil('\n'); s.trim();
+    String p = f.readStringUntil('\n'); p.trim();
+    f.close();
+    StrHelper::strncpy(ssid, s.c_str(), ssid_sz);
+    StrHelper::strncpy(pass, p.c_str(), pass_sz);
+  }
+}
+
+static bool cliWifiCfgWrite(const char* ssid, const char* pass) {
+  File f = LittleFS.open("/wifi.cfg", "w");
+  if (!f) return false;
+  f.println(ssid);
+  f.println(pass);
+  f.close();
+  return true;
+}
+#endif
+
+bool MyMesh::handleCommand(const char* command, uint32_t sender_timestamp, char* reply) {
+  while (*command == ' ') command++; // skip leading spaces
+
+  if (strlen(command) > 4 && command[2] == '|') { // optional prefix (for companion radio CLI)
+    memcpy(reply, command, 3);                    // reflect the prefix back
+    reply += 3;
+    *reply = 0;
+    command += 3;
+  }
+
+  // --- radio settings (upstream CommonRadioPrefs::handleCommand) ---
+  if (strcmp(command, "get radio") == 0) {
+    char freq[16], bw[16];
+    strcpy(freq, StrHelper::ftoa(_prefs.freq));
+    strcpy(bw, StrHelper::ftoa3(_prefs.bw));
+    sprintf(reply, "> %s,%s,%d,%d", freq, bw, (uint32_t)_prefs.sf, (uint32_t)_prefs.cr);
+    return true;
+  }
+  if (memcmp(command, "set radio ", 10) == 0) {
+    char tmp[132];
+    StrHelper::strncpy(tmp, &command[10], sizeof(tmp));   // bounded: the app frame can be longer than tmp
+    const char *parts[4];
+    int num = mesh::Utils::parseTextParts(tmp, parts, 4);
+    float freq  = num > 0 ? strtof(parts[0], nullptr) : 0.0f;
+    float bw    = num > 1 ? strtof(parts[1], nullptr) : 0.0f;
+    uint8_t sf  = num > 2 ? atoi(parts[2]) : 0;
+    uint8_t cr  = num > 3 ? atoi(parts[3]) : 0;
+    if (freq >= 150.0f && freq <= 2500.0f && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7.0f && bw <= 500.0f) {
+      _prefs.sf = sf;
+      _prefs.cr = cr;
+      _prefs.freq = freq;
+      _prefs.bw = bw;
+      savePrefs();
+      strcpy(reply, "OK - reboot to apply");
+    } else {
+      strcpy(reply, "Error, invalid radio params");
+    }
+    return true;
+  }
+
+  if (strcmp(command, "get freq") == 0) {
+    sprintf(reply, "> %s", StrHelper::ftoa(_prefs.freq));
+    return true;
+  }
+
+  if (strcmp(command, "get af") == 0) {
+    sprintf(reply, "> %s", StrHelper::ftoa(_prefs.airtime_factor));
+    return true;
+  }
+  if (memcmp(command, "set af ", 7) == 0) {
+    char* end;
+    float af = strtof(&command[7], &end);
+    if (end == &command[7] || af < 0 || af > 9) {
+      strcpy(reply, "ERROR: af must be 0-9");
+    } else {
+      _prefs.airtime_factor = af;
+      savePrefs();
+      strcpy(reply, "OK");
+    }
+    return true;
+  }
+
+  if (strcmp(command, "get dutycycle") == 0) {
+    float dc = 100.0f / (_prefs.airtime_factor + 1.0f);
+    int dc_int = (int)dc;
+    int dc_frac = (int)((dc - dc_int) * 10.0f + 0.5f);
+    sprintf(reply, "> %d.%d%%", dc_int, dc_frac);
+    return true;
+  }
+  if (memcmp(command, "set dutycycle ", 14) == 0) {
+    float dc = atof(&command[14]);
+    if (dc < 1 || dc > 100) {
+      strcpy(reply, "ERROR: dutycycle must be 1-100");
+    } else {
+      _prefs.airtime_factor = (100.0f / dc) - 1.0f;
+      savePrefs();
+      float actual = 100.0f / (_prefs.airtime_factor + 1.0f);
+      int a_int = (int)actual;
+      int a_frac = (int)((actual - a_int) * 10.0f + 0.5f);
+      sprintf(reply, "OK - %d.%d%%", a_int, a_frac);
+    }
+    return true;
+  }
+
+  if (strcmp(command, "get int.thresh") == 0) {
+    sprintf(reply, "> %d", (uint32_t) _prefs.interference_threshold);
+    return true;
+  }
+  if (memcmp(command, "set int.thresh ", 15) == 0) {
+    _prefs.interference_threshold = atoi(&command[15]);
+    savePrefs();
+    strcpy(reply, "OK");
+    return true;
+  }
+
+  if (strcmp(command, "get cad") == 0) {
+    sprintf(reply, "> %s", _prefs.cad_enabled ? "on" : "off");
+    return true;
+  }
+  if (memcmp(command, "set cad ", 8) == 0) {
+    _prefs.cad_enabled = (memcmp(&command[8], "on", 2) == 0);
+    savePrefs();
+    strcpy(reply, "OK");
+    return true;
+  }
+
+  if (strcmp(command, "get radio.rxgain") == 0) {
+    sprintf(reply, "> %s", _prefs.rx_boosted_gain != 0 ? "on" : "off");
+    return true;
+  }
+  if (memcmp(command, "set radio.rxgain ", 17) == 0) {
+    bool enabled = memcmp(&command[17], "on", 2) == 0;
+    _prefs.rx_boosted_gain = enabled;
+    savePrefs();
+    if (radio_driver.setRxBoostedGainMode(enabled)) {
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error: unsupported");
+    }
+    return true;
+  }
+
+  if (memcmp(command, "get tx", 6) == 0 && (command[6] == 0 || command[6] == ' ')) {
+    sprintf(reply, "> %d", (int32_t) _prefs.tx_power_dbm);
+    return true;
+  }
+  if (memcmp(command, "set tx ", 7) == 0) {
+    _prefs.tx_power_dbm = atoi(&command[7]);
+    savePrefs();
+    radio_set_tx_power(_prefs.tx_power_dbm);
+    strcpy(reply, "OK");
+    return true;
+  }
+
+  if (strcmp(command, "get rxdelay") == 0) {
+    sprintf(reply, "> %s", StrHelper::ftoa(_prefs.rx_delay_base));
+    return true;
+  }
+  if (memcmp(command, "set rxdelay ", 12) == 0) {
+    float db = atof(&command[12]);
+    if (db >= 0 && db <= 20.0f) {
+      _prefs.rx_delay_base = db;
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error, must be 0-20");
+    }
+    return true;
+  }
+
+  if (strcmp(command, "get agc.reset.interval") == 0) {
+    sprintf(reply, "> %d", (uint32_t) (_prefs.agc_reset_interval * 4));
+    return true;
+  }
+  if (memcmp(command, "set agc.reset.interval ", 23) == 0) {
+    int secs = atoi(&command[23]);
+    secs = constrain(secs, 0, 255 * 4);
+    _prefs.agc_reset_interval = (uint16_t) secs / 4;   // stored as seconds / 4
+    savePrefs();
+    sprintf(reply, "OK - interval rounded to %d", (uint32_t) (_prefs.agc_reset_interval * 4));
+    return true;
+  }
+
+  if (strcmp(command, "get path.hash.mode") == 0) {
+    sprintf(reply, "> %d", (uint32_t)_prefs.path_hash_mode);
+    return true;
+  }
+  if (memcmp(command, "set path.hash.mode ", 19) == 0) {
+    const char* config = command + 19;
+    uint8_t mode = atoi(config);
+    if (mode < 3) {
+      _prefs.path_hash_mode = mode;
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error, must be 0,1, or 2");
+    }
+    return true;
+  }
+
+  if (strcmp(command, "get multi.acks") == 0) {
+    sprintf(reply, "> %d", (uint32_t) _prefs.multi_acks);
+    return true;
+  }
+  if (memcmp(command, "set multi.acks ", 15) == 0) {
+    _prefs.multi_acks = atoi(&command[15]);
+    savePrefs();
+    strcpy(reply, "OK");
+    return true;
+  }
+
+  if (strcmp(command, "get txdelay") == 0) {
+    sprintf(reply, "> %s", StrHelper::ftoa(_prefs.tx_delay_factor));
+    return true;
+  }
+  if (memcmp(command, "set txdelay ", 12) == 0) {
+    float f = atof(&command[12]);
+    if (f >= 0 && f <= 2.0f) {
+      _prefs.tx_delay_factor = f;
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error, must be 0-2");
+    }
+    return true;
+  }
+
+  if (strcmp(command, "get direct.txdelay") == 0) {
+    sprintf(reply, "> %s", StrHelper::ftoa(_prefs.direct_tx_delay_factor));
+    return true;
+  }
+  if (memcmp(command, "set direct.txdelay ", 19) == 0) {
+    float f = atof(&command[19]);
+    if (f >= 0 && f <= 2.0f) {
+      _prefs.direct_tx_delay_factor = f;
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error, must be 0-2");
+    }
+    return true;
+  }
+
+  // --- device commands (upstream MyMesh::handleCommand) ---
+  if (strcmp(command, "reboot") == 0) {
+    board.reboot(); // doesn't return
+    return true;
+  }
+
+  if (strcmp(command, "poweroff") == 0 || strcmp(command, "shutdown") == 0) {
+    strcpy(reply, "Error: unsupported");   // MainBoard::powerOff() is a no-op on both watch boards
+    return true;
+  }
+
+  if (memcmp(command, "set name ", 9) == 0) {
+    if (AdvertDataParser::isValidName(&command[9])) {
+      StrHelper::strncpy(_prefs.node_name, &command[9], sizeof(_prefs.node_name));
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error, bad chars");
+    }
+    return true;
+  }
+  if (strcmp(command, "get name") == 0) {
+    sprintf(reply, "> %s", _prefs.node_name);
+    return true;
+  }
+
+  if (memcmp(command, "set pin ", 8) == 0) {
+    _prefs.ble_pin = atoi(&command[8]);
+    savePrefs();
+    sprintf(reply, "> pin is now %06d", _prefs.ble_pin);
+    return true;
+  }
+
+#if defined(MECK_TWATCH) && defined(MECK_WIFI_COMPANION)
+  if (memcmp(command, "set wifi.ssid ", 14) == 0) {
+    char ssid[33], pass[64];   // upstream's wifi_ssid / wifi_pwd sizes
+    cliWifiCfgRead(ssid, sizeof(ssid), pass, sizeof(pass));
+    StrHelper::strncpy(ssid, &command[14], sizeof(ssid));
+    if (!cliWifiCfgWrite(ssid, pass)) {
+      strcpy(reply, "Error, can't save /wifi.cfg");
+      return true;
+    }
+    sprintf(reply, "> wifi.ssid is now %s (set wifi.pwd too, then reboot)", ssid);
+    return true;
+  }
+  if (memcmp(command, "set wifi.pwd ", 13) == 0) {
+    char ssid[33], pass[64];
+    cliWifiCfgRead(ssid, sizeof(ssid), pass, sizeof(pass));
+    StrHelper::strncpy(pass, &command[13], sizeof(pass));
+    if (!cliWifiCfgWrite(ssid, pass)) {
+      strcpy(reply, "Error, can't save /wifi.cfg");
+      return true;
+    }
+    strcpy(reply, "> wifi.pwd updated (reboot to apply)");
+    return true;
+  }
+  if (strcmp(command, "get wifi.pwd") == 0) {
+    char ssid[33], pass[64];
+    cliWifiCfgRead(ssid, sizeof(ssid), pass, sizeof(pass));
+    sprintf(reply, "> %s", pass);
+    return true;
+  }
+  if (strcmp(command, "set wifi.clear") == 0) {
+    if (!cliWifiCfgWrite("", "")) {
+      strcpy(reply, "Error, can't save /wifi.cfg");
+      return true;
+    }
+    strcpy(reply, "> wifi config cleared (reboot to apply)");
+    return true;
+  }
+  if (strcmp(command, "get wifi.ssid") == 0) {
+    char ssid[33], pass[64];
+    cliWifiCfgRead(ssid, sizeof(ssid), pass, sizeof(pass));
+  #ifdef WIFI_SSID
+    if (ssid[0] == 0) StrHelper::strncpy(ssid, WIFI_SSID, sizeof(ssid));   // boot falls back to the build default
+  #endif
+    sprintf(reply, "> %s", ssid[0] ? ssid : "(not set)");
+    return true;
+  }
+  if (memcmp(command, "set wifi.enabled ", 17) == 0) {
+    // The watch WiFi builds always start WiFi at boot (main.cpp) and keep no
+    // saved on/off switch, so only 1 can be honoured.
+    if (atoi(&command[17])) {
+      strcpy(reply, "> wifi.enabled is now 1 (reboot to apply)");
+    } else {
+      strcpy(reply, "Error: unsupported");
+    }
+    return true;
+  }
+  if (strcmp(command, "get wifi.enabled") == 0) {
+    strcpy(reply, "> 1");
+    return true;
+  }
+  if (strcmp(command, "get wifi.status") == 0) {
+    strcpy(reply, WiFi.status() == WL_CONNECTED ? "> connected" : "> disconnected");
+    return true;
+  }
+  if (strcmp(command, "get wifi.ip") == 0) {
+    if (WiFi.status() == WL_CONNECTED) {
+      sprintf(reply, "> %s", WiFi.localIP().toString().c_str());
+    } else {
+      strcpy(reply, "> (not connected)");
+    }
+    return true;
+  }
+#endif
+
+  if (strcmp(command, "board") == 0) {
+    strcpy(reply, board.getManufacturerName());
+    return true;
+  }
+
+  if (strcmp(command, "ver") == 0) {
+    sprintf(reply, "%s (Build: %s)", FIRMWARE_VERSION, FIRMWARE_BUILD_DATE);
+    return true;
+  }
+
+  if (strcmp(command, "get tz.offset") == 0) {
+    sprintf(reply, "> %d", _prefs.utc_offset_hours);
+    return true;
+  }
+  if (memcmp(command, "set tz.offset ", 14) == 0) {
+    int8_t tz = atof(&command[14]);
+    if (tz < -12 || tz > 14) {
+      strcpy(reply, "Error, must be from -12 to +14");
+    } else {
+      _prefs.utc_offset_hours = tz;
+      savePrefs();
+      strcpy(reply, "OK");
+    }
+    return true;
+  }
+
+  return false;  // not handled
 }
 
 void MyMesh::enterCLIRescue() {

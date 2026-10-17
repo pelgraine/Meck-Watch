@@ -5,7 +5,7 @@
 #include "AbstractUITask.h"
 
 /*------------ Frame Protocol --------------*/
-#define FIRMWARE_VER_CODE 11
+#define FIRMWARE_VER_CODE 14
 
 #ifndef FIRMWARE_BUILD_DATE
 #define FIRMWARE_BUILD_DATE "28 August 2026"
@@ -234,6 +234,10 @@ public:
 protected:
   float getAirtimeBudgetFactor() const override;
   int getInterferenceThreshold() const override;
+  bool getCADEnabled() const override;
+  int getAGCResetInterval() const override {
+    return ((int)_prefs.agc_reset_interval) * 4000;   // milliseconds
+  }
   uint8_t getTxFailResetThreshold() const override;
   uint8_t getRxFailRebootThreshold() const override;
   void onRxUnrecoverable() override;
@@ -272,6 +276,8 @@ protected:
                            const uint8_t *sender_prefix, const char *text) override;
   void onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
                             const char *text) override;
+  void onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
+                         const uint8_t *data, size_t data_len) override;
 
   uint8_t onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
                            uint8_t len, uint8_t *reply) override;
@@ -341,6 +347,8 @@ private:
 
   void checkCLIRescueCmd();
   void checkSerialInterface();
+  bool handleCommand(const char* command, uint32_t sender_timestamp, char* reply);  // CMD_RUN_CLI_COMMAND
+  char reply_buf[166];
 
   DataStore* _store;
   NodePrefs _prefs;
@@ -371,6 +379,7 @@ private:
   unsigned long _nextContactSaveDue;   // ESP32 chunked save: next scheduled flush (0 = unscheduled)
 
   TransportKey send_scope;
+  bool send_unscoped;   // force un-scoped flood (instead of using send_scope)
 
   // --- Region scope resolution for incoming channel messages (display only) ---
   // A received scoped flood/direct packet carries a one-way transport code. We match

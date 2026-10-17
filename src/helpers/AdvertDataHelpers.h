@@ -63,6 +63,8 @@ public:
   int32_t getIntLon() const { return _lon; }
   double getLat() const { return ((double)_lat) / 1000000.0; }
   double getLon() const { return ((double)_lon) / 1000000.0; }
+
+  static bool isValidName(const char* name);
 };
 
 class AdvertTimeHelper {

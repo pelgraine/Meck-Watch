@@ -141,6 +141,14 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
   }
   putBlobByKey(id.pub_key, PUB_KEY_SIZE, temp_buf, plen);
 
+  // already in a temporary slot from a non-contact request? clear it; the normal
+  // 'add' flow below then applies (upstream c2d223ff)
+  for (int i = MAX_CONTACTS; contacts != NULL && i < MAX_CONTACTS + MAX_ANON_CONTACTS; i++) {
+    if (contacts[i].lastmod != 0 && id.matches(contacts[i].id)) {
+      memset(&contacts[i], 0, sizeof(contacts[i]));
+    }
+  }
+
   bool is_new = false; // true = not in contacts[], false = exists in contacts[]
   if (from == NULL) {
     if (!shouldAutoAddContactType(parser.getType())) {
@@ -184,12 +192,18 @@ int BaseChatMesh::searchPeersByHash(const uint8_t* hash) {
       matching_peer_indexes[n++] = i;  // store the INDEXES of matching contacts (for subsequent 'peer' methods)
     }
   }
+  // then the temporary slots used for requests to non-contacts (lastmod 0 = slot unused)
+  for (int i = MAX_CONTACTS; contacts != NULL && i < MAX_CONTACTS + MAX_ANON_CONTACTS && n < MAX_SEARCH_RESULTS; i++) {
+    if (contacts[i].lastmod != 0 && contacts[i].id.isHashMatch(hash)) {
+      matching_peer_indexes[n++] = i;
+    }
+  }
   return n;
 }
 
 void BaseChatMesh::getPeerSharedSecret(uint8_t* dest_secret, int peer_idx) {
   int i = matching_peer_indexes[peer_idx];
-  if (i >= 0 && i < num_contacts) {
+  if (isPeerIdxValid(i)) {
     memcpy(dest_secret, contacts[i].getSharedSecret(self_id), PUB_KEY_SIZE);
   } else {
     MESH_DEBUG_PRINTLN("getPeerSharedSecret: Invalid peer idx: %d", i);
@@ -198,7 +212,7 @@ void BaseChatMesh::getPeerSharedSecret(uint8_t* dest_secret, int peer_idx) {
 
 void BaseChatMesh::onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender_idx, const uint8_t* secret, uint8_t* data, size_t len) {
   int i = matching_peer_indexes[sender_idx];
-  if (i < 0 || i >= num_contacts) {
+  if (!isPeerIdxValid(i)) {
     MESH_DEBUG_PRINTLN("onPeerDataRecv: Invalid sender idx: %d", i);
     return;
   }
@@ -290,7 +304,7 @@ void BaseChatMesh::onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender
 
 bool BaseChatMesh::onPeerPathRecv(mesh::Packet* packet, int sender_idx, const uint8_t* secret, uint8_t* path, uint8_t path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) {
   int i = matching_peer_indexes[sender_idx];
-  if (i < 0 || i >= num_contacts) {
+  if (!isPeerIdxValid(i)) {
     MESH_DEBUG_PRINTLN("onPeerPathRecv: Invalid sender idx: %d", i);
     return false;
   }
@@ -344,6 +358,12 @@ void BaseChatMesh::handleReturnPathRetry(const ContactInfo& contact, const uint8
 int BaseChatMesh::searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel dest[], int max_matches) {
   int n = 0;
   for (int i = 0; i < MAX_GROUP_CHANNELS && n < max_matches; i++) {
+    // Skip empty/unconfigured slots. An empty slot has an all-zero secret and
+    // therefore matches null-key group traffic (a node transmitting with an
+    // unset PSK): the zero-key MAC validates against the empty slot and the
+    // foreign message is delivered as if it belonged to that channel. Any node
+    // with a free channel slot would otherwise act as a null-key sink.
+    if (channels[i].name[0] == 0) continue;
     if (channels[i].channel.hash[0] == hash[0]) {
       dest[n++] = channels[i].channel;
     }
@@ -353,8 +373,18 @@ int BaseChatMesh::searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel d
 #endif
 
 void BaseChatMesh::onGroupDataRecv(mesh::Packet* packet, uint8_t type, const mesh::GroupChannel& channel, uint8_t* data, size_t len) {
-  uint8_t txt_type = data[4];
-  if (type == PAYLOAD_TYPE_GRP_TXT && len > 5 && (txt_type >> 2) == 0) {  // 0 = plain text msg
+  if (type == PAYLOAD_TYPE_GRP_TXT) {
+    if (len < 5) {
+      MESH_DEBUG_PRINTLN("onGroupDataRecv: dropping short group text payload len=%d", (uint32_t)len);
+      return;
+    }
+
+    uint8_t txt_type = data[4];
+    if ((txt_type >> 2) != 0) {
+      MESH_DEBUG_PRINTLN("onGroupDataRecv: dropping unsupported group text type=%d", (uint32_t)txt_type);
+      return;
+    }
+
     uint32_t timestamp;
     memcpy(&timestamp, data, 4);
 
@@ -363,6 +393,25 @@ void BaseChatMesh::onGroupDataRecv(mesh::Packet* packet, uint8_t type, const mes
 
     // notify UI  of this new message
     onChannelMessageRecv(channel, packet, timestamp, (const char *) &data[5]);  // let UI know
+  } else if (type == PAYLOAD_TYPE_GRP_DATA) {
+    // Channel datagram (issue #19, upstream 9b842786): 2-byte data type
+    // (little-endian), 1-byte length, then the payload.
+    if (len < 3) {
+      MESH_DEBUG_PRINTLN("onGroupDataRecv: dropping short group data payload len=%d", (uint32_t)len);
+      return;
+    }
+
+    uint16_t data_type = ((uint16_t)data[0]) | (((uint16_t)data[1]) << 8);
+    uint8_t data_len = data[2];
+    size_t available_len = len - 3;
+
+    if (data_len > available_len) {
+      MESH_DEBUG_PRINTLN("onGroupDataRecv: dropping malformed group data type=%d len=%d available=%d",
+                         (uint32_t)data_type, (uint32_t)data_len, (uint32_t)available_len);
+      return;
+    }
+
+    onChannelDataRecv(channel, packet, data_type, &data[3], data_len);
   }
 }
 
@@ -407,13 +456,13 @@ int  BaseChatMesh::sendMessage(const ContactInfo& recipient, uint32_t timestamp,
   return rc;
 }
 
-int  BaseChatMesh::sendCommandData(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, const char* text, uint32_t& est_timeout) {
+int  BaseChatMesh::sendCommandData(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, uint8_t txt_type, const char* text, uint32_t& est_timeout) {
   int text_len = strlen(text);
   if (text_len > MAX_TEXT_LEN) return MSG_SEND_FAILED;
 
   uint8_t temp[5+MAX_TEXT_LEN+1];
   memcpy(temp, &timestamp, 4);   // mostly an extra blob to help make packet_hash unique
-  temp[4] = (attempt & 3) | (TXT_TYPE_CLI_DATA << 2);
+  temp[4] = (attempt & 3) | (txt_type << 2);
   memcpy(&temp[5], text, text_len + 1);
 
   auto pkt = createDatagram(PAYLOAD_TYPE_TXT_MSG, recipient.id, recipient.getSharedSecret(self_id), temp, 5 + text_len);
@@ -452,6 +501,39 @@ bool BaseChatMesh::sendGroupMessage(uint32_t timestamp, mesh::GroupChannel& chan
     return true;
   }
   return false;
+}
+
+// Channel datagram (issue #19, upstream 9b842786 and ed326255): flood (scoped
+// as for channel messages) when path_len is OUT_PATH_UNKNOWN, else direct.
+bool BaseChatMesh::sendGroupData(mesh::GroupChannel& channel, uint8_t* path, uint8_t path_len, uint16_t data_type, const uint8_t* data, int data_len) {
+  if (data_len < 0) {
+    MESH_DEBUG_PRINTLN("sendGroupData: invalid negative data_len=%d", data_len);
+    return false;
+  }
+  if (data_len > MAX_GROUP_DATA_LENGTH) {
+    MESH_DEBUG_PRINTLN("sendGroupData: data_len=%d exceeds max=%d", data_len, MAX_GROUP_DATA_LENGTH);
+    return false;
+  }
+
+  uint8_t temp[3 + MAX_GROUP_DATA_LENGTH];
+  temp[0] = (uint8_t)(data_type & 0xFF);
+  temp[1] = (uint8_t)(data_type >> 8);
+  temp[2] = (uint8_t)data_len;
+  if (data_len > 0) memcpy(&temp[3], data, data_len);
+
+  auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_DATA, channel, temp, 3 + data_len);
+  if (pkt == NULL) {
+    MESH_DEBUG_PRINTLN("sendGroupData: unable to create group datagram, data_len=%d", data_len);
+    return false;
+  }
+
+  if (path_len == OUT_PATH_UNKNOWN) {
+    sendFloodScoped(channel, pkt);
+  } else {
+    sendDirect(pkt, path, path_len);
+  }
+
+  return true;
 }
 
 bool BaseChatMesh::shareContactZeroHop(const ContactInfo& contact) {
@@ -774,6 +856,28 @@ bool BaseChatMesh::addContact(const ContactInfo& contact) {
     return true;  // success
   }
   return false;
+}
+
+bool BaseChatMesh::addAnonContact(const ContactInfo& contact) {
+  if (contacts == NULL) return false;
+  // reuse this node's temporary slot if it has one, else the oldest (unused slots have lastmod 0)
+  ContactInfo* dest = NULL;
+  uint32_t oldest_lastmod = 0xFFFFFFFF;
+  for (int i = MAX_CONTACTS; i < MAX_CONTACTS + MAX_ANON_CONTACTS; i++) {
+    if (contacts[i].lastmod != 0 && contacts[i].id.matches(contact.id)) {
+      dest = &contacts[i];
+      break;
+    }
+    if (contacts[i].lastmod < oldest_lastmod) {
+      oldest_lastmod = contacts[i].lastmod;
+      dest = &contacts[i];
+    }
+  }
+  if (dest == NULL) return false;
+  // NOTE: do NOT call onContactOverwrite() (upstream 07648e33)
+  *dest = contact;
+  dest->shared_secret_valid = false; // mark shared_secret as needing calculation
+  return true;
 }
 
 bool BaseChatMesh::removeContact(ContactInfo& contact) {

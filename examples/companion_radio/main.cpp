@@ -1308,6 +1308,13 @@ void setup() {
   {
     auto* hatch_pmu = board.getPMU();
     if (hatch_pmu) {
+#if defined(LILYGO_TWATCH_S3_PLUS) && !defined(MECK_NO_MAPS)
+      // S3 Plus maps builds: power_init() leaves the PWR key IRQs masked (no
+      // PMUButton there), and XPowersLib reports an edge only while its IRQ
+      // is enabled. Unmask press/release for this window only.
+      hatch_pmu->enableIRQ(XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
+                           XPOWERS_AXP2101_PKEY_POSITIVE_IRQ);
+#endif
       hatch_pmu->getIrqStatus();
       hatch_pmu->clearIrqStatus();       // discard the power-on press
       bool hatch_held = false;
@@ -1326,6 +1333,12 @@ void setup() {
           esp_restart();
         }
       }
+#if defined(LILYGO_TWATCH_S3_PLUS) && !defined(MECK_NO_MAPS)
+      // Back to power_init()'s state: PWR key IRQs masked, status cleared.
+      hatch_pmu->disableIRQ(XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
+                            XPOWERS_AXP2101_PKEY_POSITIVE_IRQ);
+      hatch_pmu->clearIrqStatus();
+#endif
     }
   }
 #endif
@@ -1971,7 +1984,13 @@ void loop() {
   if (!otaRadioPaused)
   #endif
   if ((millis() - lastAGCReset) >= AGC_RESET_INTERVAL_MS) {
-    radio_reset_agc();
+    // The saved RX gain choice (app CLI "set radio.rxgain"): boosted when on,
+    // otherwise radio_reset_agc(), the watch's power-saving default.
+    if (the_mesh.getNodePrefs()->rx_boosted_gain) {
+      radio_driver.setRxBoostedGainMode(true);
+    } else {
+      radio_reset_agc();
+    }
     lastAGCReset = millis();
   }
   // Handle T-Deck Pro keyboard input

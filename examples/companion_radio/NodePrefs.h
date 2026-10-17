@@ -64,6 +64,16 @@ public:
   uint8_t autoadd_max_hops = 0;  // 0=no limit, N=up to N-1 hops (max 64)
   uint32_t gps_baudrate = 0;     // GPS baud rate (0 = use compile-time GPS_BAUDRATE default)
   uint8_t interference_threshold = 0; // Interference threshold in dB (0=disabled, 14+=enabled)
+  // Radio settings from upstream's app command line (CMD_RUN_CLI_COMMAND),
+  // saved under upstream's JSON keys in "radio". The defaults keep the
+  // watch's behaviour from before they existed: power-saving RX gain, CAD
+  // off, AGC reset off; the TX delay factors get 0.5 / 0.2 in the MyMesh
+  // constructor (the values the delay code used before).
+  uint8_t rx_boosted_gain = 0;        // 0 = power-saving RX gain, 1 = boosted
+  uint8_t cad_enabled = 0;            // hardware CAD before transmit
+  uint8_t agc_reset_interval = 0;     // seconds / 4, 0 = off
+  float tx_delay_factor = 0;          // flood retransmit delay factor (txdelay)
+  float direct_tx_delay_factor = 0;   // direct retransmit delay factor (direct.txdelay)
   uint8_t dark_mode = 0;              // 0=off (white bg), 1=on (black bg)
   uint8_t portrait_mode = 0;          // 0=landscape, 1=portrait — T5S3 only
   uint8_t auto_lock_minutes = 0;      // 0=disabled, 2/5/10/15/30=auto-lock after idle
@@ -157,9 +167,14 @@ private:
       def("bw", _parent->bw);
       def("sf", _parent->sf);
       def("cr", _parent->cr);
+      def("cad", _parent->cad_enabled);
+      def("rxgain", _parent->rx_boosted_gain);
       def("tx", _parent->tx_power_dbm);
       def("af", _parent->airtime_factor);
       def("rxdelay", _parent->rx_delay_base);
+      def("f_txdelay", _parent->tx_delay_factor);
+      def("d_txdelay", _parent->direct_tx_delay_factor);
+      def("agc_int", _parent->agc_reset_interval);
       def("hash_mode", _parent->path_hash_mode);
       def("multi_ack", _parent->multi_acks);
     }

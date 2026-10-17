@@ -5,6 +5,8 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
 class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLEServerCallbacks, BLECharacteristicCallbacks {
   BLEServer *pServer;
@@ -27,12 +29,13 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   };
 
   #define FRAME_QUEUE_SIZE  16
-  int recv_queue_len;
-  Frame recv_queue[FRAME_QUEUE_SIZE];
+  StaticQueue_t recv_queue_state;
+  uint8_t recv_queue_storage[FRAME_QUEUE_SIZE * sizeof(Frame)];
+  QueueHandle_t recv_queue;   // filled by the BLE stack task (onWrite), drained by loop()
   int send_queue_len;
   Frame send_queue[FRAME_QUEUE_SIZE];
 
-  void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; }
+  void clearBuffers() { xQueueReset(recv_queue); send_queue_len = 0; }
 
   void _realBegin();       // deferred BLE controller + GATT bring-up
 
@@ -65,7 +68,10 @@ public:
     _last_write = 0;
     last_conn_id = 0;
     memset(_remote_bda, 0, 6);
-    send_queue_len = recv_queue_len = 0;
+    recv_queue = xQueueCreateStatic(
+      FRAME_QUEUE_SIZE, sizeof(Frame), recv_queue_storage, &recv_queue_state
+    );
+    send_queue_len = 0;
   }
 
   /**

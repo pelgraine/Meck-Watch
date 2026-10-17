@@ -126,9 +126,10 @@ bool TWatchS3PlusBoard::power_init() {
     PMU = NULL;
     return false;
   }
-#ifdef MECK_NO_MAPS
+#if defined(MECK_NO_MAPS) || defined(MECK_OTA_UPDATE)
   // Same object, concrete type -- constructed as XPowersAXP2101 just above.
-  // Backs PMUButton's pekey IRQ reads; see the note in TWatchS3PlusBoard.h.
+  // Backs PMUButton's pekey IRQ reads and the boot escape hatch; see the
+  // note in TWatchS3PlusBoard.h.
   _axp = static_cast<XPowersAXP2101*>(PMU);
 #endif
 

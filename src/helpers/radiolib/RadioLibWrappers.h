@@ -16,6 +16,7 @@ protected:
   mesh::MainBoard* _board;
   uint32_t n_recv, n_sent;
   int16_t _noise_floor, _threshold;
+  bool _cad_enabled;
   uint16_t _num_floor_samples;
   int32_t _floor_sample_sum;
   bool _dutyEnabled;   // MCU-driven RX duty cycle runtime toggle (watch)
@@ -51,8 +52,11 @@ public:
 
   virtual float getCurrentRSSI() =0;
 
+  virtual int16_t performChannelScan();
+
   int getNoiseFloor() const override { return _noise_floor; }
   void triggerNoiseFloorCalibrate(int threshold) override;
+  void setCADEnabled(bool enable) override { _cad_enabled = enable; }
   void resetAGC() override;
 
   // MCU-driven RX duty cycle (watch): runtime toggle, persisted in NodePrefs.
@@ -71,6 +75,9 @@ public:
   virtual float getLastSNR() const override;
 
   float packetScore(float snr, int packet_len) override { return packetScoreInt(snr, 10, packet_len); }  // assume sf=10
+
+  // RX boosted gain (SX126x); false where the radio has no such mode
+  virtual bool setRxBoostedGainMode(bool) { return false; }
 };
 
 /**

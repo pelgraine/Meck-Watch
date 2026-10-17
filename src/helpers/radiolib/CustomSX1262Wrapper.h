@@ -19,6 +19,9 @@ public:
     int sf = ((CustomSX1262 *)_radio)->spreadingFactor;
     return packetScoreInt(snr, sf, packet_len);
   }
+  bool setRxBoostedGainMode(bool en) override {
+    return ((CustomSX1262 *)_radio)->setRxBoostedGainMode(en) == RADIOLIB_ERR_NONE;
+  }
   virtual void powerOff() override {
     ((CustomSX1262 *)_radio)->standby();
     ((CustomSX1262 *)_radio)->sleep(false);

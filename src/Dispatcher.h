@@ -65,6 +65,8 @@ public:
 
   virtual void triggerNoiseFloorCalibrate(int threshold) { }
 
+  virtual void setCADEnabled(bool enable) { }
+
   virtual void resetAGC() { }
 
   /**
@@ -175,6 +177,7 @@ protected:
   virtual uint32_t getCADFailRetryDelay() const;
   virtual uint32_t getCADFailMaxDuration() const;
   virtual int getInterferenceThreshold() const { return 0; }    // disabled by default
+  virtual bool getCADEnabled() const { return false; }    // hardware CAD disabled by default
   virtual int getAGCResetInterval() const { return 0; }    // disabled by default
   virtual uint8_t getTxFailResetThreshold() const { return 3; }  // reset radio after N consecutive TX failures; 0=disabled
   virtual void onTxStuck() { _radio->resetAGC(); }              // override to use doFullRadioReset() when available
@@ -205,6 +208,8 @@ public:
   // helper methods
   bool millisHasNowPassed(unsigned long timestamp) const;
   unsigned long futureMillis(int millis_from_now) const;
+
+  bool tryParsePacket(Packet* pkt, const uint8_t* raw, int len);
 
 private:
   void checkRecv();

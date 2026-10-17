@@ -72,6 +72,7 @@ uint32_t Dispatcher::getCADFailMaxDuration() const {
 void Dispatcher::loop() {
   if (millisHasNowPassed(next_floor_calib_time)) {
     _radio->triggerNoiseFloorCalibrate(getInterferenceThreshold());
+    _radio->setCADEnabled(getCADEnabled());
     next_floor_calib_time = futureMillis(NOISE_FLOOR_CALIB_INTERVAL);
   }
   _radio->loop();
@@ -177,6 +178,39 @@ void Dispatcher::loop() {
   checkSend();
 }
 
+// Parses one raw over-the-air frame into 'pkt'. Factored out of checkRecv(),
+// as upstream MeshCore did, so CMD_SEND_RAW_PACKET can use the same parser.
+// The checks are the ones checkRecv() made before: the path must fit
+// MAX_PATH_SIZE and the frame, and the payload must fit the packet.
+bool Dispatcher::tryParsePacket(Packet* pkt, const uint8_t* raw, int len) {
+  int i = 0;
+
+  pkt->header = raw[i++];
+  if (pkt->hasTransportCodes()) {
+    memcpy(&pkt->transport_codes[0], &raw[i], 2); i += 2;
+    memcpy(&pkt->transport_codes[1], &raw[i], 2); i += 2;
+  } else {
+    pkt->transport_codes[0] = pkt->transport_codes[1] = 0;
+  }
+  pkt->path_len = raw[i++];
+
+  uint16_t path_byte_len = pkt->getPathByteLen();
+  if (path_byte_len > MAX_PATH_SIZE || i + path_byte_len > len) {
+    MESH_DEBUG_PRINTLN("%s Dispatcher::checkRecv(): partial or corrupt packet received, len=%d", getLogDateTime(), len);
+    return false;
+  }
+  memcpy(pkt->path, &raw[i], path_byte_len); i += path_byte_len;
+
+  pkt->payload_len = len - i;  // payload is remainder
+  if (pkt->payload_len > sizeof(pkt->payload)) {
+    MESH_DEBUG_PRINTLN("%s Dispatcher::checkRecv(): packet payload too big, payload_len=%d", getLogDateTime(), (uint32_t)pkt->payload_len);
+    return false;
+  }
+  memcpy(pkt->payload, &raw[i], pkt->payload_len);
+
+  return true;  // success
+}
+
 void Dispatcher::checkRecv() {
   Packet* pkt;
   float score;
@@ -201,36 +235,14 @@ void Dispatcher::checkRecv() {
         }
 #endif
 
-        pkt->header = raw[i++];
-        if (pkt->hasTransportCodes()) {
-          memcpy(&pkt->transport_codes[0], &raw[i], 2); i += 2;
-          memcpy(&pkt->transport_codes[1], &raw[i], 2); i += 2;
+        if (tryParsePacket(pkt, &raw[i], len - i)) {
+          pkt->_snr = _radio->getLastSNR() * 4.0f;
+          score = _radio->packetScore(_radio->getLastSNR(), len);
+          air_time = _radio->getEstAirtimeFor(len);
+          rx_air_time += air_time;
         } else {
-          pkt->transport_codes[0] = pkt->transport_codes[1] = 0;
-        }
-        pkt->path_len = raw[i++];
-
-        uint16_t path_byte_len = pkt->getPathByteLen();
-        if (path_byte_len > MAX_PATH_SIZE || i + path_byte_len > len) {
-          MESH_DEBUG_PRINTLN("%s Dispatcher::checkRecv(): partial or corrupt packet received, len=%d", getLogDateTime(), len);
           _mgr->free(pkt);  // put back into pool
           pkt = NULL;
-        } else {
-          memcpy(pkt->path, &raw[i], path_byte_len); i += path_byte_len;
-
-          pkt->payload_len = len - i;  // payload is remainder
-          if (pkt->payload_len > sizeof(pkt->payload)) {
-            MESH_DEBUG_PRINTLN("%s Dispatcher::checkRecv(): packet payload too big, payload_len=%d", getLogDateTime(), (uint32_t)pkt->payload_len);
-            _mgr->free(pkt);  // put back into pool
-            pkt = NULL;  
-          } else {
-            memcpy(pkt->payload, &raw[i], pkt->payload_len);
-
-            pkt->_snr = _radio->getLastSNR() * 4.0f;
-            score = _radio->packetScore(_radio->getLastSNR(), len);
-            air_time = _radio->getEstAirtimeFor(len);
-            rx_air_time += air_time;
-          }
         }
       }
     } else {
