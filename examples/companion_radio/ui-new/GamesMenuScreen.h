@@ -20,6 +20,9 @@ enum GameID {
   GAME_SNAKE,
   GAME_MINESWEEPER,
   GAME_GBC,
+#ifdef MECK_LORAFISH
+  GAME_LORAFISH,   // LoRaGotchi fish menus
+#endif
   // GAME_2048,
   GAME_COUNT   // Must be last -- used for array sizing
 };
@@ -39,13 +42,20 @@ private:
     const char* description;
   };
 
+#ifdef MECK_LORAFISH
+  static constexpr int NUM_GAMES = 4;  // + LoRaGotchi
+#else
   static constexpr int NUM_GAMES = 3;  // Increment as games are added
+#endif
 
   static const GameEntry* getGames() {
     static const GameEntry games[NUM_GAMES] = {
       { GAME_SNAKE,       "Snake",       "Classic Nokia-style" },
       { GAME_MINESWEEPER, "Minesweeper", "Find the mines" },
       { GAME_GBC,         "Game Boy",    "Game Boy emulator" },
+#ifdef MECK_LORAFISH
+      { GAME_LORAFISH,    "LoRaGotchi",  "Your LoRa fish" },
+#endif
       // { GAME_2048,        "2048",        "Slide and merge" },
     };
     return games;

@@ -64,6 +64,9 @@
   #include "MinesweeperScreen.h"
   #include "WatchGBCScreen.h"
 #endif
+#ifdef MECK_LORAFISH
+  #include "LoRaFish.h"
+#endif
 
 // --- T5S3: GT911 capacitive touch driver ---
 
@@ -305,6 +308,15 @@ static void lastHeardToggleContact() {
       ui_task.dismissBootHint();
       return 0;
     }
+
+#ifdef MECK_LORAFISH
+    // LoRaGotchi fish screen: top area = back one level, right half = next,
+    // left half = previous (handled in LoRaFish.cpp, before the top-strip home).
+    if (ui_task.isOnLoRaFishScreen()) {
+      ui_task.handleLoRaFishResult(loRaFishMenuTap(vx, vy));
+      return 0;
+    }
+#endif
 
     // --- Status bar tap (top ~18 virtual units) → go home from any non-home screen ---
     // Exception: text reader reading mode uses full screen for content (no header)
@@ -845,6 +857,14 @@ static void lastHeardToggleContact() {
   static char mapTouchSwipe(int16_t dx, int16_t dy) {
     bool horizontal = abs(dx) > abs(dy);
 
+#ifdef MECK_LORAFISH
+    // LoRaGotchi fish screen: swipe left/right = page, up/down = list item/field.
+    if (ui_task.isOnLoRaFishScreen()) {
+      ui_task.handleLoRaFishResult(loRaFishMenuSwipe(dx, dy));
+      return 0;
+    }
+#endif
+
     // SMS screen: dedicated touch handler covers all interaction
 
 #if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
@@ -964,6 +984,14 @@ static void lastHeardToggleContact() {
   // Map a long press to a key
   static char mapTouchLongPress(int16_t x, int16_t y) {
     // SMS screen: dedicated touch handler covers all interaction
+
+#ifdef MECK_LORAFISH
+    // LoRaGotchi fish screen: hold = the page's long-press action.
+    if (ui_task.isOnLoRaFishScreen()) {
+      ui_task.handleLoRaFishResult(loRaFishMenuHold());
+      return 0;
+    }
+#endif
 
 #ifdef TWATCH_COMPOSE_ENABLED
     // TWatch channel screen: no synthesised keys (see mapTouchTap) -- a long
@@ -1466,6 +1494,9 @@ void setup() {
     #endif
   );
   MESH_DEBUG_PRINTLN("setup() - the_mesh.begin() done");
+#ifdef MECK_LORAFISH
+  loragotchiDXLoad();   // LoRaGotchi fish: DX visit state (every boot brings the fish home)
+#endif
 
   // CPU frequency scaling -- drop to the idle clock for mesh listening.
   // Late in setup on purpose: the first-boot filesystem format cannot run at
@@ -2183,6 +2214,9 @@ void loop() {
                   case GAME_SNAKE: ui_task.gotoSnakeScreen(); break;
                   case GAME_MINESWEEPER: ui_task.gotoMinesweeperScreen(); break;
                   case GAME_GBC: ui_task.gotoGBCScreen(); break;
+#ifdef MECK_LORAFISH
+                  case GAME_LORAFISH: ui_task.gotoLoRaFishScreen(); break;
+#endif
                   default: break;
                 }
               }
@@ -2259,6 +2293,9 @@ void loop() {
                   case GAME_SNAKE: ui_task.gotoSnakeScreen(); break;
                   case GAME_MINESWEEPER: ui_task.gotoMinesweeperScreen(); break;
                   case GAME_GBC: ui_task.gotoGBCScreen(); break;
+#ifdef MECK_LORAFISH
+                  case GAME_LORAFISH: ui_task.gotoLoRaFishScreen(); break;
+#endif
                   default: break;
                 }
               }

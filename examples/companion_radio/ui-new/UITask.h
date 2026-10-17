@@ -88,6 +88,9 @@ class UITask : public AbstractUITask {
   UIScreen* snake_screen;      // Snake game screen
   UIScreen* minesweeper_screen; // Minesweeper game screen
   UIScreen* gbc_screen;         // Game Boy emulator screen
+#ifdef MECK_LORAFISH
+  UIScreen* lorafish_screen;    // LoRaGotchi fish menus (Games menu)
+#endif
 #ifdef MECK_WEB_READER
   UIScreen* web_reader;       // Web reader screen (lazy-init, WiFi required)
 #endif
@@ -222,6 +225,13 @@ public:
   void gotoSnakeScreen();                  // Navigate to snake game
   void gotoMinesweeperScreen();            // Navigate to minesweeper game
   void gotoGBCScreen();                    // Navigate to Game Boy emulator
+#ifdef MECK_LORAFISH
+  void gotoLoRaFishScreen();               // LoRaGotchi fish menus
+  void gotoAquarium();                     // Home screen, aquarium page
+  void handleLoRaFishResult(int result);   // after a gesture on the fish screen
+  bool isOnLoRaFishScreen() const { return curr == lorafish_screen; }
+  bool isOnAquariumPage() const;           // home screen showing the aquarium
+#endif
 #if defined(MECK_TWATCH)
   void gotoStepsScreen();                  // Navigate to the step counter screen
   void gotoStepsHistoryScreen();           // Navigate to the 7-day step history

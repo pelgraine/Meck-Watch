@@ -146,6 +146,11 @@ public:
     return w;
   }
 #endif
+#ifdef MECK_LORAFISH
+  // The panel itself, for the LoRaGotchi fish (ui-new/LoRaFish.cpp), which
+  // pushes its own RGB565 frame to it.
+  LGFX_Device* panelDevice() { return display; }
+#endif
   void setCursor(int x, int y) override;
   void print(const char* str) override;
   void fillRect(int x, int y, int w, int h) override;
