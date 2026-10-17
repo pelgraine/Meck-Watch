@@ -16,6 +16,7 @@ A fork created specifically to focus on enabling BLE, WiFi & standalone Meshcore
 - [Build Environment Options](#build-environment-options)
 - [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds)
 - [Flashing Firmware](#flashing-firmware)
+- [Dual Boot & Over-the-Air Updates](#dual-boot--over-the-air-updates)
 - [Home Screen & Navigation](#home-screen--navigation)
 - [The Buttons — S3 vs S3 Plus](#the-buttons--s3-vs-s3-plus)
 - [Touch Gestures](#touch-gestures)
@@ -86,8 +87,8 @@ Unlike the other Meck devices, the watches have **no SD card slot**. All watch-l
 
 Two consequences worth knowing:
 
-- Features that are inherently SD-dependent on other Meck devices — the e-book/EPUB reader, audiobooks, and the web reader — are **not part of the watch build** at all.
-- The **config export/import** menu items compile in but write to an SD card, so they are non-functional on the watch. Move config between devices using the companion app or the main-repo devices instead.
+- **Audiobooks** and the **web reader**, which are inherently SD-dependent on other Meck devices, are **not part of the watch build** at all. The **e-book reader** is included and keeps its books on internal storage: copy `.txt` or `.epub` files into `maps/books` with the File Manager, then swipe down on the home tiles and long-press the **Reader** tile.
+- **Config export/import** (**Settings > Export/Import**) uses internal storage instead of an SD card. **Export to storage** lets you choose what to include and saves it as a dated `.json` file in the `meshcore` folder; **Import from storage** reads `meshcore/import.json`. In the File Manager that folder is `maps/meshcore`, so you can copy the files on and off the watch from there.
 
 Settings live in that partition as a JSON file, `/prefs.json` (from v1.4 -- earlier builds wrote a binary `/new_prefs` blob). The first boot of a v1.4 build reads the old file once and re-saves it as JSON, and leaves the old file in place, so an earlier firmware can still be flashed back without losing settings. Identity, contacts and channels are unaffected -- they live in their own files.
 
@@ -200,7 +201,80 @@ On macOS the port is typically `/dev/cu.usbmodem*`; on Windows it will be a COM 
 
 > **First boot:** On a fresh flash the device formats its internal LittleFS partition. This takes a minute or two and only happens once.
 
-> **No OTA on the watches.** Because there is no SD card to stage the image, firmware updates are done over USB. There is no over-the-air update path.
+> **Over-the-air updates:** once your watch has the two-slot layout, you can also update it over WiFi from a phone, and keep two firmwares on it at once. See [Dual Boot & Over-the-Air Updates](#dual-boot--over-the-air-updates).
+
+---
+
+## Dual Boot & Over-the-Air Updates
+
+Every watch build can hold **two firmwares at once**, and can **update itself over WiFi** from a phone browser, with no computer or cable needed.
+
+### How it works
+
+The watch's flash has **two firmware slots** of 2.5 MB each. One slot is running; the other holds a second firmware, or nothing yet. Both firmwares share the rest of the watch's storage, so they see the same identity, contacts, channels, settings, step history, message history, notes, books, map tiles and saved WiFi network.
+
+That gives you two things:
+
+- **Over-the-air updates.** **Firmware Update** (in **Settings > OTA Tools**) receives a new firmware from your phone's browser and writes it into the slot that is *not* running. The watch checks the new image, then restarts into it. The firmware you were running stays in its own slot.
+- **Dual boot.** Because the previous firmware is still there, **Boot Other Slot** (near the bottom of **Settings**) switches back to it, and back again, whenever you like. For example, keep a **Standalone** build in one slot for the best battery life and a **BLE** build in the other, and switch to the BLE one only when you want the phone app.
+
+### Before you start: the two-slot layout
+
+Dual boot and over-the-air updates need the two-slot flash layout, which arrived in late August 2026. It is part of the partition table in the `-merged.bin` files. If your watch has been flashed with a `-merged.bin` file built since then, it already has the layout. Otherwise, flash one `-merged.bin` file first (see [Flashing Firmware](#flashing-firmware)).
+
+> **Changing to the two-slot layout erases the watch's storage.** The storage areas move, so contacts, channels, identity, settings, notes, steps, books and map tiles are all lost. Save anything you want to keep first: back up through the MeshCore app, and on recent firmware export your config (**Settings > Export/Import**) and copy files off with the **File Manager**. This only happens once; later updates keep everything.
+
+### Updating over WiFi (Firmware Update)
+
+You need the new firmware's **plain `.bin` file** on your phone, for example `meck_twatch_s3_plus_ble.bin` from the release, **not** the `-merged.bin` file.
+
+1. On the watch, open **Settings**, long-press **OTA Tools >>**, then long-press **Firmware Update**.
+2. The watch asks **Start WiFi upload?** Tap the screen to start. (To leave without starting, tap the top-right corner.)
+3. The watch starts its own open WiFi network and shows its name (**Meck-Update-** followed by four characters) and an address to browse to.
+4. On your phone, join that WiFi network, then open the address shown on the watch in the phone's browser.
+5. On the **Meck Firmware Update** page, choose the `.bin` file and tap **Upload Firmware**. Keep the page open while the watch shows **Receiving Firmware** and the amount received.
+6. When the upload finishes, the watch checks the image, shows **Update Complete!**, and restarts into the new firmware a few seconds later.
+
+Good to know:
+
+- **The firmware you were running is kept** in its own slot. To go back to it, use **Boot Other Slot**.
+- **If the upload fails** (the page says **Upload Failed**), nothing on the watch has changed. Upload the file again.
+- **The LoRa radio is paused** from the moment you tap to start until the update finishes or the watch restarts, so the watch doesn't receive mesh messages in that time.
+- **One WiFi network at a time:** starting Firmware Update switches the File Manager off if it's running.
+- **To stop without uploading,** restart the watch: on the S3, hold PWR until it turns off, then turn it on again; on the S3 Plus, press RESET. Once the watch is showing its WiFi network, leaving the screen doesn't switch that network off or bring the radio back.
+
+### Setting up two firmwares
+
+1. Run the firmware you want to keep, for example **Standalone**.
+2. Use **Firmware Update** with the other firmware's `.bin` file, for example **BLE**. The watch restarts into it.
+3. Both are now installed. Use **Boot Other Slot** to move between them.
+
+To update one of the two later, run the *other* one and use Firmware Update: an update always replaces the firmware in the slot that isn't running. For example, to update the BLE firmware and keep Standalone, switch to Standalone first, then upload the new BLE `.bin`.
+
+### Switching firmware: Boot Other Slot
+
+**Boot Other Slot** is near the bottom of **Settings**, just above **Device Info**. Long-press it to switch. There is no confirmation step: the watch saves your contacts, channels, settings, step count and message history, showing **Saving Contacts...**, **Saving Channels...** and **Rebooting - Please Wait...**, then restarts into the firmware in the other slot. With a large contact list the saving can take a little while.
+
+If the other slot has no firmware yet, the watch shows **Slot switch failed** and carries on running.
+
+### Escape hatch: switching at power-on
+
+If the firmware in the current slot won't start properly, you can switch slots before it gets going. The hatch is checked right at start-up, before the display, radio and storage are started.
+
+1. Turn the watch on with the side **PWR** key, or, on the S3 Plus, press **RESET**.
+2. As soon as it starts, press and hold **PWR** for about a second. If you're still holding PWR from turning the watch on, let go first, then press it again.
+
+The watch restarts straight into the other slot. This works on both watches and every build. If you miss the timing, the watch just starts normally: restart it and try again. If the other slot has no firmware, the watch also starts normally. Keep the hold to about a second, because holding PWR for several seconds turns the watch off. Watching for the hatch adds 0.8 seconds to every start-up.
+
+### USB flashing and the two slots
+
+| You flash over USB | What it writes | The watch then starts from |
+|---|---|---|
+| `-merged.bin` at `0x0` | Bootloader, partition table and the first slot | The first slot |
+| `.bin` at `0x10000` | The first slot only | Whichever slot it was using before |
+| `.bin` at `0x290000` | The second slot only | Whichever slot it was using before |
+
+After an over-the-air update or a Boot Other Slot, the watch may be running from the second slot. A `.bin` flashed at `0x10000` then won't appear until you use **Boot Other Slot**. Building it yourself, `pio run -e <env> -t upload` writes the first slot and also sets the watch to start from it.
 
 ---
 
@@ -417,7 +491,7 @@ On the **S3**, and on the S3 Plus **No Maps** builds, the **Games** tile (in the
 
 The S3 Plus has an onboard MIA-M10Q GNSS receiver, so it carries the **Maps** tile — plotting contacts with known GPS positions on a scrollable map. The S3 has no GPS and shows the Games tile in that slot instead, as do the S3 Plus **No Maps** builds, which drop the map screen for battery life (see [S3 Plus: No Maps Builds](#s3-plus-no-maps-builds)).
 
-Map tiles are read from the watch's internal LittleFS partition — a dedicated **~9.9 MB `maps` partition** (mounted at `/maps`), so you can hold a useful subset of your local geography across a few zoom levels. Tiles use the **standard OpenStreetMap "slippy map" layout, exactly the same as Ripple and every other MeshCore device**: PNG tiles at `/tiles/{z}/{x}/{y}.png` (on-disk, `/maps/tiles/{z}/{x}/{y}.png`). A `tiles` folder you've already prepared for any other MeshCore device drops straight in — no watch-specific conversion needed.
+Map tiles are read from the watch's internal LittleFS partition — a dedicated **~6.9 MB `maps` partition** (mounted at `/maps`), so you can hold a useful subset of your local geography across a few zoom levels. Tiles use the **standard OpenStreetMap "slippy map" layout, exactly the same as Ripple and every other MeshCore device**: PNG tiles at `/tiles/{z}/{x}/{y}.png` (on-disk, `/maps/tiles/{z}/{x}/{y}.png`). A `tiles` folder you've already prepared for any other MeshCore device drops straight in — no watch-specific conversion needed.
 
 To load them, copy the prepared `tiles` folder onto the partition over USB using the browser-based **ESPConnect** tool: connect the watch, open the **LittleFS Tools** tab, drag-and-drop the folder, then write it back with **Save to Flash**. Scott Powell's [T-Watch S3 Plus write-up](https://blog.meshcore.io/2026/03/28/twatch-s3-plus) walks through the ESPConnect steps in detail (see its "Copying Files to LittleFS" section).
 
@@ -439,9 +513,11 @@ Open **Settings** from its home tile. The watch settings screen exposes:
 - **Position sharing** -- Off / Manual / Auto-GPS; latitude and longitude rows appear once a position is being shared, editable in Manual and owned by the GPS in Auto
 - **Contacts** submenu -- the auto-add mode (Auto All / Custom / Manual) and its per-type toggles
 - **Channels** submenu — add, edit, and manage channels including private ones (see [Channels](#channels-public-private--sharing))
+- **OTA Tools** submenu -- **Firmware Update** over WiFi (see [Dual Boot & Over-the-Air Updates](#dual-boot--over-the-air-updates)) and the **File Manager**, which starts a WiFi network for browsing, uploading and downloading files on the watch's storage from a phone browser
 - **Rx Log** — the packet sniffer (see [Rx Log](#rx-log))
 - **WiFi** — network setup and a radio on/off toggle (WiFi builds only, see [WiFi Companion](#wifi-companion))
 - **Experimental Features** submenu — the RX duty cycle battery saver (see [Experimental: RX Duty Cycle](#experimental-rx-duty-cycle))
+- **Boot Other Slot** -- restart into the other installed firmware (see [Dual Boot & Over-the-Air Updates](#dual-boot--over-the-air-updates))
 - **Device Info** -- Node ID, firmware version and, from v1.4, the MCU temperature (the ESP32-S3 die temperature, read-only; the same value the watch reports in its telemetry to the companion app)
 
 ### Navigating the settings list
@@ -504,7 +580,7 @@ The Radio Preset picker carries ready-made profiles for common regional configur
 | USA/Canada (Recommended) | 910.525 | 62.5 | 7 | 5 | 22 |
 | Vietnam | 920.250 | 250 | 11 | 5 | 22 |
 
-> Some options present on the larger Meck devices are intentionally not shown on the watch — dark mode, font-style selection, and the large-font toggle are omitted, and the SD-dependent config export/import and WiFi options do not apply.
+> Some options present on the larger Meck devices are intentionally not shown on the watch: dark mode, font-style selection, and the large-font toggle are omitted.
 
 ---
 
