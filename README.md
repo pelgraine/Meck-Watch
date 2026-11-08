@@ -61,8 +61,6 @@ Meck (T-Watch Edition) targets two LilyGo watches, both built on the ESP32-S3 (1
 | **T-Watch S3** | 240×240 IPS (ST7789, LovyanGFX) | FT6336U touch + PWR key (single button) | SX1262 | AXP2101 + BMA423, 470 mAh LiHV | No | Yes (PCF8563) |
 | **T-Watch S3 Plus** | 240×240 IPS (ST7789, LovyanGFX) | FT6336U touch + PWR key + BOOT + RESET buttons | SX1262 | AXP2101 + BMA423, LiHV | Yes (MIA-M10Q) | Yes (PCF8563) |
 
-The two boards are wired identically at the ESP32-S3 — they differ only in what is *populated*, not in how the chip is connected.
-
 ---
 
 ## S3 vs S3 Plus at a Glance
