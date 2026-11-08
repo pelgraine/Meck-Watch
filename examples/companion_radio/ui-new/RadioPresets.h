@@ -19,7 +19,7 @@ struct RadioPreset {
 // defaults used by GrayHatGuy/MeshCore's 2.4 GHz variants. 13 dBm is the
 // SX1280 driver ceiling (RadioLib checkOutputPower: -18..+13).
 static const RadioPreset RADIO_PRESETS[] = {
-  { "Sydney 2.4G (2400.5)",   2400.500f, 406.25f, 11, 5, 13 },
+  { "Sydney 2.4G (2400.5)",   2483.000f, 406.25f, 11, 5, 13 },
   { "2.4 GHz (2450)",         2450.000f, 812.5f,  10, 5, 13 },
   { "2.4 GHz Narrow (2450)",  2450.000f, 406.25f, 10, 5, 13 },
 };
