@@ -444,18 +444,16 @@ static void stepPlayWav() {
 // =============================================================================
 // Codec2 comparison
 //
-// One recording, five versions played back to back, all encoded and decoded
-// at 80 MHz (the SX1280 watch build speed):
+// One recording, three versions played back to back, all encoded and decoded
+// at 80 MHz (the SX1280 watch build speed), all "filtered" (hum filter at
+// TEST_HPF_HZ and a low-pass filter before 16 -> 8 kHz, the same low-pass
+// smoothing 8 -> 16 kHz on playback, as the voice notes do now):
 //
-//   A  1200 bps, handled exactly as Meck does now: 16 -> 8 kHz by averaging
-//      sample pairs, 8 -> 16 kHz by repeating each sample.
-//   B  1200 bps, "filtered": hum filter (high-pass at TEST_HPF_HZ) and a
-//      proper low-pass filter before 16 -> 8 kHz, and the same low-pass
-//      filter to smooth 8 -> 16 kHz on playback. The Codec2 data itself is
-//      still plain 1200, so Meck and Meck-P4 could still decode it.
-//   C  1600 bps, filtered     D  2400 bps, filtered     E  3200 bps, filtered
-//      Meck and Meck-P4 always decode as 1200 (they ignore the VE3 mode
-//      field), so C-E are for listening only.
+//   A  1200 bps (what the voice notes use now, for comparison)
+//   B  700C     (28 bits per 40 ms frame, stored as 4 bytes)
+//   C  450      (18 bits per 40 ms frame, stored as 3 bytes)
+//
+// B and C are for listening only: nothing decodes them yet.
 // =============================================================================
 #define TEST_C2_SAMPLES_8K  (TEST_REC_SAMPLES / 2)
 #define TEST_C2_MAX_BYTES   4096        // 3200 bps x 5 s = 2000 bytes
@@ -559,11 +557,9 @@ struct C2Variant {
 };
 
 static const C2Variant kVariants[] = {
-  { 'A', CODEC2_MODE_1200, 1200, false },
-  { 'B', CODEC2_MODE_1200, 1200, true  },
-  { 'C', CODEC2_MODE_1600, 1600, true  },
-  { 'D', CODEC2_MODE_2400, 2400, true  },
-  { 'E', CODEC2_MODE_3200, 3200, true  },
+  { 'A', CODEC2_MODE_1200, 1200, true },
+  { 'B', CODEC2_MODE_700C,  700, true },
+  { 'C', CODEC2_MODE_450,   450, true },
 };
 
 static void runVariant(const C2Variant& v) {
@@ -576,7 +572,7 @@ static void runVariant(const C2Variant& v) {
     note("%c %d: codec2_create FAILED", v.label, v.bps);
     return;
   }
-  int frameSamples = codec2_samples_per_frame(c2);       // 320 (1200/1600) or 160 (2400/3200)
+  int frameSamples = codec2_samples_per_frame(c2);       // 320 (40 ms) for 1200, 700C and 450
   int frameBytes = (codec2_bits_per_frame(c2) + 7) / 8;
   uint32_t budgetUs = (uint32_t)frameSamples * 1000000UL / 8000;   // 40 ms or 20 ms
 
@@ -639,7 +635,7 @@ static void runVariant(const C2Variant& v) {
 
 static void stepCodec2Compare() {
   Serial.println();
-  Serial.println("Codec2 comparison: five versions, A to E, 1.5 s gap between each.");
+  Serial.println("Codec2 comparison: three versions, A to C (1200, 700C, 450), 1.5 s gap between each.");
   for (const C2Variant& v : kVariants) {
     note("CODEC2: starting %c (%d bps)", v.label, v.bps);
     saveResults();
