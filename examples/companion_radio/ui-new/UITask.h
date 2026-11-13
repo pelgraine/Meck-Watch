@@ -126,6 +126,9 @@ class UITask : public AbstractUITask {
   UIScreen* watch_notes_screen;  // LittleFS note pad (shared NotesScreen needs SD)
   UIScreen* watch_channel_cfg_screen;  // Per-channel region/notif/delete (touch UI)
 #endif
+#if defined(MECK_WATCH_VOICE)
+  UIScreen* watch_voice_screen = nullptr;  // Voice notes (SX1280 builds only)
+#endif
   UIScreen* _screenBeforeLock = nullptr;
   bool _locked = false;
   unsigned long _lastInputMillis = 0;  // Auto-lock idle tracking
@@ -228,6 +231,9 @@ public:
   uint32_t getTodaySteps();                // Steps accumulated today
   uint32_t getStepHistory(int daysAgo);    // 0 = today, 1..13 = previous days
 #endif
+#if defined(MECK_WATCH_VOICE)
+  void gotoVoiceScreen();                  // Navigate to voice notes
+#endif
 #if HAS_GPS && !defined(MECK_NO_MAPS)
   void gotoMapScreen();         // Navigate to map tile screen
 #endif
@@ -292,6 +298,9 @@ public:
 #if defined(MECK_TWATCH)
   bool isOnWatchNotesScreen() const { return curr == watch_notes_screen; }
   bool isOnWatchChannelConfigScreen() const { return curr == watch_channel_cfg_screen; }
+#endif
+#if defined(MECK_WATCH_VOICE)
+  bool isOnWatchVoiceScreen() const { return curr == watch_voice_screen; }
 #endif
 #ifdef TWATCH_COMPOSE_ENABLED
   bool isOnTWatchChannelScreen() const { return curr == tw_channel; }
@@ -388,6 +397,9 @@ public:
 #if defined(MECK_TWATCH)
   UIScreen* getWatchNotesScreen() const { return watch_notes_screen; }
   UIScreen* getWatchChannelConfigScreen() const { return watch_channel_cfg_screen; }
+#endif
+#if defined(MECK_WATCH_VOICE)
+  UIScreen* getWatchVoiceScreen() const { return watch_voice_screen; }
 #endif
   UIScreen* getMinesweeperScreen() const { return minesweeper_screen; }
   UIScreen* getMapScreen() const { return map_screen; }

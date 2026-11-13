@@ -64,6 +64,9 @@
 #include "WatchNotesScreen.h"   // After UITask.h -- needs NodePrefs
 #include "WatchChannelConfigScreen.h"   // After UITask.h -- needs NodePrefs, the_mesh
 #endif
+#if defined(MECK_WATCH_VOICE)
+#include "WatchVoiceScreen.h"   // After UITask.h -- needs NodePrefs
+#endif
 #ifdef TWATCH_COMPOSE_ENABLED
 #include "TWatchComposeScreens.h"
 #endif
@@ -574,8 +577,13 @@ public:
           { {icon_notepad,  "Notes",    0x07FF}, {icon_star,    "Steps",    0xFFE0} },
           // Hidden fifth row: swipe down on the tile page to reveal. The
           // second cell is an empty expansion slot (icon == nullptr -> not
-          // drawn, taps ignored).
+          // drawn, taps ignored) except on the SX1280 builds, where it is
+          // the Voice tile.
+#if defined(MECK_WATCH_VOICE)
+          { {icon_book,     "Reader",   0x780F}, {icon_mic,     "Voice",    0xFD20} },
+#else
           { {icon_book,     "Reader",   0x780F}, {nullptr,      "",         0x0000} },
+#endif
         };
         const uint16_t TILE_FILL = 0x18C5;   // dark navy
 
@@ -1535,6 +1543,11 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   // LittleFS ("/maps" partition) is mounted in setup() before UITask::begin().
   watch_notes_screen = new WatchNotesScreen(this, &rtc_clock, node_prefs);
   watch_channel_cfg_screen = new WatchChannelConfigScreen(this, node_prefs);
+#endif
+#if defined(MECK_WATCH_VOICE)
+  // Created at boot so incoming voice notes are received before the screen
+  // is ever opened. Its notes live under /voice on the same LittleFS.
+  watch_voice_screen = new WatchVoiceScreen(this, &rtc_clock, node_prefs);
 #endif
 #ifdef TWATCH_COMPOSE_ENABLED
   tw_picker   = new TWatchChannelPicker(_display);
@@ -3179,6 +3192,19 @@ void UITask::gotoStepsScreen() {
   _auto_off = millis() + AUTO_OFF_MILLIS;
   _next_refresh = 100;
 }
+
+#if defined(MECK_WATCH_VOICE)
+void UITask::gotoVoiceScreen() {
+  if (!watch_voice_screen) return;
+  ((WatchVoiceScreen*)watch_voice_screen)->enter();
+  setCurrScreen(watch_voice_screen);
+  if (_display != NULL && !_display->isOn()) {
+    _display->turnOn();
+  }
+  _auto_off = millis() + AUTO_OFF_MILLIS;
+  _next_refresh = 100;
+}
+#endif
 
 void UITask::gotoStepsHistoryScreen() {
   setCurrScreen(steps_history_screen);

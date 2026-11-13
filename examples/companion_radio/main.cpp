@@ -206,6 +206,10 @@ static uint32_t _atoi(const char* sp) {
     #include "WatchNotesScreen.h"  // After UITask.h -- needs NodePrefs
     #include "WatchChannelConfigScreen.h"  // After UITask.h -- needs NodePrefs, the_mesh
   #endif
+  #if defined(MECK_WATCH_VOICE)
+    #include <algorithm>           // std::sort for the voice send-to list
+    #include "WatchVoiceScreen.h"  // After UITask.h -- needs NodePrefs
+  #endif
   #if defined(MECK_TWATCH) && HAS_GPS && !defined(MECK_NO_MAPS)
     #include "WatchMapScreen.h"  // After BLE -- PNGdec headers conflict with BLE if included earlier
   #endif
@@ -227,6 +231,54 @@ MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables, store
 // Registered with the_mesh.setVoiceHandler() when voice screen is created.
 // Called from onRawDataRecv for magic 0x56 (voice data) and 0x72 (fetch req).
 // ---------------------------------------------------------------------------
+#if defined(MECK_WATCH_VOICE)
+// Same handling as Meck's voiceRawCallback / voiceEnvelopeCallback (T-Deck),
+// against the watch's WatchVoiceScreen, which is created at boot.
+static void voiceRawCallback(uint8_t magic, const uint8_t* payload, uint8_t len) {
+  WatchVoiceScreen* vs = (WatchVoiceScreen*)ui_task.getWatchVoiceScreen();
+  if (!vs) return;
+
+  if (magic == WV_FETCH_MAGIC && len >= 6) {
+    // Fetch request: [0x72][sessionId:4B][flags:1B][requesterKey6:6B][missingCount:1B][indices...]
+    uint32_t sessionId;
+    memcpy(&sessionId, &payload[1], 4);
+    Serial.printf("Voice: fetch request for session 0x%08lX\n", (unsigned long)sessionId);
+    if (vs->hasOutSession(sessionId)) {
+      if (len >= 12) {
+        ContactInfo* requester = the_mesh.lookupContactByPubKey(&payload[6], 6);
+        if (requester && requester->out_path_len != OUT_PATH_UNKNOWN) {
+          uint8_t pktBuf[184];
+          int totalPkts = vs->outPacketCount();
+          for (int p = 0; p < totalPkts; p++) {
+            int pktLen = vs->buildVoicePacket(pktBuf, sizeof(pktBuf), sessionId, p);
+            if (pktLen > 0) {
+              mesh::Packet* raw = the_mesh.createRawData(pktBuf, pktLen);
+              if (raw) the_mesh.sendDirect(raw, requester->out_path, requester->out_path_len, p * 100);
+            }
+          }
+          Serial.printf("Voice: served %d packets to %s\n", totalPkts, requester->name);
+        } else {
+          Serial.println("Voice: fetch requester not found or no direct path");
+        }
+      }
+    } else {
+      Serial.printf("Voice: no cached session 0x%08lX for fetch\n", (unsigned long)sessionId);
+    }
+  } else if (magic == WV_PKT_MAGIC && len > 6) {
+    vs->onVoicePacketReceived(payload, len);
+  }
+}
+
+// Called from MyMesh::onMessageRecv when a "VE3:" DM arrives.
+static void voiceEnvelopeCallback(const char* senderName, const char* ve3Text) {
+  WatchVoiceScreen* vs = (WatchVoiceScreen*)ui_task.getWatchVoiceScreen();
+  if (!vs) return;
+  vs->onVE3Received(senderName, ve3Text);
+  // Hold contact saves while the voice packets arrive (as Meck does);
+  // released when the note completes, or after 15 s in loop().
+  the_mesh.setDeferSaves(true);
+}
+#endif
 
 // Last Heard: add/remove contact for selected entry.
 // Called from both touch double-tap (mapTouchTap) and keyboard Enter handler.
@@ -417,6 +469,15 @@ static void lastHeardToggleContact() {
     if (ui_task.isOnWatchChannelConfigScreen()) {
       WatchChannelConfigScreen* wc = (WatchChannelConfigScreen*)ui_task.getWatchChannelConfigScreen();
       if (wc) wc->handleTap(x, y);
+      return 0;
+    }
+#endif
+#if defined(MECK_WATCH_VOICE)
+    // Voice screen: list rows, the open note's play area and footer, and the
+    // send-to list are all tap targets, in the same logical coords as notes.
+    if (ui_task.isOnWatchVoiceScreen()) {
+      WatchVoiceScreen* vs = (WatchVoiceScreen*)ui_task.getWatchVoiceScreen();
+      if (vs) vs->handleTap(x, y);
       return 0;
     }
 #endif
@@ -974,6 +1035,12 @@ static void lastHeardToggleContact() {
     // overlay mid-compose.
     if (ui_task.isOnTWatchKeyboardScreen()) return 0;
 #endif
+#if defined(MECK_WATCH_VOICE)
+    // Voice screen: a long press does nothing. Without this the fallthrough
+    // KEY_ENTER at the bottom of this map would start/stop a recording, which
+    // is reserved for the PWR key.
+    if (ui_task.isOnWatchVoiceScreen()) return 0;
+#endif
 
     // Snake screen: long press exits to games menu
     if (ui_task.isOnSnakeScreen()) {
@@ -1041,6 +1108,9 @@ static void lastHeardToggleContact() {
         // taps there are consumed without action.
         if (row == 4) {
           if (ui_task.getTileScroll() && col == 0) { ui_task.gotoTextReader(); }
+#if defined(MECK_WATCH_VOICE)
+          if (ui_task.getTileScroll() && col == 1) { ui_task.gotoVoiceScreen(); }
+#endif
           return 0;
         }
       }
@@ -1729,6 +1799,10 @@ void setup() {
   // Register voice-over-LoRa callbacks early so incoming VE3 envelopes and
   // raw voice packets are handled even before user opens the voice screen.
   // The callbacks null-check the voice screen pointer, so they're safe at boot.
+#if defined(MECK_WATCH_VOICE)
+  the_mesh.setVoiceHandler(voiceRawCallback);
+  the_mesh.setVoiceEnvelopeHandler(voiceEnvelopeCallback);
+#endif
 
 #ifdef ESP32
   Serial.printf("setup() complete - free heap: %d, largest block: %d\n",
@@ -1972,6 +2046,125 @@ void loop() {
   // and disables DAC when playback finishes.
 
   // Voice message: service mic DMA capture + playback audio decode
+#if defined(MECK_WATCH_VOICE)
+  {
+    WatchVoiceScreen* vs = (WatchVoiceScreen*)ui_task.getWatchVoiceScreen();
+    if (vs) {
+      // Recording / encoding / playback only run while the screen is open
+      // (they are serviced from its poll()); leaving it stops them and frees
+      // the audio buffers. While busy, keep the display on so the loop is not
+      // throttled and the note is not cut short.
+      if (!ui_task.isOnWatchVoiceScreen()) {
+        vs->leave();
+      } else if (vs->isBusy()) {
+        ui_task.keepAlive();
+      }
+
+      // Send-to list: chat contacts, those with a direct path first (only
+      // they can be sent to), then alphabetical within each group.
+      if (ui_task.isOnWatchVoiceScreen() && vs->needsPickContacts()) {
+        static WatchVoiceScreen::PickContact pickBuf[40];
+        int pickCount = 0;
+        ContactInfo ci;
+        for (int pass = 0; pass < 2 && pickCount < 40; pass++) {
+          bool wantDirect = (pass == 0);
+          for (int idx = 0; idx < the_mesh.getNumContacts() && pickCount < 40; idx++) {
+            if (!the_mesh.getContactByIdx(idx, ci)) continue;
+            if (ci.type != ADV_TYPE_CHAT || ci.name[0] == '\0') continue;
+            bool hasDirect = (ci.out_path_len != OUT_PATH_UNKNOWN);
+            if (hasDirect != wantDirect) continue;
+            pickBuf[pickCount].meshIdx = idx;
+            strncpy(pickBuf[pickCount].name, ci.name, 31);
+            pickBuf[pickCount].name[31] = '\0';
+            pickBuf[pickCount].hasDirect = hasDirect;
+            pickCount++;
+          }
+        }
+        std::sort(pickBuf, pickBuf + pickCount,
+          [](const WatchVoiceScreen::PickContact& a, const WatchVoiceScreen::PickContact& b) {
+            if (a.hasDirect != b.hasDirect) return a.hasDirect > b.hasDirect;
+            return strcasecmp(a.name, b.name) < 0;
+          });
+        vs->loadPickContacts(pickBuf, pickCount);
+        ui_task.forceRefresh();
+      }
+
+      // Confirmed send: VE3 envelope DM, then every voice packet queued at
+      // once with the Dispatcher's delay -- first at 3 s, then 3 s apart --
+      // exactly as Meck sends them.
+      int sendIdx = vs->consumePendingSend();
+      if (sendIdx >= 0) {
+        uint32_t sessionId = (uint32_t)(millis() & 0xFFFFFFFF);
+        char envelope[64];
+        int totalPkts = 0, sentPkts = 0;
+        bool dmOk = false;
+        if (vs->prepareSend(sessionId, envelope, sizeof(envelope))) {
+          dmOk = the_mesh.uiSendDirectMessage(sendIdx, envelope);
+          Serial.printf("Voice: VE3 DM '%s' to idx %d: %s\n", envelope, sendIdx, dmOk ? "OK" : "FAIL");
+        }
+        if (dmOk) {
+          ContactInfo ci;
+          ContactInfo* recipient = nullptr;
+          if (the_mesh.getContactByIdx(sendIdx, ci)) {
+            recipient = the_mesh.lookupContactByPubKey(ci.id.pub_key, PUB_KEY_SIZE);
+          }
+          totalPkts = vs->outPacketCount();
+          if (recipient && recipient->out_path_len != OUT_PATH_UNKNOWN) {
+            for (int p = 0; p < totalPkts; p++) {
+              uint8_t pktBuf[184];
+              int pktLen = vs->buildVoicePacket(pktBuf, sizeof(pktBuf), sessionId, p);
+              if (pktLen <= 0) continue;
+              mesh::Packet* raw = the_mesh.createRawData(pktBuf, pktLen);
+              if (!raw) continue;
+              uint32_t delayMs = 3000 + (uint32_t)p * 3000;
+              the_mesh.sendDirect(raw, recipient->out_path, recipient->out_path_len, delayMs);
+              sentPkts++;
+              Serial.printf("Voice: queued packet %d/%d (delay %lums)\n", p + 1, totalPkts, (unsigned long)delayMs);
+            }
+          }
+          Serial.printf("Voice: queued %d/%d voice packets to %s\n",
+                        sentPkts, totalPkts, recipient ? recipient->name : "?");
+        }
+        if (dmOk && sentPkts == totalPkts && totalPkts > 0) {
+          vs->onSent(vs->pendingSendName());
+          ui_task.showAlert("Voice sent!", 2000);
+        } else {
+          vs->onSendFailed();
+          ui_task.showAlert(dmOk ? "Send partial" : "Send failed!", 1500);
+        }
+        ui_task.forceRefresh();
+      }
+
+      // Incoming note complete: save it as a new list entry and show a toast.
+      // It is not played until opened.
+      if (vs->isIncomingReady()) {
+        the_mesh.setDeferSaves(false);
+        char msg[48];
+        if (vs->saveIncoming()) {
+          snprintf(msg, sizeof(msg), "Voice note from %s", vs->incomingSender());
+        } else {
+          snprintf(msg, sizeof(msg), "Voice note save failed");
+        }
+        ui_task.showAlert(msg, 2500);
+        ui_task.forceRefresh();
+      }
+
+      // Safety timeout: if saves have been held for more than 15 s (packets
+      // never arrived or the note was abandoned), resume them.
+      static unsigned long deferStarted = 0;
+      if (the_mesh.isDeferSaves()) {
+        if (deferStarted == 0) deferStarted = millis();
+        if (millis() - deferStarted > 15000) {
+          the_mesh.setDeferSaves(false);
+          deferStarted = 0;
+          Serial.println("Voice: save defer timeout, resuming saves");
+        }
+      } else {
+        deferStarted = 0;
+      }
+    }
+  }
+#endif
 
   // SMS: poll for incoming messages from modem
 #ifdef DISPLAY_CLASS
@@ -2110,6 +2303,12 @@ void loop() {
               // Watch: a vertical swipe pages the notes list (one page/swipe).
               WatchNotesScreen* wn = (WatchNotesScreen*)ui_task.getWatchNotesScreen();
               if (wn) { wn->pageScroll(c == 'w'); ui_task.forceRefresh(); }
+#if defined(MECK_WATCH_VOICE)
+            } else if (ui_task.isOnWatchVoiceScreen() && (c == 'w' || c == 's')) {
+              // Watch: a vertical swipe pages the voice list / send-to list.
+              WatchVoiceScreen* vs = (WatchVoiceScreen*)ui_task.getWatchVoiceScreen();
+              if (vs) { vs->pageScroll(c == 'w'); ui_task.forceRefresh(); }
+#endif
             } else if (ui_task.isOnSettingsScreen() && (c == 'w' || c == 's')) {
               // Watch: a vertical swipe pages the settings list (one page/swipe);
               // while editing a value, keep w/s for adjust.
