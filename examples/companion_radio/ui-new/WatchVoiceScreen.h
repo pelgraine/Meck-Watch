@@ -80,6 +80,8 @@ class UITask;
 
 // ---- CPU ----
 #define WV_CPU_FAST         240
+#define WV_STOP_TRIM_MS     400    // dropped from the end when PWR stops recording
+#define WV_LEVEL_PERMILLE   999    // normalise so 99.9% of samples sit below 90%
 
 class WatchVoiceScreen : public UIScreen {
 public:
@@ -303,6 +305,10 @@ private:
     int64_t sum = 0;
     for (uint32_t i = 0; i < n; i++) sum += _pcm[i];
     int32_t dc = (int32_t)(sum / (int64_t)n);
+    // Level = the loudness that 99.9% of samples stay under (histogram of
+    // 256 steps of 128), so one click or knock can't hold the gain down.
+    static uint32_t hist[256];
+    memset(hist, 0, sizeof(hist));
     int32_t peak = 0;
     for (uint32_t i = 0; i < n; i++) {
       int32_t v = _pcm[i] - dc;
@@ -311,18 +317,28 @@ private:
       _pcm[i] = (int16_t)v;
       int32_t a = v < 0 ? -v : v;
       if (a > peak) peak = a;
+      hist[a >> 7 > 255 ? 255 : a >> 7]++;
     }
-    if (peak >= 100) {
-      int32_t gain16 = (29491 << 16) / peak;   // 90% of full scale
+    uint64_t want = (uint64_t)n * WV_LEVEL_PERMILLE / 1000;
+    uint64_t seen = 0;
+    int32_t level = peak;
+    for (int b = 0; b < 256; b++) {
+      seen += hist[b];
+      if (seen >= want) { level = (b + 1) << 7; break; }
+    }
+    if (level > peak) level = peak;
+    int32_t gain16 = 1 << 16;
+    if (level >= 100) {
+      gain16 = (int32_t)(((int64_t)29491 << 16) / level);   // 90% of full scale
       for (uint32_t i = 0; i < n; i++) {
-        int32_t v = ((int32_t)_pcm[i] * gain16) >> 16;
+        int32_t v = (int32_t)(((int64_t)_pcm[i] * gain16) >> 16);
         if (v > 32767) v = 32767;
         if (v < -32768) v = -32768;
         _pcm[i] = (int16_t)v;
       }
     }
-    Serial.printf("Voice: %lu samples, dc %ld, peak %ld\n",
-                  (unsigned long)n, (long)dc, (long)peak);
+    Serial.printf("Voice: %lu samples, dc %ld, peak %ld, level %ld, gain %.1fx\n",
+                  (unsigned long)n, (long)dc, (long)peak, (long)level, gain16 / 65536.0f);
 
     // 2nd-order Butterworth high-pass (RBJ biquad)
     const float w0 = 2.0f * PI * WV_HPF_HZ / WV_RATE;
@@ -507,11 +523,19 @@ private:
     Serial.println("Voice: recording");
   }
 
-  void stopRecording() {
+  // byKey: stopped with the PWR key. The press itself is picked up by the mic,
+  // so the last WV_STOP_TRIM_MS of the recording is dropped.
+  void stopRecording(bool byKey) {
     _pcmSamples += _audio.micRead(&_pcm[_pcmSamples], WV_MAX_SAMPLES - _pcmSamples);
     _audio.micStop();
-    Serial.printf("Voice: recorded %lu samples in %lu ms\n",
-                  (unsigned long)_pcmSamples, millis() - _recStart);
+    uint32_t trim = 0;
+    if (byKey) {
+      trim = (uint32_t)WV_RATE * WV_STOP_TRIM_MS / 1000;
+      if (trim > _pcmSamples) trim = _pcmSamples;
+      _pcmSamples -= trim;
+    }
+    Serial.printf("Voice: recorded %lu samples in %lu ms (%lu trimmed)\n",
+                  (unsigned long)_pcmSamples, millis() - _recStart, (unsigned long)trim);
     if (_pcmSamples < WV_RATE / 2) {   // under half a second: nothing to keep
       _mode = LIST;
       return;
@@ -1156,7 +1180,7 @@ public:
       return _mode != LIST;            // only the list lets other keys fall through
     }
     if (_mode == LIST) { startRecording(); return true; }
-    if (_mode == RECORDING) { stopRecording(); return true; }
+    if (_mode == RECORDING) { stopRecording(true); return true; }
     return true;                       // swallowed everywhere else
   }
 
@@ -1166,7 +1190,7 @@ public:
         if (_pcmSamples < WV_MAX_SAMPLES) {
           _pcmSamples += _audio.micRead(&_pcm[_pcmSamples], WV_MAX_SAMPLES - _pcmSamples);
         }
-        if (_pcmSamples >= WV_MAX_SAMPLES) stopRecording();   // 12 s cap
+        if (_pcmSamples >= WV_MAX_SAMPLES) stopRecording(false);   // 12 s cap
         break;
       }
       case ENCODING:
