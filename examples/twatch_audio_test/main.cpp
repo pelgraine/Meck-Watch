@@ -15,7 +15,7 @@
 //      do they take to encode and decode at 80 MHz? (see "Codec2 comparison")
 //
 // Use: open the serial monitor, press the side PWR key briefly, wait for the
-// countdown, speak for 5 seconds, then listen. Results are printed and also
+// countdown, speak for 12 seconds, then listen. Results are printed and also
 // saved to /voicetest/results.txt, which is printed again at every boot.
 //
 // The screen stays dark: this build switches the display, LoRa and haptic
@@ -52,7 +52,7 @@
 
 // ---- Audio settings ---------------------------------------------------------
 #define TEST_SAMPLE_RATE    16000       // LilyGo: PDM mic max 16 kHz
-#define TEST_RECORD_SECONDS 5
+#define TEST_RECORD_SECONDS 12
 #define TEST_REC_SAMPLES    (TEST_SAMPLE_RATE * TEST_RECORD_SECONDS)
 
 #define TEST_CPU_NORMAL     80          // what the SX1280 watch builds run at
@@ -444,19 +444,17 @@ static void stepPlayWav() {
 // =============================================================================
 // Codec2 comparison
 //
-// One recording, three versions played back to back, all encoded and decoded
-// at 80 MHz (the SX1280 watch build speed), all "filtered" (hum filter at
-// TEST_HPF_HZ and a low-pass filter before 16 -> 8 kHz, the same low-pass
-// smoothing 8 -> 16 kHz on playback, as the voice notes do now):
-//
-//   A  1200 bps (what the voice notes use now, for comparison)
-//   B  700C     (28 bits per 40 ms frame, stored as 4 bytes)
-//   C  450      (18 bits per 40 ms frame, stored as 3 bytes)
-//
-// B and C are for listening only: nothing decodes them yet.
+// One 12 s recording at Codec2 450 (18 bits per 40 ms frame, stored as 3
+// bytes), encoded and decoded at 80 MHz (the SX1280 watch build speed),
+// "filtered" (hum filter at TEST_HPF_HZ and a low-pass filter before 16 ->
+// 8 kHz, the same low-pass smoothing 8 -> 16 kHz on playback, as the voice
+// notes do now). The decoded audio is then raised so 99.9% of it sits under
+// 90% of full scale (the voice notes' level rule) before it plays, because
+// the decoded versions played quietly. For listening only: nothing decodes
+// 450 yet.
 // =============================================================================
 #define TEST_C2_SAMPLES_8K  (TEST_REC_SAMPLES / 2)
-#define TEST_C2_MAX_BYTES   4096        // 3200 bps x 5 s = 2000 bytes
+#define TEST_C2_MAX_BYTES   4096        // 450 bps x 12 s = 900 bytes
 #define TEST_HPF_HZ         150.0f      // hum filter corner
 #define TEST_LPF_HZ         3600.0f     // anti-alias / smoothing corner
 #define TEST_FIR_TAPS       31
@@ -549,6 +547,37 @@ static uint32_t upFiltered(uint32_t n8k) {
   return n16k;
 }
 
+// Raises buf so 99.9% of samples sit under 90% of full scale (histogram of
+// 256 steps of 128), as the voice notes now do before encoding. Louder
+// samples are clipped. Returns the gain used.
+static float raiseLevel(int16_t* buf, uint32_t n) {
+  static uint32_t hist[256];
+  memset(hist, 0, sizeof(hist));
+  int32_t peak = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    int32_t a = abs((int32_t)buf[i]);
+    if (a > peak) peak = a;
+    hist[(a >> 7) > 255 ? 255 : (a >> 7)]++;
+  }
+  uint64_t want = (uint64_t)n * 999 / 1000;
+  uint64_t seen = 0;
+  int32_t level = peak;
+  for (int b = 0; b < 256; b++) {
+    seen += hist[b];
+    if (seen >= want) { level = (b + 1) << 7; break; }
+  }
+  if (level > peak) level = peak;
+  if (level < 100) return 1.0f;
+  int32_t gain16 = (int32_t)(((int64_t)29491 << 16) / level);
+  for (uint32_t i = 0; i < n; i++) {
+    int32_t v = (int32_t)(((int64_t)buf[i] * gain16) >> 16);
+    if (v > 32767) v = 32767;
+    if (v < -32768) v = -32768;
+    buf[i] = (int16_t)v;
+  }
+  return gain16 / 65536.0f;
+}
+
 struct C2Variant {
   char        label;
   int         mode;
@@ -557,9 +586,7 @@ struct C2Variant {
 };
 
 static const C2Variant kVariants[] = {
-  { 'A', CODEC2_MODE_1200, 1200, true },
-  { 'B', CODEC2_MODE_700C,  700, true },
-  { 'C', CODEC2_MODE_450,   450, true },
+  { 'A', CODEC2_MODE_450,   450, true },
 };
 
 static void runVariant(const C2Variant& v) {
@@ -617,8 +644,10 @@ static void runVariant(const C2Variant& v) {
        (unsigned long)decAvg, (unsigned long)decWorst, (unsigned long)budgetUs);
   int64_t tPost = esp_timer_get_time();
   uint32_t n16k = v.filtered ? upFiltered(out8k) : upPlain(out8k);
+  float playGain = raiseLevel(playBuf, n16k);
   uint32_t postMs = (uint32_t)((esp_timer_get_time() - tPost) / 1000);
-  note("%c   before-encode audio prep %lu ms, after-decode prep %lu ms (whole 5 s note)",
+  note("%c   playback raised %.1fx (level rule) before playing", v.label, playGain);
+  note("%c   before-encode audio prep %lu ms, after-decode prep %lu ms (whole note)",
        v.label, (unsigned long)prepMs, (unsigned long)postMs);
   saveResults();
 
@@ -635,7 +664,7 @@ static void runVariant(const C2Variant& v) {
 
 static void stepCodec2Compare() {
   Serial.println();
-  Serial.println("Codec2 comparison: three versions, A to C (1200, 700C, 450), 1.5 s gap between each.");
+  Serial.println("Codec2 450, 12 s, played back with its level raised.");
   for (const C2Variant& v : kVariants) {
     note("CODEC2: starting %c (%d bps)", v.label, v.bps);
     saveResults();
