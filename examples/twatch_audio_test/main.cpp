@@ -459,6 +459,11 @@ static void encodeAt(int mhz, uint32_t* avgUs, uint32_t* maxUs) {
   int srcPerFrame = frameSamples * 2;                        // 640 at 16 kHz
   static int16_t frame[320];
 
+  int before = getCpuFrequencyMhz();
+  if (mhz != before) {
+    note("CPU: changing %d -> %d MHz", before, mhz);
+    saveResults();
+  }
   Serial.flush();
   setCpuFrequencyMhz(mhz);
 
@@ -481,28 +486,33 @@ static void encodeAt(int mhz, uint32_t* avgUs, uint32_t* maxUs) {
 
   setCpuFrequencyMhz(TEST_CPU_NORMAL);
   delay(20);
+  if (mhz != before) note("CPU: back to %d MHz", getCpuFrequencyMhz());
 
   codec2_destroy(c2);
   *avgUs = c2Frames ? (uint32_t)(total / c2Frames) : 0;
   *maxUs = worst;
 }
 
+// Each pass is announced and saved to results.txt before it starts, and its
+// result is saved as soon as it finishes, so a crash part-way through still
+// leaves a record of how far it got (printed again at the next boot).
 static void stepCodec2() {
   Serial.println("Timing Codec2 1200 encoding...");
-  uint32_t avg80, max80, avg40, max40;
-  encodeAt(TEST_CPU_NORMAL, &avg80, &max80);
-  encodeAt(TEST_CPU_LOW, &avg40, &max40);   // c2Buf ends up holding this pass
-
   uint32_t budget = TEST_C2_FRAME_MS * 1000;
+  uint32_t avgUs, maxUs;
+
+  // ---- Pass 1: 80 MHz (no speed change) ----
+  note("CODEC2: starting %d MHz pass", TEST_CPU_NORMAL);
+  saveResults();
+  encodeAt(TEST_CPU_NORMAL, &avgUs, &maxUs);
   note("CODEC2: %d frames -> %lu bytes (%d packets of 150)", c2Frames,
        (unsigned long)c2Bytes, (int)((c2Bytes + 149) / 150));
   note("CODEC2 @%d MHz: avg %lu us, worst %lu us per frame (%s; budget %lu us)",
-       TEST_CPU_NORMAL, (unsigned long)avg80, (unsigned long)max80,
-       max80 < budget ? "keeps up" : "SLOWER than real time", (unsigned long)budget);
-  note("CODEC2 @%d MHz: avg %lu us, worst %lu us per frame (%s)",
-       TEST_CPU_LOW, (unsigned long)avg40, (unsigned long)max40,
-       max40 < budget ? "keeps up" : "SLOWER than real time");
+       TEST_CPU_NORMAL, (unsigned long)avgUs, (unsigned long)maxUs,
+       maxUs < budget ? "keeps up" : "SLOWER than real time", (unsigned long)budget);
 
+  // Save the 80 MHz pass's Codec2 file now, so it exists even if the 40 MHz
+  // pass does not finish.
   if (fsReady) {
     File f = LittleFS.open(TEST_C2_PATH, "w");
     if (f) {
@@ -511,6 +521,16 @@ static void stepCodec2() {
       note("FLASH: saved %s, %lu bytes", TEST_C2_PATH, (unsigned long)w);
     }
   }
+  saveResults();
+
+  // ---- Pass 2: 40 MHz ----
+  note("CODEC2: starting %d MHz pass", TEST_CPU_LOW);
+  saveResults();
+  encodeAt(TEST_CPU_LOW, &avgUs, &maxUs);
+  note("CODEC2 @%d MHz: avg %lu us, worst %lu us per frame (%s)",
+       TEST_CPU_LOW, (unsigned long)avgUs, (unsigned long)maxUs,
+       maxUs < budget ? "keeps up" : "SLOWER than real time");
+  saveResults();
 }
 
 static void stepPlayCodec2() {
@@ -570,11 +590,16 @@ static void runTest() {
   if (pmu) note("PMU: DLDO1 (speaker) %s, %u mV",
                 pmu->isEnableDLDO1() ? "ON" : "OFF", pmu->getDLDO1Voltage());
 
+  saveResults();
   if (stepRecord()) {
+    saveResults();
     stepSaveWav();
+    saveResults();
     stepPlayWav();
-    stepCodec2();
+    saveResults();
+    stepCodec2();       // saves its own progress before and after each pass
     stepPlayCodec2();
+    saveResults();
   }
 
   if (fsReady) {
