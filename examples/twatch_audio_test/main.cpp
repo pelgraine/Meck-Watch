@@ -11,8 +11,8 @@
 //      format-on-fail so existing books / alarm settings are never wiped)
 //   3. Does the MAX98357A speaker play it? (DLDO1 rail on, I2S_NUM_1)
 //   4. Can mic (I2S_NUM_0) and speaker (I2S_NUM_1) run at the same time?
-//   5. How long does Codec2 1200 take per 40 ms frame at 80, 160 and 240 MHz?
-//   6. What does the Codec2 version sound like on the watch speaker?
+//   5. What do Codec2 versions sound like on the watch speaker, and how long
+//      do they take to encode and decode at 80 MHz? (see "Codec2 comparison")
 //
 // Use: open the serial monitor, press the side PWR key briefly, wait for the
 // countdown, speak for 5 seconds, then listen. Results are printed and also
@@ -55,18 +55,13 @@
 #define TEST_RECORD_SECONDS 5
 #define TEST_REC_SAMPLES    (TEST_SAMPLE_RATE * TEST_RECORD_SECONDS)
 
-#define TEST_C2_MODE        CODEC2_MODE_1200
-#define TEST_C2_FRAME_MS    40
-
 #define TEST_CPU_NORMAL     80          // what the SX1280 watch builds run at
-#define TEST_CPU_MID        160         // headroom check
-#define TEST_CPU_HIGH       240         // headroom check (ESP32-S3 maximum)
-// 40 MHz was dropped: on hardware the watch reset (TG1WDT_SYS_RST) right after
-// switching 80 -> 40 MHz in this test.
+// Earlier runs of this test measured Codec2 1200 encoding at 160 and 240 MHz,
+// and found the watch reset (TG1WDT_SYS_RST) right after switching
+// 80 -> 40 MHz. This version stays at 80 MHz throughout.
 
 #define TEST_DIR            "/voicetest"
 #define TEST_WAV_PATH       "/voicetest/rec.wav"
-#define TEST_C2_PATH        "/voicetest/rec.c2"
 #define TEST_RESULTS_PATH   "/voicetest/results.txt"
 
 // ---- State ------------------------------------------------------------------
@@ -78,8 +73,6 @@ static int16_t* recBuf  = NULL;   // 16 kHz recording (PSRAM)
 static int16_t* playBuf = NULL;   // 16 kHz decoded Codec2 for playback (PSRAM)
 static uint8_t* c2Buf   = NULL;   // encoded Codec2 bytes (PSRAM)
 static uint32_t recSamples = 0;
-static uint32_t c2Bytes = 0;
-static int      c2Frames = 0;
 
 static String results;            // summary for this run
 
@@ -448,142 +441,210 @@ static void stepPlayWav() {
        (unsigned long)micBytes, micBytes > 0 ? "both ran together" : "mic gave nothing");
 }
 
-// Encodes the whole recording once at the given CPU speed.
-// Nothing is printed while the CPU is at the test speed.
-static void encodeAt(int mhz, uint32_t* avgUs, uint32_t* maxUs) {
-  struct CODEC2* c2 = codec2_create(TEST_C2_MODE);
-  if (!c2) {
-    *avgUs = 0;
-    *maxUs = 0;
-    return;
+// =============================================================================
+// Codec2 comparison
+//
+// One recording, five versions played back to back, all encoded and decoded
+// at 80 MHz (the SX1280 watch build speed):
+//
+//   A  1200 bps, handled exactly as Meck does now: 16 -> 8 kHz by averaging
+//      sample pairs, 8 -> 16 kHz by repeating each sample.
+//   B  1200 bps, "filtered": hum filter (high-pass at TEST_HPF_HZ) and a
+//      proper low-pass filter before 16 -> 8 kHz, and the same low-pass
+//      filter to smooth 8 -> 16 kHz on playback. The Codec2 data itself is
+//      still plain 1200, so Meck and Meck-P4 could still decode it.
+//   C  1600 bps, filtered     D  2400 bps, filtered     E  3200 bps, filtered
+//      Meck and Meck-P4 always decode as 1200 (they ignore the VE3 mode
+//      field), so C-E are for listening only.
+// =============================================================================
+#define TEST_C2_SAMPLES_8K  (TEST_REC_SAMPLES / 2)
+#define TEST_C2_MAX_BYTES   4096        // 3200 bps x 5 s = 2000 bytes
+#define TEST_HPF_HZ         150.0f      // hum filter corner
+#define TEST_LPF_HZ         3600.0f     // anti-alias / smoothing corner
+#define TEST_FIR_TAPS       31
+
+static int16_t* src8k = NULL;     // 8 kHz input to the encoder (PSRAM)
+static int16_t* dec8k = NULL;     // 8 kHz decoder output (PSRAM)
+static float    firTaps[TEST_FIR_TAPS];
+
+// Windowed-sinc low-pass (Hamming), designed at the 16 kHz rate, unity gain.
+static void firDesign() {
+  const int M = (TEST_FIR_TAPS - 1) / 2;
+  const float fc = TEST_LPF_HZ / TEST_SAMPLE_RATE;
+  float sum = 0;
+  for (int n = 0; n < TEST_FIR_TAPS; n++) {
+    int k = n - M;
+    float sinc = (k == 0) ? 2.0f * fc : sinf(2.0f * PI * fc * k) / (PI * k);
+    float win = 0.54f - 0.46f * cosf(2.0f * PI * n / (TEST_FIR_TAPS - 1));
+    firTaps[n] = sinc * win;
+    sum += firTaps[n];
   }
-  int frameSamples = codec2_samples_per_frame(c2);          // 320 at 8 kHz
-  int frameBytes = (codec2_bits_per_frame(c2) + 7) / 8;      // 6
-  int srcPerFrame = frameSamples * 2;                        // 640 at 16 kHz
-  static int16_t frame[320];
-
-  int before = getCpuFrequencyMhz();
-  if (mhz != before) {
-    note("CPU: changing %d -> %d MHz", before, mhz);
-    saveResults();
-  }
-  Serial.flush();
-  setCpuFrequencyMhz(mhz);
-
-  uint64_t total = 0;
-  uint32_t worst = 0;
-  c2Bytes = 0;
-  c2Frames = 0;
-  for (uint32_t src = 0; src + srcPerFrame <= recSamples; src += srcPerFrame) {
-    for (int i = 0; i < frameSamples; i++) {
-      frame[i] = (int16_t)(((int32_t)recBuf[src + i * 2] + recBuf[src + i * 2 + 1]) / 2);
-    }
-    int64_t t = esp_timer_get_time();
-    codec2_encode(c2, &c2Buf[c2Bytes], frame);
-    uint32_t us = (uint32_t)(esp_timer_get_time() - t);
-    total += us;
-    if (us > worst) worst = us;
-    c2Bytes += frameBytes;
-    c2Frames++;
-  }
-
-  setCpuFrequencyMhz(TEST_CPU_NORMAL);
-  delay(20);
-  if (mhz != before) note("CPU: back to %d MHz", getCpuFrequencyMhz());
-
-  codec2_destroy(c2);
-  *avgUs = c2Frames ? (uint32_t)(total / c2Frames) : 0;
-  *maxUs = worst;
+  for (int n = 0; n < TEST_FIR_TAPS; n++) firTaps[n] /= sum;
 }
 
-// Each pass is announced and saved to results.txt before it starts, and its
-// result is saved as soon as it finishes, so a crash part-way through still
-// leaves a record of how far it got (printed again at the next boot).
-static void stepCodec2() {
-  Serial.println("Timing Codec2 1200 encoding...");
-  uint32_t budget = TEST_C2_FRAME_MS * 1000;
-  uint32_t avgUs, maxUs;
+static inline int16_t clip16(float v) {
+  if (v > 32767.0f) return 32767;
+  if (v < -32768.0f) return -32768;
+  return (int16_t)v;
+}
 
-  // ---- Pass 1: 80 MHz (no speed change) ----
-  note("CODEC2: starting %d MHz pass", TEST_CPU_NORMAL);
-  saveResults();
-  encodeAt(TEST_CPU_NORMAL, &avgUs, &maxUs);
-  note("CODEC2: %d frames -> %lu bytes (%d packets of 150)", c2Frames,
-       (unsigned long)c2Bytes, (int)((c2Bytes + 149) / 150));
-  note("CODEC2 @%d MHz: avg %lu us, worst %lu us per frame (%s; budget %lu us)",
-       TEST_CPU_NORMAL, (unsigned long)avgUs, (unsigned long)maxUs,
-       maxUs < budget ? "keeps up" : "SLOWER than real time", (unsigned long)budget);
-
-  // Save the 80 MHz pass's Codec2 file now, so it exists even if a
-  // higher-speed pass does not finish.
-  if (fsReady) {
-    File f = LittleFS.open(TEST_C2_PATH, "w");
-    if (f) {
-      size_t w = f.write(c2Buf, c2Bytes);
-      f.close();
-      note("FLASH: saved %s, %lu bytes", TEST_C2_PATH, (unsigned long)w);
-    }
-  }
-  saveResults();
-
-  // ---- Passes 2 and 3: 160 MHz, then 240 MHz (headroom check) ----
-  const int higher[] = { TEST_CPU_MID, TEST_CPU_HIGH };
-  for (int mhz : higher) {
-    note("CODEC2: starting %d MHz pass", mhz);
-    saveResults();
-    encodeAt(mhz, &avgUs, &maxUs);
-    note("CODEC2 @%d MHz: avg %lu us, worst %lu us per frame (%s)",
-         mhz, (unsigned long)avgUs, (unsigned long)maxUs,
-         maxUs < budget ? "keeps up" : "SLOWER than real time");
-    saveResults();
+// A: Meck's current 16 -> 8 kHz (average each pair).
+static void downPlain() {
+  for (uint32_t i = 0; i < TEST_C2_SAMPLES_8K; i++) {
+    src8k[i] = (int16_t)(((int32_t)recBuf[i * 2] + recBuf[i * 2 + 1]) / 2);
   }
 }
 
-static void stepPlayCodec2() {
-  // Read the Codec2 file back from flash if it is there, so this also proves
-  // the saved .c2 file is usable.
-  uint32_t n = c2Bytes;
-  bool fromFlash = false;
-  if (fsReady) {
-    File f = LittleFS.open(TEST_C2_PATH, "r");
-    if (f) {
-      n = f.read(c2Buf, c2Bytes);
-      f.close();
-      fromFlash = true;
-    }
+// B-E: high-pass (2nd-order Butterworth, RBJ biquad) at 16 kHz, then the
+// FIR low-pass evaluated at every second sample (16 -> 8 kHz).
+static void downFiltered() {
+  const float w0 = 2.0f * PI * TEST_HPF_HZ / TEST_SAMPLE_RATE;
+  const float alpha = sinf(w0) / (2.0f * 0.7071f);
+  const float cw = cosf(w0);
+  const float a0 = 1.0f + alpha;
+  const float b0 = ((1.0f + cw) / 2.0f) / a0, b1 = (-(1.0f + cw)) / a0, b2 = b0;
+  const float a1 = (-2.0f * cw) / a0, a2 = (1.0f - alpha) / a0;
+
+  // High-pass into playBuf as 16 kHz scratch (it is refilled on playback).
+  float x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (uint32_t i = 0; i < recSamples; i++) {
+    float x = recBuf[i];
+    float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1; x1 = x; y2 = y1; y1 = y;
+    playBuf[i] = clip16(y);
   }
 
-  struct CODEC2* c2 = codec2_create(TEST_C2_MODE);
+  const int M = (TEST_FIR_TAPS - 1) / 2;
+  for (uint32_t n = 0; n < TEST_C2_SAMPLES_8K; n++) {
+    int32_t centre = (int32_t)(n * 2);
+    float acc = 0;
+    for (int k = 0; k < TEST_FIR_TAPS; k++) {
+      int32_t idx = centre + M - k;
+      if (idx >= 0 && idx < (int32_t)recSamples) acc += firTaps[k] * playBuf[idx];
+    }
+    src8k[n] = clip16(acc);
+  }
+}
+
+// A: Meck's current 8 -> 16 kHz (repeat each sample).
+static uint32_t upPlain(uint32_t n8k) {
+  for (uint32_t i = 0; i < n8k; i++) {
+    playBuf[i * 2] = dec8k[i];
+    playBuf[i * 2 + 1] = dec8k[i];
+  }
+  return n8k * 2;
+}
+
+// B-E: 8 -> 16 kHz by inserting zeros between samples and running the same
+// FIR low-pass (x2 gain to make up for the inserted zeros).
+static uint32_t upFiltered(uint32_t n8k) {
+  const int M = (TEST_FIR_TAPS - 1) / 2;
+  uint32_t n16k = n8k * 2;
+  for (uint32_t m = 0; m < n16k; m++) {
+    float acc = 0;
+    for (int k = 0; k < TEST_FIR_TAPS; k++) {
+      int32_t idx = (int32_t)m + M - k;               // index in the zero-stuffed signal
+      if (idx >= 0 && idx < (int32_t)n16k && (idx & 1) == 0) acc += firTaps[k] * dec8k[idx / 2];
+    }
+    playBuf[m] = clip16(2.0f * acc);
+  }
+  return n16k;
+}
+
+struct C2Variant {
+  char        label;
+  int         mode;
+  int         bps;
+  bool        filtered;
+};
+
+static const C2Variant kVariants[] = {
+  { 'A', CODEC2_MODE_1200, 1200, false },
+  { 'B', CODEC2_MODE_1200, 1200, true  },
+  { 'C', CODEC2_MODE_1600, 1600, true  },
+  { 'D', CODEC2_MODE_2400, 2400, true  },
+  { 'E', CODEC2_MODE_3200, 3200, true  },
+};
+
+static void runVariant(const C2Variant& v) {
+  int64_t tPrep = esp_timer_get_time();
+  if (v.filtered) downFiltered(); else downPlain();
+  uint32_t prepMs = (uint32_t)((esp_timer_get_time() - tPrep) / 1000);
+
+  struct CODEC2* c2 = codec2_create(v.mode);
   if (!c2) {
-    note("CODEC2: decoder create FAILED");
+    note("%c %d: codec2_create FAILED", v.label, v.bps);
     return;
   }
-  int frameSamples = codec2_samples_per_frame(c2);
+  int frameSamples = codec2_samples_per_frame(c2);       // 320 (1200/1600) or 160 (2400/3200)
   int frameBytes = (codec2_bits_per_frame(c2) + 7) / 8;
-  static int16_t frame[320];
+  uint32_t budgetUs = (uint32_t)frameSamples * 1000000UL / 8000;   // 40 ms or 20 ms
 
-  uint32_t out = 0;
-  int64_t t = esp_timer_get_time();
-  for (uint32_t pos = 0; pos + frameBytes <= n && out + frameSamples * 2 <= TEST_REC_SAMPLES;
-       pos += frameBytes) {
-    codec2_decode(c2, frame, &c2Buf[pos]);
-    for (int i = 0; i < frameSamples; i++) {   // 8 kHz -> 16 kHz (as Meck)
-      playBuf[out++] = frame[i];
-      playBuf[out++] = frame[i];
-    }
+  // Encode
+  uint32_t bytes = 0;
+  int frames = 0;
+  uint64_t encTotal = 0;
+  uint32_t encWorst = 0;
+  for (uint32_t s = 0; s + frameSamples <= TEST_C2_SAMPLES_8K &&
+                       bytes + frameBytes <= TEST_C2_MAX_BYTES; s += frameSamples) {
+    int64_t t = esp_timer_get_time();
+    codec2_encode(c2, &c2Buf[bytes], &src8k[s]);
+    uint32_t us = (uint32_t)(esp_timer_get_time() - t);
+    encTotal += us;
+    if (us > encWorst) encWorst = us;
+    bytes += frameBytes;
+    frames++;
   }
-  uint32_t decodeMs = (uint32_t)((esp_timer_get_time() - t) / 1000);
-  codec2_destroy(c2);
-  note("CODEC2: decoded %lu bytes from %s in %lu ms at %d MHz",
-       (unsigned long)n, fromFlash ? "flash" : "RAM", (unsigned long)decodeMs, TEST_CPU_NORMAL);
 
-  Serial.println("Playing the Codec2 version (what would go over LoRa)...");
+  // Decode
+  uint32_t out8k = 0;
+  uint64_t decTotal = 0;
+  uint32_t decWorst = 0;
+  for (uint32_t pos = 0; pos + frameBytes <= bytes &&
+                         out8k + frameSamples <= TEST_C2_SAMPLES_8K; pos += frameBytes) {
+    int64_t t = esp_timer_get_time();
+    codec2_decode(c2, &dec8k[out8k], &c2Buf[pos]);
+    uint32_t us = (uint32_t)(esp_timer_get_time() - t);
+    decTotal += us;
+    if (us > decWorst) decWorst = us;
+    out8k += frameSamples;
+  }
+  codec2_destroy(c2);
+
+  uint32_t encAvg = frames ? (uint32_t)(encTotal / frames) : 0;
+  uint32_t decAvg = frames ? (uint32_t)(decTotal / frames) : 0;
+  note("%c %d bps%s: %d frames of %d ms -> %lu bytes (%d packets of 150)",
+       v.label, v.bps, v.filtered ? " filtered" : " as Meck", frames, (int)(budgetUs / 1000),
+       (unsigned long)bytes, (int)((bytes + 149) / 150));
+  note("%c   encode avg %lu us, worst %lu us; decode avg %lu us, worst %lu us (budget %lu us/frame)",
+       v.label, (unsigned long)encAvg, (unsigned long)encWorst,
+       (unsigned long)decAvg, (unsigned long)decWorst, (unsigned long)budgetUs);
+  int64_t tPost = esp_timer_get_time();
+  uint32_t n16k = v.filtered ? upFiltered(out8k) : upPlain(out8k);
+  uint32_t postMs = (uint32_t)((esp_timer_get_time() - tPost) / 1000);
+  note("%c   before-encode audio prep %lu ms, after-decode prep %lu ms (whole 5 s note)",
+       v.label, (unsigned long)prepMs, (unsigned long)postMs);
+  saveResults();
+
+  Serial.printf(">>> Now playing %c: %d bps, %s <<<\n", v.label, v.bps,
+                v.filtered ? "filtered" : "as Meck does now");
   if (!spkStart()) {
-    note("SPEAKER: FAILED to start for Codec2 playback");
+    note("%c: SPEAKER FAILED to start", v.label);
     return;
   }
-  spkWriteMono(playBuf, out, false);
+  spkWriteMono(playBuf, n16k, false);
   spkStop();
+  delay(1500);   // gap between versions
+}
+
+static void stepCodec2Compare() {
+  Serial.println();
+  Serial.println("Codec2 comparison: five versions, A to E, 1.5 s gap between each.");
+  for (const C2Variant& v : kVariants) {
+    note("CODEC2: starting %c (%d bps)", v.label, v.bps);
+    saveResults();
+    runVariant(v);
+  }
   Serial.println("Done.");
 }
 
@@ -603,8 +664,7 @@ static void runTest() {
     saveResults();
     stepPlayWav();
     saveResults();
-    stepCodec2();       // saves its own progress before and after each pass
-    stepPlayCodec2();
+    stepCodec2Compare();   // saves its own progress before and after each version
     saveResults();
   }
 
@@ -632,17 +692,20 @@ void setup() {
 
   recBuf  = (int16_t*)ps_calloc(TEST_REC_SAMPLES, sizeof(int16_t));
   playBuf = (int16_t*)ps_calloc(TEST_REC_SAMPLES, sizeof(int16_t));
-  c2Buf   = (uint8_t*)ps_calloc((TEST_RECORD_SECONDS * 1000 / TEST_C2_FRAME_MS) * 8, 1);
-  if (!recBuf || !playBuf || !c2Buf) {
+  c2Buf   = (uint8_t*)ps_calloc(TEST_C2_MAX_BYTES, 1);
+  src8k   = (int16_t*)ps_calloc(TEST_C2_SAMPLES_8K, sizeof(int16_t));
+  dec8k   = (int16_t*)ps_calloc(TEST_C2_SAMPLES_8K, sizeof(int16_t));
+  if (!recBuf || !playBuf || !c2Buf || !src8k || !dec8k) {
     Serial.println("PSRAM allocation FAILED -- cannot run the test");
   }
+  firDesign();
 
   storageInit();
   Serial.println("Ready. Press the side PWR key briefly to start a test run.");
 }
 
 void loop() {
-  if (recBuf && playBuf && c2Buf && pwrKeyClicked()) {
+  if (recBuf && playBuf && c2Buf && src8k && dec8k && pwrKeyClicked()) {
     runTest();
   }
   delay(30);
