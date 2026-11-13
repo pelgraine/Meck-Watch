@@ -50,8 +50,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install PlatformIO
-        run: pip install --upgrade platformio
+      # merge_firmware.py runs "python -m esptool merge_bin" with the same
+      # Python that runs PlatformIO, so esptool has to be installed there too.
+      - name: Install PlatformIO and esptool
+        run: pip install --upgrade platformio "esptool~=4.13"
 
       - name: Build ${{ matrix.build }}
         run: pio run -e "${{ matrix.build }}"
