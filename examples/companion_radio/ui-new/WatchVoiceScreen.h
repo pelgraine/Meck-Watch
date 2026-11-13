@@ -2,10 +2,11 @@
 
 // =============================================================================
 // WatchVoiceScreen -- voice notes for the LilyGo T-Watch S3, SX1280 builds only
-// (MECK_WATCH_VOICE). Ported from Meck's VoiceMessageScreen.h (T-Deck) and
-// kept wire-compatible with it and with Meck-P4: dz0ny VE3 envelope DM,
-// raw 0x56 voice packets of up to 150 bytes of Codec2 1200 data, at most 16
-// packets / 12 seconds per note.
+// (MECK_WATCH_VOICE). Ported from Meck's VoiceMessageScreen.h (T-Deck).
+// Receives the dz0ny VE3 format (envelope DM, raw 0x56 voice packets of up to
+// 150 bytes of Codec2 1200 data, at most 16 packets / 12 seconds per note).
+// Sends by flood instead (E, Nov 2026; see the WV_MSG_* table): to the voice
+// channel, or to a contact along its direct path first, then by private flood.
 //
 // Differences from the T-Deck screen, as decided by E (Nov 2026):
 //   - Recording starts and stops on a short press of the PWR key (KEY_ENTER),
@@ -53,6 +54,21 @@ class UITask;
 #define WV_MAX_PACKETS      16     // receivers track packets in a 16-bit map
 #define WV_SESSION_TTL_MS   900000 // outgoing session kept 15 min for fetches
 
+// ---- Flood modes (Meck only; channel data or contact requests, Nov 2026) ----
+// Every message starts WV_PKT_MAGIC, then one of these:
+//   'H' header  [V][H][sid:4][total][dur][sender name...]   (channel only)
+//   'D' data    [V][D][sid:4][idx][total][len][Codec2 x len]
+//   '?' status  [V][?][sid:4]                                (contact only)
+//   'R' report  [V][R][sid:4][received bitmap:2 LE][total]   (contact's reply)
+// idx | WV_FLAG_REPORT on a contact data packet asks for a report back.
+#define WV_MSG_HEADER       'H'
+#define WV_MSG_DATA         'D'
+#define WV_MSG_STATUS       '?'
+#define WV_MSG_REPORT       'R'
+#define WV_FLAG_REPORT      0x80
+#define WV_DATA_HDR_SIZE    9      // V D sid(4) idx total len
+#define WV_REPORT_SIZE      9      // V R sid(4) bitmap(2) total
+
 // ---- Codec2 1200 ----
 #define WV_MAX_SECONDS      12
 #define WV_FRAME_MS         40
@@ -86,9 +102,12 @@ class UITask;
 class WatchVoiceScreen : public UIScreen {
 public:
   enum Mode { LIST, RECORDING, ENCODING, VIEW, PICK };
-  enum Kind : uint8_t { KIND_RECORDED = 0, KIND_RECEIVED = 1, KIND_SENT = 2 };
+  enum Kind : uint8_t { KIND_RECORDED = 0, KIND_RECEIVED = 1, KIND_SENT = 2,
+                        KIND_CH_RECEIVED = 3 };
 
-  // Send-to entry, filled by main.cpp from the contact list.
+  // Send-to entry, filled by main.cpp: the voice channel first (meshIdx =
+  // PICK_CHANNEL), then contacts.
+  static const int PICK_CHANNEL = -2;
   struct PickContact {
     int     meshIdx;
     char    name[32];
@@ -151,7 +170,6 @@ private:
   bool _pickLoaded = false;
   int  _pendingSendIdx = -1;
   char _pendingSendName[32];
-  bool _noPathMsg = false;
 
   // ---- FIR taps ----
   float _fir[WV_FIR_TAPS];
@@ -182,7 +200,14 @@ private:
     bool     active;
     bool     complete;
     bool     saved;
+    bool     viaChannel;           // arrived on the voice channel
   } _in;
+
+  // Last note saved: late or repeated packets of it are ignored, and a status
+  // request for it is still answered (all received).
+  uint32_t _lastSavedSid = 0;
+  uint16_t _lastSavedBitmap = 0;
+  uint8_t  _lastSavedTotal = 0;
 
   // ===========================================================================
   // Helpers
@@ -241,6 +266,7 @@ private:
 
   static void kindLabel(uint8_t kind, const char* who, char* out, size_t outLen) {
     if (kind == KIND_RECEIVED)  snprintf(out, outLen, "From %s", who);
+    else if (kind == KIND_CH_RECEIVED) snprintf(out, outLen, "Ch %s", who);
     else if (kind == KIND_SENT) snprintf(out, outLen, "To %s", who);
     else                        snprintf(out, outLen, "Recorded");
   }
@@ -840,11 +866,12 @@ private:
         d->setRawColor(0xFD20);
         d->drawRoundRect(1, y, display.width() - 2 - (_pickCount > ROWS_VISIBLE ? 5 : 0), ROW_H - 2, 3);
       }
-      d->setRawColor(_pick[idx].hasDirect ? 0xFFFF : 0x7BEF);
+      bool isCh = (_pick[idx].meshIdx == PICK_CHANNEL);
+      d->setRawColor(isCh ? 0xFD20 : 0xFFFF);
       display.setCursor(5, y + 2);
       display.print(_pick[idx].name);
       d->setRawColor(0x7BEF);
-      d->printSmallFont(5, y + 13, _pick[idx].hasDirect ? "direct" : "no path");
+      d->printSmallFont(5, y + 13, isCh ? "channel" : (_pick[idx].hasDirect ? "direct" : "flood"));
     }
     drawScrollbar(display, _pickCount, _pickScroll);
 
@@ -852,17 +879,6 @@ private:
     d->drawRoundRect(31, FOOTER_Y, 58, 14, 3);
     d->setRawColor(0xC618);
     d->printSmallFont(50, FOOTER_Y + 8, "Back");
-
-    if (_noPathMsg) {
-      d->setRawColor(0x0000);
-      d->fillRoundRect(8, 40, display.width() - 16, 30, 4);
-      d->setRawColor(0xF800);
-      d->drawRoundRect(8, 40, display.width() - 16, 30, 4);
-      d->setRawColor(0xFFFF);
-      display.drawTextCentered(display.width() / 2, 46, "No direct path");
-      d->setRawColor(0x7BEF);
-      d->printSmallFont(20, 64, "Tap to dismiss");
-    }
   }
 
 public:
@@ -879,7 +895,6 @@ public:
   void enter() {
     _mode = LIST;
     _delArmed = false;
-    _noPathMsg = false;
     scanNotes();
     _sel = 0;
     _scroll = 0;
@@ -939,23 +954,8 @@ public:
   }
   const char* pendingSendName() const { return _pendingSendName; }
 
-  // ---- VE3 send (called by main.cpp after consumePendingSend) ----
-  static int toBase36(uint32_t val, char* buf, int bufLen) {
-    if (bufLen < 2) return 0;
-    if (val == 0) { buf[0] = '0'; buf[1] = '\0'; return 1; }
-    char tmp[16];
-    int pos = 0;
-    while (val > 0 && pos < 15) {
-      uint8_t d = val % 36;
-      tmp[pos++] = d < 10 ? ('0' + d) : ('a' + d - 10);
-      val /= 36;
-    }
-    int len = pos < bufLen - 1 ? pos : bufLen - 1;
-    for (int i = 0; i < len; i++) buf[i] = tmp[pos - 1 - i];
-    buf[len] = '\0';
-    return len;
-  }
-
+  // ---- Send (called by main.cpp after consumePendingSend) ----
+  // VE3 envelopes are still parsed on receive (from Meck-P4 and Meck).
   static uint32_t fromBase36(const char* s) {
     uint32_t val = 0;
     while (*s) {
@@ -968,9 +968,8 @@ public:
     return val;
   }
 
-  // Caches the open note as the outgoing session and formats its VE3
-  // envelope: VE3:{sid}:{mode}:{total}:{durS} (base36 fields).
-  bool prepareSend(uint32_t sessionId, char* envelope, int envLen) {
+  // Caches the open note as the outgoing session (all send modes).
+  bool prepareOut(uint32_t sessionId) {
     if (_c2Bytes == 0) return false;
     _out.sessionId = sessionId;
     memcpy(_out.data, _c2, _c2Bytes);
@@ -978,15 +977,64 @@ public:
     _out.totalPackets = (_c2Bytes + WV_MESH_PAYLOAD - 1) / WV_MESH_PAYLOAD;
     _out.cachedAt = millis();
     _out.active = true;
-    uint8_t dur = (uint8_t)((_c2Bytes / WV_FRAME_BYTES) * WV_FRAME_MS / 1000);
-    char sid[12], mode[4], total[4], durS[4];
-    toBase36(sessionId, sid, sizeof(sid));
-    toBase36(WV_MODE_ID, mode, sizeof(mode));
-    toBase36(_out.totalPackets, total, sizeof(total));
-    toBase36(dur, durS, sizeof(durS));
-    snprintf(envelope, envLen, "VE3:%s:%s:%s:%s", sid, mode, total, durS);
     Serial.printf("Voice: session 0x%08lX cached, %lu bytes, %d packets\n",
                   (unsigned long)sessionId, (unsigned long)_c2Bytes, _out.totalPackets);
+    return true;
+  }
+  uint8_t outDuration() const {
+    return (uint8_t)((_out.dataBytes / WV_FRAME_BYTES) * WV_FRAME_MS / 1000);
+  }
+
+  // ---- Flood-mode messages (see the WV_MSG_* table at the top) ----
+  int buildFloodHeader(uint8_t* buf, int bufLen, const char* myName) const {
+    if (!_out.active) return 0;
+    int nameLen = myName ? (int)strnlen(myName, 31) : 0;
+    if (8 + nameLen > bufLen) return 0;
+    buf[0] = WV_PKT_MAGIC;
+    buf[1] = WV_MSG_HEADER;
+    memcpy(&buf[2], &_out.sessionId, 4);
+    buf[6] = _out.totalPackets;
+    buf[7] = outDuration();
+    if (nameLen) memcpy(&buf[8], myName, nameLen);
+    return 8 + nameLen;
+  }
+
+  int buildFloodData(uint8_t* buf, int bufLen, uint8_t pktIdx, bool wantReport) const {
+    if (!_out.active) return 0;
+    uint32_t offset = (uint32_t)pktIdx * WV_MESH_PAYLOAD;
+    if (offset >= _out.dataBytes) return 0;
+    uint32_t chunk = _out.dataBytes - offset;
+    if (chunk > WV_MESH_PAYLOAD) chunk = WV_MESH_PAYLOAD;
+    if ((int)(WV_DATA_HDR_SIZE + chunk) > bufLen) return 0;
+    buf[0] = WV_PKT_MAGIC;
+    buf[1] = WV_MSG_DATA;
+    memcpy(&buf[2], &_out.sessionId, 4);
+    buf[6] = pktIdx | (wantReport ? WV_FLAG_REPORT : 0);
+    buf[7] = _out.totalPackets;
+    buf[8] = (uint8_t)chunk;
+    memcpy(&buf[WV_DATA_HDR_SIZE], &_out.data[offset], chunk);
+    return WV_DATA_HDR_SIZE + chunk;
+  }
+
+  int buildStatusRequest(uint8_t* buf, int bufLen) const {
+    if (!_out.active || bufLen < 6) return 0;
+    buf[0] = WV_PKT_MAGIC;
+    buf[1] = WV_MSG_STATUS;
+    memcpy(&buf[2], &_out.sessionId, 4);
+    return 6;
+  }
+
+  uint32_t outSessionId() const { return _out.sessionId; }
+
+  // A contact's report on our current outgoing note. Returns false if it
+  // isn't a report for that note.
+  bool parseReport(const uint8_t* d, uint8_t len, uint16_t& bitmap, uint8_t& total) const {
+    if (len < WV_REPORT_SIZE || d[0] != WV_PKT_MAGIC || d[1] != WV_MSG_REPORT) return false;
+    uint32_t sid;
+    memcpy(&sid, &d[2], 4);
+    if (!_out.active || sid != _out.sessionId) return false;
+    bitmap = (uint16_t)d[6] | ((uint16_t)d[7] << 8);
+    total = d[8];
     return true;
   }
 
@@ -1044,29 +1092,53 @@ public:
     uint32_t sessionId = fromBase36(fields[0]);
     uint8_t totalPkts = (uint8_t)fromBase36(fields[2]);
     uint8_t durSec = (fieldIdx >= 3) ? (uint8_t)fromBase36(fields[3]) : 0;
+    startIncoming(sessionId, totalPkts, durSec, senderName, false);
+  }
+
+  // Starts receiving a note, unless it's the one already in progress or the
+  // one just saved. Returns true if a new note was started.
+  bool startIncoming(uint32_t sessionId, uint8_t totalPkts, uint8_t durSec,
+                     const char* senderName, bool viaChannel) {
     if (totalPkts == 0 || totalPkts > WV_MAX_PACKETS) {
-      Serial.printf("Voice: VE3 invalid packet count %d\n", totalPkts);
-      return;
+      Serial.printf("Voice: invalid packet count %d\n", totalPkts);
+      return false;
+    }
+    if (_lastSavedSid != 0 && sessionId == _lastSavedSid) return false;
+    if (_in.active && _in.sessionId == sessionId) {
+      // Already receiving it: a later header fills in the sender's name.
+      if (senderName && senderName[0] && strcmp(_in.senderName, "?") == 0) {
+        strncpy(_in.senderName, senderName, 31);
+        _in.senderName[31] = 0;
+      }
+      if (durSec) _in.durationSec = durSec;
+      return false;
     }
     memset(&_in, 0, sizeof(_in));
     _in.sessionId = sessionId;
     _in.totalPackets = totalPkts;
     _in.durationSec = durSec;
-    strncpy(_in.senderName, senderName, 31);
+    strncpy(_in.senderName, (senderName && senderName[0]) ? senderName : "?", 31);
     _in.startedAt = millis();
     _in.active = true;
-    Serial.printf("Voice: incoming 0x%08lX from %s, %d packets (%ds)\n",
-                  (unsigned long)sessionId, senderName, totalPkts, durSec);
+    _in.viaChannel = viaChannel;
+    Serial.printf("Voice: incoming 0x%08lX from %s, %d packets (%ds)%s\n",
+                  (unsigned long)sessionId, _in.senderName, totalPkts, durSec,
+                  viaChannel ? " on channel" : "");
+    return true;
   }
 
+  // Raw VE3 voice packet: [0x56][sid:4][idx][Codec2...]
   void onVoicePacketReceived(const uint8_t* payload, uint8_t len) {
     if (len < WV_PKT_HDR_SIZE + 1) return;
     uint32_t sessionId;
     memcpy(&sessionId, &payload[1], 4);
-    uint8_t idx = payload[5];
-    uint8_t dataLen = len - WV_PKT_HDR_SIZE;
+    addPacket(sessionId, payload[5], &payload[WV_PKT_HDR_SIZE], len - WV_PKT_HDR_SIZE);
+  }
+
+  void addPacket(uint32_t sessionId, uint8_t idx, const uint8_t* data, uint8_t dataLen) {
     if (!_in.active || _in.sessionId != sessionId) {
-      Serial.printf("Voice: packet for unknown session 0x%08lX\n", (unsigned long)sessionId);
+      if (sessionId != _lastSavedSid)
+        Serial.printf("Voice: packet for unknown session 0x%08lX\n", (unsigned long)sessionId);
       return;
     }
     if (idx >= _in.totalPackets || idx >= WV_MAX_PACKETS) return;
@@ -1074,7 +1146,7 @@ public:
     if (_in.dataBytes + dataLen > WV_MAX_BYTES) return;
     _in.pktOffset[idx] = _in.dataBytes;
     _in.pktSize[idx] = dataLen;
-    memcpy(&_in.data[_in.dataBytes], &payload[WV_PKT_HDR_SIZE], dataLen);
+    memcpy(&_in.data[_in.dataBytes], data, dataLen);
     _in.dataBytes += dataLen;
     _in.receivedBitmap |= (1 << idx);
     _in.receivedCount++;
@@ -1083,8 +1155,75 @@ public:
     if (_in.receivedCount >= _in.totalPackets) _in.complete = true;
   }
 
+  // Flood data message ('D'). Returns true if it started a new note.
+  bool onFloodData(const uint8_t* d, uint8_t len, const char* senderName, bool viaChannel) {
+    if (len < WV_DATA_HDR_SIZE + 1) return false;
+    uint32_t sid;
+    memcpy(&sid, &d[2], 4);
+    uint8_t idx = d[6] & ~WV_FLAG_REPORT;
+    uint8_t total = d[7];
+    uint8_t dlen = d[8];
+    if (WV_DATA_HDR_SIZE + dlen > len) return false;      // malformed
+    bool started = startIncoming(sid, total, 0, senderName, viaChannel);
+    addPacket(sid, idx, &d[WV_DATA_HDR_SIZE], dlen);
+    return started;
+  }
+
+  // Voice channel message (header or data). Returns true if a new note started.
+  bool onChannelVoice(const uint8_t* d, uint8_t len) {
+    if (len < 6 || d[0] != WV_PKT_MAGIC) return false;
+    if (d[1] == WV_MSG_HEADER && len >= 8) {
+      uint32_t sid;
+      memcpy(&sid, &d[2], 4);
+      char name[32];
+      int n = len - 8;
+      if (n > 31) n = 31;
+      memcpy(name, &d[8], n);
+      name[n] = 0;
+      return startIncoming(sid, d[6], d[7], name, true);
+    }
+    if (d[1] == WV_MSG_DATA) return onFloodData(d, len, "?", true);
+    return false;
+  }
+
+  // Report on a note from this contact, written to 'reply'.
+  uint8_t buildReport(uint32_t sid, uint8_t* reply) const {
+    uint16_t bitmap = 0;
+    uint8_t total = 0;
+    if (_in.sessionId == sid && (_in.active || _in.saved)) {
+      bitmap = _in.receivedBitmap; total = _in.totalPackets;
+    } else if (sid == _lastSavedSid) {
+      bitmap = _lastSavedBitmap; total = _lastSavedTotal;
+    }
+    reply[0] = WV_PKT_MAGIC;
+    reply[1] = WV_MSG_REPORT;
+    memcpy(&reply[2], &sid, 4);
+    reply[6] = (uint8_t)(bitmap & 0xFF);
+    reply[7] = (uint8_t)(bitmap >> 8);
+    reply[8] = total;
+    return WV_REPORT_SIZE;
+  }
+
+  // Voice request from a contact (data or status). Returns the reply length
+  // (0 = no reply); 'started' is set if a new note started.
+  uint8_t onContactVoice(const char* senderName, const uint8_t* d, uint8_t len,
+                         uint8_t* reply, bool& started) {
+    started = false;
+    if (len < 6 || d[0] != WV_PKT_MAGIC) return 0;
+    uint32_t sid;
+    memcpy(&sid, &d[2], 4);
+    if (d[1] == WV_MSG_DATA) {
+      started = onFloodData(d, len, senderName, false);
+      if (len > 6 && (d[6] & WV_FLAG_REPORT)) return buildReport(sid, reply);
+      return 0;
+    }
+    if (d[1] == WV_MSG_STATUS) return buildReport(sid, reply);
+    return 0;
+  }
+
   bool isIncomingReady() const { return _in.active && _in.complete && !_in.saved; }
   const char* incomingSender() const { return _in.senderName; }
+  bool incomingViaChannel() const { return _in.viaChannel; }
 
   // Saves a completed incoming note (packets reassembled in order) as a new,
   // unread list entry. Returns true on success.
@@ -1101,9 +1240,13 @@ public:
     uint8_t dur = (uint8_t)((len / WV_FRAME_BYTES) * WV_FRAME_MS / 1000);
     char leaf[WV_NAME_LEN];
     makeName(leaf, sizeof(leaf));
-    bool ok = writeNote(leaf, KIND_RECEIVED, 1, dur, _in.senderName, ordered, len);
+    bool ok = writeNote(leaf, _in.viaChannel ? KIND_CH_RECEIVED : KIND_RECEIVED, 1, dur,
+                        _in.senderName, ordered, len);
     Serial.printf("Voice: saved incoming %s, %lu bytes from %s: %s\n",
                   leaf, (unsigned long)len, _in.senderName, ok ? "OK" : "FAILED");
+    _lastSavedSid = _in.sessionId;
+    _lastSavedBitmap = _in.receivedBitmap;
+    _lastSavedTotal = _in.totalPackets;
     _in.active = false;
     if (ok && _mode == LIST) scanNotes();
     return ok;
@@ -1135,7 +1278,6 @@ public:
             stopPlayback();
             _delArmed = false;
             _pickLoaded = false;                          // main.cpp fills it
-            _noPathMsg = false;
             _mode = PICK;
           } else {                                        // Del (asks once)
             if (_delArmed) deleteCurrent();
@@ -1149,7 +1291,6 @@ public:
         return true;
 
       case PICK:
-        if (_noPathMsg) { _noPathMsg = false; return true; }
         if (ly >= FOOTER_Y) {
           if (lx >= 31 && lx < 89) _mode = VIEW;          // Back
           return true;
@@ -1159,7 +1300,6 @@ public:
           int idx = _pickScroll + row;
           if (row >= 0 && row < ROWS_VISIBLE && idx < _pickCount) {
             if (idx != _pickSel) { _pickSel = idx; }      // first tap selects
-            else if (!_pick[idx].hasDirect) { _noPathMsg = true; }
             else {                                        // second tap sends
               _pendingSendIdx = _pick[idx].meshIdx;
               strncpy(_pendingSendName, _pick[idx].name, 31);

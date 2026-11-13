@@ -783,6 +783,54 @@ void MyMesh::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pk
   sendFloodScoped(scope, pkt, delay_millis);
 }
 
+#if defined(MECK_WATCH_VOICE)
+int MyMesh::findVoiceChannel() {
+  ChannelDetails ch;
+  for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
+    if (getChannel(i, ch) && strcasecmp(ch.name, MECK_VOICE_CHANNEL) == 0) return i;
+  }
+  return -1;
+}
+
+bool MyMesh::voiceSendChannel(int channel_idx, const uint8_t* data, uint8_t len, uint32_t delay_millis) {
+  ChannelDetails ch;
+  if (channel_idx < 0 || !getChannel(channel_idx, ch)) return false;
+  if (len > MAX_GROUP_DATA_LENGTH) return false;
+  // Same layout as BaseChatMesh::sendGroupData: data_type (LE), data_len, data.
+  uint8_t temp[3 + MAX_GROUP_DATA_LENGTH];
+  temp[0] = (uint8_t)(MECK_VOICE_DATA_TYPE & 0xFF);
+  temp[1] = (uint8_t)(MECK_VOICE_DATA_TYPE >> 8);
+  temp[2] = len;
+  memcpy(&temp[3], data, len);
+  mesh::Packet* pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_DATA, ch.channel, temp, 3 + len);
+  if (!pkt) return false;
+  TransportKey scope;
+  deriveScopeKey(MECK_VOICE_REGION, scope);
+  sendFloodScoped(scope, pkt, delay_millis);
+  return true;
+}
+
+bool MyMesh::voiceSendRequest(const ContactInfo& to, const uint8_t* data, uint8_t len,
+                              uint32_t delay_millis, bool direct, uint32_t& tag) {
+  if (4 + (int)len > MAX_PACKET_PAYLOAD - CIPHER_MAC_SIZE - (CIPHER_BLOCK_SIZE - 1)) return false;
+  // Same layout as BaseChatMesh::sendRequest: 4-byte tag, then the request.
+  uint8_t temp[MAX_PACKET_PAYLOAD];
+  tag = getRTCClock()->getCurrentTimeUnique();
+  memcpy(temp, &tag, 4);
+  memcpy(&temp[4], data, len);
+  mesh::Packet* pkt = createDatagram(PAYLOAD_TYPE_REQ, to.id, to.getSharedSecret(self_id), temp, 4 + len);
+  if (!pkt) return false;
+  if (direct && to.out_path_len != OUT_PATH_UNKNOWN) {
+    sendDirect(pkt, to.out_path, to.out_path_len, delay_millis);
+  } else {
+    TransportKey scope;
+    deriveScopeKey(MECK_VOICE_REGION, scope);
+    sendFloodScoped(scope, pkt, delay_millis);
+  }
+  return true;
+}
+#endif
+
 bool MyMesh::deriveScopeKey(const char* scopeName, TransportKey& keyOut) {
   if (!scopeName || scopeName[0] == '\0') {
     memset(keyOut.key, 0, sizeof(keyOut.key));
@@ -1025,6 +1073,16 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 // the companion app as RESP_CODE_CHANNEL_DATA_RECV. Not shown on the device.
 void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
                                const uint8_t *data, size_t data_len) {
+#if defined(MECK_WATCH_VOICE)
+  // Voice notes on the voice channel stay on the watch (not passed to the app).
+  if (data_type == MECK_VOICE_DATA_TYPE && _voiceChanHandler) {
+    int vidx = findVoiceChannel();
+    if (vidx >= 0 && findChannelIdx(channel) == vidx && data_len <= 255) {
+      _voiceChanHandler(data, (uint8_t)data_len);
+      return;
+    }
+  }
+#endif
   if (data_len > MAX_CHANNEL_DATA_LENGTH) {
     MESH_DEBUG_PRINTLN("onChannelDataRecv: dropping payload_len=%d exceeds frame limit=%d",
                        (uint32_t)data_len, (uint32_t)MAX_CHANNEL_DATA_LENGTH);
@@ -1318,6 +1376,14 @@ void MyMesh::clearCustomPath(int contactIdx) {
 
 uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
                                  uint8_t len, uint8_t *reply) {
+#if defined(MECK_WATCH_VOICE)
+  // Voice note packet or report request from a contact (private flood mode).
+  if (len >= 1 && data[0] == MECK_VOICE_REQ_TYPE && _voiceReqHandler) {
+    memcpy(reply, &sender_timestamp, 4);   // reflect the tag, as other replies do
+    uint8_t n = _voiceReqHandler(contact, data, len, &reply[4]);
+    return n ? 4 + n : 0;
+  }
+#endif
   if (data[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
     uint8_t permissions = 0;
     uint8_t cp = contact.flags >> 1; // LSB used as 'favourite' bit (so only use upper bits)
@@ -1371,6 +1437,14 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
 
   Serial.printf("[onContactResponse] from '%s', tag=0x%08X, len=%d, pending_login=0x%08X\n",
                 contact.name, tag, len, pending_login);
+
+#if defined(MECK_WATCH_VOICE)
+  // Voice report (what a contact received of a note we sent).
+  if (len > 4 && data[4] == MECK_VOICE_REQ_TYPE && _voiceRespHandler &&
+      _voiceRespHandler(contact, tag, &data[4], len - 4)) {
+    return;
+  }
+#endif
 
   if (pending_login && memcmp(&pending_login, contact.id.pub_key, 4) == 0) { // check for login response
     // yes, is response to pending sendLogin()

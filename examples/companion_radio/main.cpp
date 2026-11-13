@@ -278,6 +278,136 @@ static void voiceEnvelopeCallback(const char* senderName, const char* ve3Text) {
   // released when the note completes, or after 15 s in loop().
   the_mesh.setDeferSaves(true);
 }
+
+// Flood modes: a voice-channel message (header or data packet).
+static void voiceChannelCallback(const uint8_t* data, uint8_t len) {
+  WatchVoiceScreen* vs = (WatchVoiceScreen*)ui_task.getWatchVoiceScreen();
+  if (!vs) return;
+  if (vs->onChannelVoice(data, len)) the_mesh.setDeferSaves(true);
+}
+
+// Flood modes: a voice request from a contact (data packet or status
+// request). The returned reply (a report) goes back to them as a response.
+static uint8_t voiceRequestCallback(const ContactInfo& from, const uint8_t* data, uint8_t len, uint8_t* reply) {
+  WatchVoiceScreen* vs = (WatchVoiceScreen*)ui_task.getWatchVoiceScreen();
+  if (!vs) return 0;
+  bool started = false;
+  uint8_t n = vs->onContactVoice(from.name, data, len, reply, started);
+  if (started) the_mesh.setDeferSaves(true);
+  return n;
+}
+
+// Outgoing note to a contact, direct or by private flood (see the loop below).
+static struct {
+  bool     active;
+  int      contactIdx;
+  char     name[32];
+  uint8_t  total;
+  uint16_t confirmed;          // packets the contact reported receiving
+  uint8_t  resends;            // resend rounds done
+  bool     statusAsked;
+  bool     gotReport;
+  unsigned long waitUntil;     // report deadline
+} voiceTx;
+
+// Flood modes: a contact's report on a note we sent.
+static bool voiceResponseCallback(const ContactInfo& from, uint32_t tag, const uint8_t* data, uint8_t len) {
+  (void)tag;
+  WatchVoiceScreen* vs = (WatchVoiceScreen*)ui_task.getWatchVoiceScreen();
+  if (!vs || !voiceTx.active) return false;
+  uint16_t bitmap = 0;
+  uint8_t total = 0;
+  if (!vs->parseReport(data, len, bitmap, total)) return false;
+  voiceTx.confirmed |= bitmap;
+  voiceTx.gotReport = true;
+  Serial.printf("Voice: report from %s: bitmap 0x%04X of %d packets\n", from.name, bitmap, total);
+  return true;
+}
+
+// Sending to a contact (E's choice, Nov 2026): along the direct path first if
+// the contact has one, otherwise by private flood. Anything the contact
+// doesn't confirm is then resent by private flood, scoped to MECK_VOICE_REGION.
+#define VOICE_PACKET_GAP_MS   3000    // between packets, as Meck's direct sends
+#define VOICE_REPORT_WAIT_MS  20000   // after the last packet is due out
+#define VOICE_MAX_RESENDS     2       // flood resend rounds after the first send
+
+static ContactInfo* voiceTxContact() {
+  ContactInfo ci;
+  if (!the_mesh.getContactByIdx(voiceTx.contactIdx, ci)) return nullptr;
+  return the_mesh.lookupContactByPubKey(ci.id.pub_key, PUB_KEY_SIZE);
+}
+
+static uint16_t voiceTxAll() {
+  return (voiceTx.total >= 16) ? 0xFFFF : (uint16_t)((1u << voiceTx.total) - 1);
+}
+
+// Queues the packets in 'which' as voice requests to the contact, the last
+// one asking for a report. Returns how many were queued.
+static int voiceTxQueue(WatchVoiceScreen* vs, const ContactInfo& to, uint16_t which, bool direct) {
+  int last = -1;
+  for (int p = 0; p < voiceTx.total; p++) if (which & (1 << p)) last = p;
+  uint8_t buf[184];
+  int queued = 0;
+  for (int p = 0; p < voiceTx.total; p++) {
+    if (!(which & (1 << p))) continue;
+    int n = vs->buildFloodData(buf, sizeof(buf), p, p == last);
+    uint32_t tag = 0;
+    uint32_t delayMs = (uint32_t)queued * VOICE_PACKET_GAP_MS;
+    if (n > 0 && the_mesh.voiceSendRequest(to, buf, n, delayMs, direct, tag)) queued++;
+  }
+  voiceTx.gotReport = false;
+  voiceTx.statusAsked = false;
+  voiceTx.waitUntil = millis() + (queued > 0 ? (queued - 1) : 0) * VOICE_PACKET_GAP_MS + VOICE_REPORT_WAIT_MS;
+  Serial.printf("Voice: queued %d packets to %s (%s)\n", queued, to.name,
+                direct ? "direct" : "flood " MECK_VOICE_REGION);
+  return queued;
+}
+
+static void voiceTxFinish(const char* msg) {
+  voiceTx.active = false;
+  Serial.printf("Voice: %s\n", msg);
+  ui_task.showAlert(msg, 2500);
+  ui_task.forceRefresh();
+}
+
+// Runs every loop while a note to a contact is waiting on its report.
+static void voiceTxService(WatchVoiceScreen* vs) {
+  if (!voiceTx.active) return;
+  ContactInfo* to = voiceTxContact();
+  if (!to) { voiceTxFinish("Contact gone"); return; }
+  uint16_t all = voiceTxAll();
+  uint16_t missing = all & ~voiceTx.confirmed;
+  if (missing == 0) { voiceTxFinish("Voice delivered"); return; }
+
+  bool timedOut = (long)(millis() - voiceTx.waitUntil) > 0;
+  if (!voiceTx.gotReport && !timedOut) return;        // still waiting
+
+  if (!voiceTx.gotReport && !voiceTx.statusAsked) {
+    // No report: ask what arrived (by flood) before resending anything.
+    uint8_t buf[16];
+    int n = vs->buildStatusRequest(buf, sizeof(buf));
+    uint32_t tag = 0;
+    if (n > 0) the_mesh.voiceSendRequest(*to, buf, n, 0, false, tag);
+    voiceTx.statusAsked = true;
+    voiceTx.waitUntil = millis() + VOICE_REPORT_WAIT_MS;
+    Serial.printf("Voice: no report from %s, asking by flood\n", to->name);
+    return;
+  }
+
+  if (voiceTx.resends < VOICE_MAX_RESENDS) {
+    voiceTx.resends++;
+    Serial.printf("Voice: resend round %d, missing 0x%04X\n", voiceTx.resends, missing);
+    voiceTxQueue(vs, *to, missing, false);
+    return;
+  }
+
+  int got = 0;
+  for (int p = 0; p < voiceTx.total; p++) if (voiceTx.confirmed & (1 << p)) got++;
+  char msg[40];
+  if (got == 0) snprintf(msg, sizeof(msg), "No reply from %s", voiceTx.name);
+  else snprintf(msg, sizeof(msg), "Delivered %d/%d", got, voiceTx.total);
+  voiceTxFinish(msg);
+}
 #endif
 
 // Last Heard: add/remove contact for selected entry.
@@ -1802,6 +1932,9 @@ void setup() {
 #if defined(MECK_WATCH_VOICE)
   the_mesh.setVoiceHandler(voiceRawCallback);
   the_mesh.setVoiceEnvelopeHandler(voiceEnvelopeCallback);
+  the_mesh.setVoiceChannelHandler(voiceChannelCallback);
+  the_mesh.setVoiceRequestHandler(voiceRequestCallback);
+  the_mesh.setVoiceResponseHandler(voiceResponseCallback);
 #endif
 
 #ifdef ESP32
@@ -2060,11 +2193,16 @@ void loop() {
         ui_task.keepAlive();
       }
 
-      // Send-to list: chat contacts, those with a direct path first (only
-      // they can be sent to), then alphabetical within each group.
+      // Send-to list: the voice channel first, then chat contacts, those
+      // with a direct path first, then alphabetical within each group.
       if (ui_task.isOnWatchVoiceScreen() && vs->needsPickContacts()) {
         static WatchVoiceScreen::PickContact pickBuf[40];
         int pickCount = 0;
+        pickBuf[0].meshIdx = WatchVoiceScreen::PICK_CHANNEL;
+        strncpy(pickBuf[0].name, MECK_VOICE_CHANNEL, 31);
+        pickBuf[0].name[31] = '\0';
+        pickBuf[0].hasDirect = false;
+        pickCount = 1;
         ContactInfo ci;
         for (int pass = 0; pass < 2 && pickCount < 40; pass++) {
           bool wantDirect = (pass == 0);
@@ -2080,7 +2218,7 @@ void loop() {
             pickCount++;
           }
         }
-        std::sort(pickBuf, pickBuf + pickCount,
+        std::sort(pickBuf + 1, pickBuf + pickCount,
           [](const WatchVoiceScreen::PickContact& a, const WatchVoiceScreen::PickContact& b) {
             if (a.hasDirect != b.hasDirect) return a.hasDirect > b.hasDirect;
             return strcasecmp(a.name, b.name) < 0;
@@ -2089,51 +2227,76 @@ void loop() {
         ui_task.forceRefresh();
       }
 
-      // Confirmed send: VE3 envelope DM, then every voice packet queued at
-      // once with the Dispatcher's delay -- first at 3 s, then 3 s apart --
-      // exactly as Meck sends them.
+      // Confirmed send: to the voice channel, or to a contact.
       int sendIdx = vs->consumePendingSend();
-      if (sendIdx >= 0) {
+      if (sendIdx == WatchVoiceScreen::PICK_CHANNEL) {
+        // Voice channel: a header (sender name, packet count), then the data
+        // packets, as channel data flood-scoped to MECK_VOICE_REGION. Same
+        // 3 s pacing as the direct sends. No confirmation comes back.
+        int vidx = the_mesh.findVoiceChannel();
         uint32_t sessionId = (uint32_t)(millis() & 0xFFFFFFFF);
-        char envelope[64];
         int totalPkts = 0, sentPkts = 0;
-        bool dmOk = false;
-        if (vs->prepareSend(sessionId, envelope, sizeof(envelope))) {
-          dmOk = the_mesh.uiSendDirectMessage(sendIdx, envelope);
-          Serial.printf("Voice: VE3 DM '%s' to idx %d: %s\n", envelope, sendIdx, dmOk ? "OK" : "FAIL");
-        }
-        if (dmOk) {
-          ContactInfo ci;
-          ContactInfo* recipient = nullptr;
-          if (the_mesh.getContactByIdx(sendIdx, ci)) {
-            recipient = the_mesh.lookupContactByPubKey(ci.id.pub_key, PUB_KEY_SIZE);
-          }
+        if (vidx < 0) {
+          Serial.println("Voice: no " MECK_VOICE_CHANNEL " channel");
+          vs->onSendFailed();
+          ui_task.showAlert("Add " MECK_VOICE_CHANNEL " first", 2500);
+        } else if (vs->prepareOut(sessionId)) {
+          uint8_t buf[184];
+          int n = vs->buildFloodHeader(buf, sizeof(buf), the_mesh.getNodePrefs()->node_name);
+          bool hdrOk = n > 0 && the_mesh.voiceSendChannel(vidx, buf, n, 0);
           totalPkts = vs->outPacketCount();
-          if (recipient && recipient->out_path_len != OUT_PATH_UNKNOWN) {
-            for (int p = 0; p < totalPkts; p++) {
-              uint8_t pktBuf[184];
-              int pktLen = vs->buildVoicePacket(pktBuf, sizeof(pktBuf), sessionId, p);
-              if (pktLen <= 0) continue;
-              mesh::Packet* raw = the_mesh.createRawData(pktBuf, pktLen);
-              if (!raw) continue;
-              uint32_t delayMs = 3000 + (uint32_t)p * 3000;
-              the_mesh.sendDirect(raw, recipient->out_path, recipient->out_path_len, delayMs);
-              sentPkts++;
-              Serial.printf("Voice: queued packet %d/%d (delay %lums)\n", p + 1, totalPkts, (unsigned long)delayMs);
-            }
+          for (int p = 0; p < totalPkts; p++) {
+            n = vs->buildFloodData(buf, sizeof(buf), p, false);
+            uint32_t delayMs = 3000 + (uint32_t)p * 3000;
+            if (n > 0 && the_mesh.voiceSendChannel(vidx, buf, n, delayMs)) sentPkts++;
           }
-          Serial.printf("Voice: queued %d/%d voice packets to %s\n",
-                        sentPkts, totalPkts, recipient ? recipient->name : "?");
-        }
-        if (dmOk && sentPkts == totalPkts && totalPkts > 0) {
-          vs->onSent(vs->pendingSendName());
-          ui_task.showAlert("Voice sent!", 2000);
+          Serial.printf("Voice: channel header %s, queued %d/%d packets on %s (%s)\n",
+                        hdrOk ? "OK" : "FAIL", sentPkts, totalPkts, MECK_VOICE_CHANNEL, MECK_VOICE_REGION);
+          if (hdrOk && sentPkts == totalPkts && totalPkts > 0) {
+            vs->onSent(MECK_VOICE_CHANNEL);
+            ui_task.showAlert("Voice sent to channel", 2000);
+          } else {
+            vs->onSendFailed();
+            ui_task.showAlert("Send failed!", 1500);
+          }
         } else {
           vs->onSendFailed();
-          ui_task.showAlert(dmOk ? "Send partial" : "Send failed!", 1500);
+          ui_task.showAlert("Send failed!", 1500);
+        }
+        ui_task.forceRefresh();
+      } else if (sendIdx >= 0) {
+        // Contact: voice requests along the direct path if there is one,
+        // otherwise by private flood; voiceTxService() then waits for the
+        // contact's report and resends anything missing by flood.
+        uint32_t sessionId = (uint32_t)(millis() & 0xFFFFFFFF);
+        ContactInfo ci;
+        ContactInfo* to = nullptr;
+        if (the_mesh.getContactByIdx(sendIdx, ci)) {
+          to = the_mesh.lookupContactByPubKey(ci.id.pub_key, PUB_KEY_SIZE);
+        }
+        int queued = 0;
+        if (to && vs->prepareOut(sessionId)) {
+          memset(&voiceTx, 0, sizeof(voiceTx));
+          voiceTx.active = true;
+          voiceTx.contactIdx = sendIdx;
+          strncpy(voiceTx.name, to->name, 31);
+          voiceTx.total = vs->outPacketCount();
+          bool direct = (to->out_path_len != OUT_PATH_UNKNOWN);
+          queued = voiceTxQueue(vs, *to, voiceTxAll(), direct);
+        }
+        if (to && queued > 0 && queued == voiceTx.total) {
+          vs->onSent(vs->pendingSendName());
+          ui_task.showAlert("Voice sending...", 2000);
+        } else {
+          voiceTx.active = false;
+          vs->onSendFailed();
+          ui_task.showAlert("Send failed!", 1500);
         }
         ui_task.forceRefresh();
       }
+
+      // Note to a contact: wait for its report, resend what's missing.
+      voiceTxService(vs);
 
       // Incoming note complete: save it as a new list entry and show a toast.
       // It is not played until opened.

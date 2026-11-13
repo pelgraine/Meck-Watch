@@ -77,6 +77,16 @@
 #define REQ_TYPE_KEEP_ALIVE             0x02
 #define REQ_TYPE_GET_TELEMETRY_DATA     0x03
 
+#if defined(MECK_WATCH_VOICE)
+// Voice over LoRa by flood (2.4 GHz SX1280 watch builds). The data type is in
+// MeshCore's testing range (FF00-FFFF, no registration needed while developing;
+// docs/number_allocations.md). Upstream request types run 0x00-0x09.
+#define MECK_VOICE_CHANNEL      "#meck-voice"
+#define MECK_VOICE_REGION       "au-nsw-voice"
+#define MECK_VOICE_DATA_TYPE    0xFF56
+#define MECK_VOICE_REQ_TYPE     0x56
+#endif
+
 struct AdvertPath {
   uint8_t pubkey_prefix[8];
   uint8_t path_len;
@@ -198,6 +208,33 @@ public:
   // Called with sender name and the VE3 text (e.g. "VE3:a:1:3:2")
   typedef void (*VoiceEnvelopeHandler)(const char* senderName, const char* ve3Text);
   void setVoiceEnvelopeHandler(VoiceEnvelopeHandler h) { _voiceEnvHandler = h; }
+
+#if defined(MECK_WATCH_VOICE)
+  // Voice over LoRa by flood (E, Nov 2026). Both modes are flood-scoped to the
+  // MECK_VOICE_REGION region, so only repeaters that list it carry them.
+  //  - Channel: channel data (MECK_VOICE_DATA_TYPE) on the MECK_VOICE_CHANNEL
+  //    hashtag channel, to everyone holding it.
+  //  - Contact: encrypted requests (first byte MECK_VOICE_REQ_TYPE) to one
+  //    contact; the contact can reply with a report of what arrived.
+  typedef void (*VoiceChannelHandler)(const uint8_t* data, uint8_t len);
+  void setVoiceChannelHandler(VoiceChannelHandler h) { _voiceChanHandler = h; }
+  // Returns the reply length written to 'reply' (0 = no reply).
+  typedef uint8_t (*VoiceRequestHandler)(const ContactInfo& from, const uint8_t* data, uint8_t len, uint8_t* reply);
+  void setVoiceRequestHandler(VoiceRequestHandler h) { _voiceReqHandler = h; }
+  // Returns true if the response was a voice report (consumed).
+  typedef bool (*VoiceResponseHandler)(const ContactInfo& from, uint32_t tag, const uint8_t* data, uint8_t len);
+  void setVoiceResponseHandler(VoiceResponseHandler h) { _voiceRespHandler = h; }
+
+  // Index of the MECK_VOICE_CHANNEL channel, or -1 if it hasn't been added.
+  int findVoiceChannel();
+  // Channel data on the voice channel, flood-scoped to MECK_VOICE_REGION.
+  bool voiceSendChannel(int channel_idx, const uint8_t* data, uint8_t len, uint32_t delay_millis);
+  // Encrypted request to a contact: direct along its path if 'direct' and it
+  // has one, otherwise flood-scoped to MECK_VOICE_REGION. 'tag' = the 4-byte
+  // tag the contact reflects in its reply.
+  bool voiceSendRequest(const ContactInfo& to, const uint8_t* data, uint8_t len,
+                        uint32_t delay_millis, bool direct, uint32_t& tag);
+#endif
 
   // Defer contact saves while voice packets are being received
   // (SD writes block SPI bus shared with LoRa radio)
@@ -354,6 +391,11 @@ private:
   NodePrefs _prefs;
   VoiceRawHandler _voiceHandler = nullptr;
   VoiceEnvelopeHandler _voiceEnvHandler = nullptr;
+#if defined(MECK_WATCH_VOICE)
+  VoiceChannelHandler  _voiceChanHandler = nullptr;
+  VoiceRequestHandler  _voiceReqHandler = nullptr;
+  VoiceResponseHandler _voiceRespHandler = nullptr;
+#endif
   mutable bool _forceNextImport = false;
   bool _deferSaves = false;
   unsigned long _lastUserInput = 0;  // millis() of last keypress -- defer saves until idle
