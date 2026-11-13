@@ -11,7 +11,7 @@
 //      format-on-fail so existing books / alarm settings are never wiped)
 //   3. Does the MAX98357A speaker play it? (DLDO1 rail on, I2S_NUM_1)
 //   4. Can mic (I2S_NUM_0) and speaker (I2S_NUM_1) run at the same time?
-//   5. How long does Codec2 1200 take per 40 ms frame at 80 MHz and 40 MHz?
+//   5. How long does Codec2 1200 take per 40 ms frame at 80, 160 and 240 MHz?
 //   6. What does the Codec2 version sound like on the watch speaker?
 //
 // Use: open the serial monitor, press the side PWR key briefly, wait for the
@@ -59,7 +59,10 @@
 #define TEST_C2_FRAME_MS    40
 
 #define TEST_CPU_NORMAL     80          // what the SX1280 watch builds run at
-#define TEST_CPU_LOW        40          // what the SX1262 standalone idles at
+#define TEST_CPU_MID        160         // headroom check
+#define TEST_CPU_HIGH       240         // headroom check (ESP32-S3 maximum)
+// 40 MHz was dropped: on hardware the watch reset (TG1WDT_SYS_RST) right after
+// switching 80 -> 40 MHz in this test.
 
 #define TEST_DIR            "/voicetest"
 #define TEST_WAV_PATH       "/voicetest/rec.wav"
@@ -511,8 +514,8 @@ static void stepCodec2() {
        TEST_CPU_NORMAL, (unsigned long)avgUs, (unsigned long)maxUs,
        maxUs < budget ? "keeps up" : "SLOWER than real time", (unsigned long)budget);
 
-  // Save the 80 MHz pass's Codec2 file now, so it exists even if the 40 MHz
-  // pass does not finish.
+  // Save the 80 MHz pass's Codec2 file now, so it exists even if a
+  // higher-speed pass does not finish.
   if (fsReady) {
     File f = LittleFS.open(TEST_C2_PATH, "w");
     if (f) {
@@ -523,14 +526,17 @@ static void stepCodec2() {
   }
   saveResults();
 
-  // ---- Pass 2: 40 MHz ----
-  note("CODEC2: starting %d MHz pass", TEST_CPU_LOW);
-  saveResults();
-  encodeAt(TEST_CPU_LOW, &avgUs, &maxUs);
-  note("CODEC2 @%d MHz: avg %lu us, worst %lu us per frame (%s)",
-       TEST_CPU_LOW, (unsigned long)avgUs, (unsigned long)maxUs,
-       maxUs < budget ? "keeps up" : "SLOWER than real time");
-  saveResults();
+  // ---- Passes 2 and 3: 160 MHz, then 240 MHz (headroom check) ----
+  const int higher[] = { TEST_CPU_MID, TEST_CPU_HIGH };
+  for (int mhz : higher) {
+    note("CODEC2: starting %d MHz pass", mhz);
+    saveResults();
+    encodeAt(mhz, &avgUs, &maxUs);
+    note("CODEC2 @%d MHz: avg %lu us, worst %lu us per frame (%s)",
+         mhz, (unsigned long)avgUs, (unsigned long)maxUs,
+         maxUs < budget ? "keeps up" : "SLOWER than real time");
+    saveResults();
+  }
 }
 
 static void stepPlayCodec2() {
