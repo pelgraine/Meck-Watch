@@ -81,8 +81,8 @@
 // Voice over LoRa by flood (2.4 GHz SX1280 watch builds). The data type is in
 // MeshCore's testing range (FF00-FFFF, no registration needed while developing;
 // docs/number_allocations.md). Upstream request types run 0x00-0x09.
-#define MECK_VOICE_CHANNEL      "#meck-voice"
-#define MECK_VOICE_REGION       "au-nsw-voice"
+#define MECK_VOICE_CHANNEL      "#voice"
+#define MECK_VOICE_REGION       "voice"
 #define MECK_VOICE_DATA_TYPE    0xFF56
 #define MECK_VOICE_REQ_TYPE     0x56
 #endif
