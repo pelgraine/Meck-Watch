@@ -1070,16 +1070,16 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 }
 
 // Channel datagram received (upstream 9b842786, via Meck e9ec6e46): passed to
-// the companion app as RESP_CODE_CHANNEL_DATA_RECV. Not shown on the device.
+// the companion app as RESP_CODE_CHANNEL_DATA_RECV.
 void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
                                const uint8_t *data, size_t data_len) {
 #if defined(MECK_WATCH_VOICE)
-  // Voice notes on the voice channel stay on the watch (not passed to the app).
+  // Voice messages on the voice channel go to the watch's voice inbox,
+  // and are also passed to the app below.
   if (data_type == MECK_VOICE_DATA_TYPE && _voiceChanHandler) {
     int vidx = findVoiceChannel();
     if (vidx >= 0 && findChannelIdx(channel) == vidx && data_len <= 255) {
       _voiceChanHandler(data, (uint8_t)data_len);
-      return;
     }
   }
 #endif
