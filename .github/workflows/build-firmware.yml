@@ -1,0 +1,81 @@
+# Builds every Meck Watch device build when you press the "Run workflow"
+# button: GitHub > Actions tab > "Build firmware" > Run workflow.
+# It does not run by itself and has nothing to do with releases.
+#
+# Download the finished files from the workflow run (the run's page >
+# Artifacts > meck-watch-firmware).
+#
+# Two files per build:
+#   <build>-merged.bin  full image for a fresh flash at 0x0 (web flasher / esptool)
+#   <build>.bin         app only (firmware.bin), for the on-watch OTA update
+# <build> is the PlatformIO environment name from
+# variants/lilygo_twatch_s3/platformio.ini and
+# variants/lilygo_twatch_s3_plus/platformio.ini.
+
+name: Build firmware
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.build }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build:
+          # T-Watch S3 (SX1262)
+          - meck_twatch_s3_standalone
+          - meck_twatch_s3_ble
+          - meck_twatch_s3_wifi
+          - meck_twatch_s3_standalone_20mhz
+          - meck_twatch_s3_standalone_games
+          # T-Watch S3 (SX1280, 2.4 GHz)
+          - meck_twatch_s3_1280_standalone
+          - meck_twatch_s3_1280_ble
+          - meck_twatch_s3_1280_wifi
+          # T-Watch S3 Plus
+          - meck_twatch_s3_plus_standalone
+          - meck_twatch_s3_plus_ble
+          - meck_twatch_s3_plus_standalone_nomaps
+          - meck_twatch_s3_plus_ble_nomaps
+          - meck_twatch_s3_plus_wifi
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build ${{ matrix.build }}
+        run: pio run -e "${{ matrix.build }}"
+
+      - name: Rename the firmware files
+        run: |
+          mkdir -p release
+          cp ".pio/build/${{ matrix.build }}/firmware-merged.bin" "release/${{ matrix.build }}-merged.bin"
+          cp ".pio/build/${{ matrix.build }}/firmware.bin" "release/${{ matrix.build }}.bin"
+
+      - name: Keep the firmware files
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.build }}
+          path: release/*.bin
+          if-no-files-found: error
+
+  collect:
+    name: Collect all files into one download
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/upload-artifact/merge@v4
+        with:
+          name: meck-watch-firmware
+          delete-merged: true
